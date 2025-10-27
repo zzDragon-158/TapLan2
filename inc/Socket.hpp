@@ -1,5 +1,6 @@
 #pragma     once
 #include    <cstdint>
+#include    <vector>
 
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
@@ -60,7 +61,7 @@ public:
 private:
     bool isPassive;
     sockaddr_storage remoteAddr_;
-    TapLanPollFD pfd_;
+    std::vector<TapLanPollFD> pfd_;
 };
 
 class UdpSocket: public UnixSocket {
