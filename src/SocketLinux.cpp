@@ -11,21 +11,52 @@ UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
     // nothing to do
 }
 
-TcpSocket::TcpSocket(uint16_t port): UniversalSocket(), isPassive(false)
+UniversalSocket::~UniversalSocket()
+{
+    close();
+}
+
+bool UniversalSocket::open()
+{
+    // TODO: maybe for open raw socket?
+    LOGT(TAG, "Why are we here?");
+
+    return true;
+}
+
+bool UniversalSocket::close()
+{
+    if (fd_ != INVALID_SOCKET) {
+        ::close(fd_);
+        fd_ = INVALID_SOCKET;
+    }
+
+    return true;
+}
+
+TcpSocket::TcpSocket(uint16_t port): UniversalSocket(), isPassive_(true)
 {
     bindPort_ = port;
     memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
+    fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPassive(false)
+TcpSocket::TcpSocket(sockaddr_in6 serverAddr): UniversalSocket(), isPassive_(false)
 {
-    fd = fd_;
+    memcpy(&remoteAddr_, &serverAddr, sizeof(sockaddr_in6));
+    fdValid_ = open();
+}
+
+TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPassive_(false)
+{
+    fd_ = fd;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
+    fdValid_ = (fd != INVALID_SOCKET);
 }
 
 TcpSocket::~TcpSocket()
 {
-    ::close(fd_);
+    // nothing to do
 }
 
 bool TcpSocket::open()
@@ -68,47 +99,37 @@ bool TcpSocket::open()
     return true;
 }
 
-bool TcpSocket::close()
-{
-    if (fd_ != INVALID_SOCKET) {
-        ::close(fd_);
-        fd_ = INVALID_SOCKET;
-    }
-
-    return true;
-}
-
 bool TcpSocket::connect()
 {
     if (::connect(fd_, reinterpret_cast<const sockaddr *>(&remoteAddr_), sizeof(remoteAddr_))) {
         LOGE(TAG, "TCP connect failed.");
         return false;
     }
+    isPassive_ = false;
 
     return true;
 }
 
-bool TcpSocket::listen()
+bool TcpSocket::listen(int backlog)
 {
-    if (::listen(fd_, 5)) {
+    if (::listen(fd_, backlog)) {
         LOGE(TAG, "TCP listen failed.");
         return false;
     }
-    isPassive = true;
+    isPassive_ = true;
 
     return true;
 }
 
-TcpSocket TcpSocket::accept()
+bool TcpSocket::accept(TapLanSocket& fd, sockaddr_in6& addr)
 {
-    sockaddr_in6 sa;
-    socklen_t saLen = sizeof(sa);
-    TapLanSocket client = ::accept(fd_, reinterpret_cast<sockaddr*>(&sa), &saLen);
-    if (client == INVALID_SOCKET) {
-        LOGE(TAG, "TCP accept failed.");
+    socklen_t addrLen = sizeof(sockaddr_in6);
+    fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);
+    if (fd == INVALID_SOCKET) {
+        return false;
     }
 
-    return TcpSocket(client, sa);
+    return true;
 }
 
 ssize_t TcpSocket::send(const void* buf, size_t bufLen)
@@ -121,8 +142,19 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
     return sendBytes;
 }
 
-ssize_t TcpSocket::recv(void* buf, size_t bufLen)
+ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
 {
+    if (timeout >= 0) {
+        TapLanPollFd pfd = { fd_, POLLIN, 0 };
+        int pollCnt = TapLanPoll(&pfd, 1, timeout);
+        if (pollCnt <= 0) {
+            if (pollCnt == -1) {
+                LOGE(TAG, "Poll failed.");
+            }
+            return pollCnt;
+        }
+    }
+
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1) {
         if (errno == ECONNRESET || errno == ETIMEDOUT) {
@@ -135,14 +167,20 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
     return recvBytes;
 }
 
+void TcpSocket::getRemoteAddr(sockaddr_in6* addr)
+{
+    memcpy(addr, &remoteAddr_, sizeof(sockaddr_in6));
+}
+
 UdpSocket::UdpSocket(uint16_t port): UniversalSocket()
 {
     bindPort_ = port;
+    fdValid_ = open();
 }
 
 UdpSocket::~UdpSocket()
 {
-    ::close(fd_);
+    // nothing to do
 }
 
 bool UdpSocket::open()
@@ -182,25 +220,15 @@ bool UdpSocket::open()
         }
     }
 
-    /* set timeout */ {
-        timeval timeout;
-        timeout.tv_sec = 5;
-        timeout.tv_usec = 0;
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout))) {
-            LOGE(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lds%ldus.", timeout.tv_sec, timeout.tv_usec);
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool UdpSocket::close()
-{
-    if (fd_ != INVALID_SOCKET) {
-        ::close(fd_);
-        fd_ = INVALID_SOCKET;
-    }
+    // /* set timeout */ {
+    //     timeval timeout;
+    //     timeout.tv_sec = 5;
+    //     timeout.tv_usec = 0;
+    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout))) {
+    //         LOGE(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lds%ldus.", timeout.tv_sec, timeout.tv_usec);
+    //         return false;
+    //     }
+    // }
 
     return true;
 }

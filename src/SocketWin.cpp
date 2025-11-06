@@ -50,7 +50,7 @@ TcpSocket::TcpSocket(sockaddr_in6 serverAddr): UniversalSocket(), isPassive_(fal
 
 TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPassive_(false)
 {
-    fd = fd_;
+    fd_ = fd;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
     fdValid_ = (fd != INVALID_SOCKET);
 }
@@ -134,7 +134,7 @@ bool TcpSocket::listen(int backlog)
 
 bool TcpSocket::accept(TapLanSocket& fd, sockaddr_in6& addr)
 {
-    int addrLen = sizeof(sockaddr_in6);
+    socklen_t addrLen = sizeof(sockaddr_in6);
     fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);
     if (fd == INVALID_SOCKET) {
         return false;
@@ -282,15 +282,15 @@ bool UdpSocket::open()
         }
     }
 
-    /* set timeout */ {
-        timeval timeout;
-        timeout.tv_sec = 5;
-        timeout.tv_usec = 0;
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout))) {
-            LOGE(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lds%ldus. %d", timeout.tv_sec, timeout.tv_usec, WSAGetLastError());
-            return false;
-        }
-    }
+    // /* set timeout */ {
+    //     timeval timeout;
+    //     timeout.tv_sec = 5;
+    //     timeout.tv_usec = 0;
+    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout))) {
+    //         LOGE(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lds%ldus. %d", timeout.tv_sec, timeout.tv_usec, WSAGetLastError());
+    //         return false;
+    //     }
+    // }
 
     /* windows bug: udp socket 10054 */ {
         BOOL bEnalbeConnRestError = FALSE;

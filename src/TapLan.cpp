@@ -1,6 +1,6 @@
 #include "TapLan.hpp"
 
-static const char* TAG = "TapLan";
+static const char* TAG = "[TapLan]";
 
 TapLan::TapLan(uint16_t port): runFlag_(false), runMode_(RunMode_Server), udpSockPtr_(nullptr)
 {
@@ -226,6 +226,7 @@ void TapLan::syncNodeStatusToClients()
         }
 
         size_t pfdsLen = pfds.size();
+        auto it = pfds.end() - 1;
         if (pfds.begin()->revents != 0) {
             --pollCnt;
             TapLanSocket tcpFd = INVALID_SOCKET;
@@ -237,7 +238,6 @@ void TapLan::syncNodeStatusToClients()
                 LOGE(TAG, "accept failed.");
             }
         }
-        auto it = pfds.end() - 1;
         while (pollCnt && it-- >= pfds.begin()) {
             if (it->revents != 0) {
                 --pollCnt;
