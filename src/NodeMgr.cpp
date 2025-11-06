@@ -17,11 +17,14 @@ NodeMgr::~NodeMgr()
 Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
 {
     Node* nodePtr = new Node;
-    memset(nodePtr, 0, sizeof(Node));
+    if (!nodePtr)
+        return nullptr;
 
+    memset(nodePtr, 0, sizeof(Node));
     memcpy(&nodePtr->ipv6Addr, &addr->sin6_addr, sizeof(in6_addr));
     nodePtr->ipv6Port = addr->sin6_port;
     memcpy(nodePtr->mac.addr, mac, 6);
+    nodePtr->status = NodeStatus_ONLINE;
 
     uint32_t hostId = 0;
     for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
@@ -30,9 +33,11 @@ Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
             break;
         }
     }
-    if (hostId != 0) {
-        nodePtr->ipv4Addr.s_addr = htonl(netId_ + hostId);
+    if (hostId == 0) {
+        delete [] nodePtr;
+        return nullptr;
     }
+    nodePtr->ipv4Addr.s_addr = htonl(netId_ + hostId);
 
     return nodePtr;
 }
@@ -40,8 +45,10 @@ Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
 bool NodeMgr::addNode(Node* n)
 {
     uint32_t hostId = n->ipv4Addr.s_addr & (1 << (32 - netIdLen_) - 1);
-    if (hostId == 0 || hostId == addrPool_.size() - 1)
+    if (hostId == 0 || hostId == addrPool_.size() - 1) {
+        delete [] n;
         return false;
+    }
 
     addrPool_.set(hostId);
     macToNodeMap_[n->mac.num] = n;
@@ -49,23 +56,23 @@ bool NodeMgr::addNode(Node* n)
     return true;
 }
 
-bool NodeMgr::delNode(uint64_t key)
-{
-    Node* n = findNode(key);
+bool NodeMgr::delNode(uint64_t mac)
+{ 
+    Node* n = findNode(mac);
     if (!n)
         return false;
 
     uint32_t hostId = n->ipv4Addr.s_addr & (1 << (32 - netIdLen_) - 1);
-    addrPool_.reset(hostId);
     delete [] n;
-    macToNodeMap_.erase(key);
+    addrPool_.reset(hostId);
+    macToNodeMap_.erase(mac);
 
     return true;
 }
 
-Node* NodeMgr::findNode(uint64_t key)
+Node* NodeMgr::findNode(uint64_t mac)
 {
-    auto it = macToNodeMap_.find(key);
+    auto it = macToNodeMap_.find(mac);
     if (it == macToNodeMap_.end())
         return nullptr;
 

@@ -1,33 +1,63 @@
 #include "Socket.hpp"
 #include "LogMgr.hpp"
 
-const char* TAG = "[socket]";
+static const char* TAG = "[socket]";
 const int udpBufferSize = 1024 * 1024 * 8;
-bool UnixSocket::s_isWsaInitialized_ = false;
+bool UniversalSocket::s_isWsaInitialized_ = false;
 
-UnixSocket::UnixSocket(): fd_(INVALID_SOCKET), bindPort_(0),
+UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), fdValid_(false), bindPort_(0),
                           totalSendBytes_(0), totalRecvBytes_(0),
                           sendErrCnt_(0), recvErrCnt_(0)
 {
     // nothing to do
 }
 
-TcpSocket::TcpSocket(uint16_t port): UnixSocket(), isPassive(false)
+UniversalSocket::~UniversalSocket()
 {
-    bindPort_ = port;
-    memset(&remoteAddr_, 0, sizeof(sockaddr_storage));
+    close();
 }
 
-TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_storage sa): UnixSocket(), isPassive(false)
+bool UniversalSocket::open()
+{
+    // TODO: maybe for open raw socket?
+    LOGT(TAG, "Why are we here?");
+
+    return true;
+}
+
+bool UniversalSocket::close()
+{
+    if (fd_ != INVALID_SOCKET) {
+        closesocket(fd_);
+        fd_ = INVALID_SOCKET;
+    }
+
+    return true;
+}
+
+TcpSocket::TcpSocket(uint16_t localPort): UniversalSocket(), isPassive_(true)
+{
+    bindPort_ = localPort;
+    memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
+    fdValid_ = open();
+}
+
+TcpSocket::TcpSocket(sockaddr_in6 serverAddr): UniversalSocket(), isPassive_(false)
+{
+    memcpy(&remoteAddr_, &serverAddr, sizeof(sockaddr_in6));
+    fdValid_ = open();
+}
+
+TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPassive_(false)
 {
     fd = fd_;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
-
+    fdValid_ = (fd != INVALID_SOCKET);
 }
 
 TcpSocket::~TcpSocket()
 {
-    closesocket(fd_);
+    // nothing to do
 }
 
 bool TcpSocket::open()
@@ -80,47 +110,37 @@ bool TcpSocket::open()
     return true;
 }
 
-bool TcpSocket::close()
-{
-    if (fd_ != INVALID_SOCKET) {
-        closesocket(fd_);
-        fd_ = INVALID_SOCKET;
-    }
-
-    return true;
-}
-
 bool TcpSocket::connect()
 {
     if (::connect(fd_, reinterpret_cast<const sockaddr *>(&remoteAddr_), sizeof(remoteAddr_))) {
         LOGE(TAG, "TCP connect failed. %d", WSAGetLastError());
         return false;
     }
+    isPassive_ = false;
 
     return true;
 }
 
-bool TcpSocket::listen()
+bool TcpSocket::listen(int backlog)
 {
-    if (::listen(fd_, 5)) {
+    if (::listen(fd_, backlog)) {
         LOGE(TAG, "TCP listen failed. %d", WSAGetLastError());
         return false;
     }
-    isPassive = true;
+    isPassive_ = true;
 
     return true;
 }
 
-TcpSocket TcpSocket::accept()
+bool TcpSocket::accept(TapLanSocket& fd, sockaddr_in6& addr)
 {
-    sockaddr_storage sa;
-    int saLen = sizeof(sa);
-    TapLanSocket client = ::accept(fd_, reinterpret_cast<sockaddr*>(&sa), &saLen);
-    if (client == INVALID_SOCKET) {
-        LOGE(TAG, "TCP accept failed. %d", WSAGetLastError());
+    int addrLen = sizeof(sockaddr_in6);
+    fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);
+    if (fd == INVALID_SOCKET) {
+        return false;
     }
 
-    return TcpSocket(client, sa);
+    return true;
 }
 
 ssize_t TcpSocket::send(const void* buf, size_t bufLen)
@@ -133,8 +153,19 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
     return sendBytes;
 }
 
-ssize_t TcpSocket::recv(void* buf, size_t bufLen)
+ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
 {
+    if (timeout >= 0) {
+        TapLanPollFd pfd = { fd_, POLLIN, 0 };
+        int pollCnt = TapLanPoll(&pfd, 1, timeout);
+        if (pollCnt <= 0) {
+            if (pollCnt == -1) {
+                LOGE(TAG, "Poll failed.");
+            }
+            return pollCnt;
+        }
+    }
+
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1) {
         int err = WSAGetLastError();
@@ -148,14 +179,60 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
     return recvBytes;
 }
 
-UdpSocket::UdpSocket(uint16_t port): UnixSocket()
+// bool TcpSocket::recv(CbRecvFunc& cbRecv)
+// {
+//     uint8_t recvBuf[65536];
+//     uint8_t sendBuf[65536];
+//     int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), 5000);
+//     if (pollCnt < 0) {
+//         LOGE(TAG, "TapLanPoll failed. %d", WSAGetLastError());
+//         return false;
+//     }
+
+//     size_t pfdsLen = pfds_.size();
+//     if (pfds_[0].revents != 0) {
+//         --pollCnt;
+//         if (!accept()) {
+//             LOGE(TAG, "TCP accept failed. %d", WSAGetLastError());
+//         }
+//     }
+//     size_t offset = 0;
+//     for (size_t i = pfdsLen - 1; i > 0 && pollCnt; --pfdsLen) {
+//         if (pfds_[i].revents != 0) {
+//             --pollCnt;
+//             TcpSocket& client = clients_[i - 1];
+//             ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
+//             if (recvBytes == 0) {
+//                 // TODO: need set node status
+//                 pfds_.erase(pfds_.begin() + i);
+//                 clients_.erase(clients_.begin() + i);
+//                 continue;
+//             } else if (recvBytes == -1) {
+//                 continue;
+//             }
+//             size_t sendBytes = sizeof(sendBuf);
+//             cbRecv(recvBuf, recvBytes, reinterpret_cast<const sockaddr_in6*>(&client.remoteAddr_), sendBuf, sendBytes);
+//             client.send(sendBuf, sendBytes);
+//         }
+//     }
+
+//     return true;
+// }
+
+void TcpSocket::getRemoteAddr(sockaddr_in6* addr)
+{
+    memcpy(addr, &remoteAddr_, sizeof(sockaddr_in6));
+}
+
+UdpSocket::UdpSocket(uint16_t port): UniversalSocket()
 {
     bindPort_ = port;
+    fdValid_ = open();
 }
 
 UdpSocket::~UdpSocket()
 {
-    closesocket(fd_);
+    // nothing to do
 }
 
 bool UdpSocket::open()
@@ -222,16 +299,6 @@ bool UdpSocket::open()
             LOGE(TAG, "UDP WSAIoctl(_WSAIOW(IOC_VENDOR, 12)) failed. %d", WSAGetLastError());
             return false;
         }
-    }
-
-    return true;
-}
-
-bool UdpSocket::close()
-{
-    if (fd_ != INVALID_SOCKET) {
-        closesocket(fd_);
-        fd_ = INVALID_SOCKET;
     }
 
     return true;

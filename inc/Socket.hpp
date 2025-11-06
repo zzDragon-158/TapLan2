@@ -1,6 +1,8 @@
 #pragma     once
 #include    <cstdint>
-#include    <vector>
+#include    <list>
+#include    <functional>
+#include    <string>
 
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
@@ -28,13 +30,31 @@ typedef int TapLanSocket;
 
 #endif
 
-typedef pollfd TapLanPollFD;
+typedef pollfd TapLanPollFd;
 
-class UnixSocket {
+inline std::string IPv4_NTOP(const in_addr& ipv4addr) {
+    char ipv4str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &ipv4addr, ipv4str, INET_ADDRSTRLEN);
+    return std::string(ipv4str);
+}
+
+inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
+    char ipv6str[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, &ipv6addr, ipv6str, INET6_ADDRSTRLEN);
+    return std::string(ipv6str);
+}
+
+class UniversalSocket {
 public:
-    UnixSocket();
+    UniversalSocket();
+    ~UniversalSocket();
+    virtual bool open();
+    bool close();
+    bool isFdValid() { return fdValid_; };
+    operator TapLanSocket() { return fd_; };
 protected:
     TapLanSocket fd_;
+    bool fdValid_;
     uint16_t bindPort_;
     uint64_t totalSendBytes_;
     uint64_t totalRecvBytes_;
@@ -45,31 +65,35 @@ protected:
 #endif
 };
 
-class TcpSocket: public UnixSocket {
+class TcpSocket: public UniversalSocket {
 public:
-    TcpSocket(uint16_t port);
-    TcpSocket(TapLanSocket fd, sockaddr_storage remote);    // for accept
+    // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, TapLanSocket sock, void* respBuf, size_t& respLen)> CbRecvFunc;
+    TcpSocket(uint16_t localPort);                      // for listen
+    TcpSocket(sockaddr_in6 serverAddr);                 // for connect
+    TcpSocket(TapLanSocket fd, sockaddr_in6 remote);    // for accept
     ~TcpSocket();
-    bool open();
-    bool close();
     bool connect();
-    bool listen();
-    TcpSocket accept();
+    bool listen(int backlog);
+    bool accept(TapLanSocket& fd, sockaddr_in6& addr);
     ssize_t send(const void* buf, size_t bufLen);
-    ssize_t recv(void* buf, size_t bufLen);
+    ssize_t recv(void* buf, size_t bufLen, int timeout = -1);
+    // bool recv(CbRecvFunc& cbRecv);
+    void getRemoteAddr(sockaddr_in6* addr);
 
 private:
-    bool isPassive;
-    sockaddr_storage remoteAddr_;
-    std::vector<TapLanPollFD> pfd_;
+    bool isPassive_;
+    sockaddr_in6 remoteAddr_;
+
+    bool open();
 };
 
-class UdpSocket: public UnixSocket {
+class UdpSocket: public UniversalSocket {
 public:
     UdpSocket(uint16_t port);
     ~UdpSocket();
-    bool open();
-    bool close();
     ssize_t sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr, socklen_t addrLen);
     ssize_t recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen);
+
+private:
+    bool open();
 };

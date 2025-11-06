@@ -1,23 +1,23 @@
 #include "Socket.hpp"
 #include "LogMgr.hpp"
 
-const char* TAG = "[socket]";
+static const char* TAG = "[socket]";
 const int udpBufferSize = 1024 * 1024 * 8;
 
-UnixSocket::UnixSocket(): fd_(INVALID_SOCKET), bindPort_(0),
+UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
                           totalSendBytes_(0), totalRecvBytes_(0),
                           sendErrCnt_(0), recvErrCnt_(0)
 {
     // nothing to do
 }
 
-TcpSocket::TcpSocket(uint16_t port): UnixSocket(), isPassive(false)
+TcpSocket::TcpSocket(uint16_t port): UniversalSocket(), isPassive(false)
 {
     bindPort_ = port;
-    memset(&remoteAddr_, 0, sizeof(sockaddr_storage));
+    memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
 }
 
-TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_storage sa): UnixSocket(), isPassive(false)
+TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPassive(false)
 {
     fd = fd_;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
@@ -101,7 +101,7 @@ bool TcpSocket::listen()
 
 TcpSocket TcpSocket::accept()
 {
-    sockaddr_storage sa;
+    sockaddr_in6 sa;
     socklen_t saLen = sizeof(sa);
     TapLanSocket client = ::accept(fd_, reinterpret_cast<sockaddr*>(&sa), &saLen);
     if (client == INVALID_SOCKET) {
@@ -135,7 +135,7 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
     return recvBytes;
 }
 
-UdpSocket::UdpSocket(uint16_t port): UnixSocket()
+UdpSocket::UdpSocket(uint16_t port): UniversalSocket()
 {
     bindPort_ = port;
 }

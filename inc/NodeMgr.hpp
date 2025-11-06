@@ -20,31 +20,31 @@
 #define     NodeMgrPtr      NodeMgr::ptr()
 
 typedef enum {
-    NodeSTATUS_ONLINE = 0,
-    NodeSTATUS_OFFLINE,
+    NodeStatus_ONLINE = 0,
+    NodeStatus_OFFLINE,
     NUMS_OF_NodeSTATUS,
 } NodeStatus;
 
 #pragma pack(push, 1)
-struct NodeMessage {
-    uint8_t     op;
-    uint8_t     mac[6];
-    uint8_t     netIDLen;
-    uint32_t    ipv4Addr;
-    uint8_t     paddings[4];
-};
-
 union Mac {
     uint64_t    num;
     uint8_t     addr[8];
+};
+
+struct SyncMessage {
+    uint8_t     op;         // 1: reqIP; 2: respIP; 3: reqNodeStatus; 4: respNodeStatus;
+    uint8_t     netIDLen;
+    in_addr     ipv4Addr;
+    Mac         mac;
+    uint16_t    numsOfNode;
 };
 
 struct Node {
     in6_addr    ipv6Addr;
     uint16_t    ipv6Port;
     in_addr     ipv4Addr;
-    uint16_t    status;
     Mac         mac;
+    uint16_t    status;
 };
 #pragma pack(pop)
 
@@ -54,8 +54,8 @@ public:
                 ~NodeMgr();
     Node*       newNode(const sockaddr_in6* addr, const uint8_t* mac);
     bool        addNode(Node* n);
-    bool        delNode(uint64_t key);
-    Node*       findNode(uint64_t key);
+    bool        delNode(uint64_t mac);
+    Node*       findNode(uint64_t mac);
     uint64_t    getMacNum(const uint8_t* mac);
     template<typename Func>
     void forEach(Func&& f)

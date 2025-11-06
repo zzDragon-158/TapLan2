@@ -1,7 +1,7 @@
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
 
-const char* TAPDEV_TAG = "[TapDev]";
+static const char* TAG = "[TapDev]";
 static int tap_fd;
 
 TapDev::TapDev(): writeErrCnt_(0), readErrCnt_(0) {
@@ -23,7 +23,7 @@ bool TapDev::open() {
     }
     tap_fd = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
     if (tap_fd == -1) {
-        LOGE(TAPDEV_TAG, "Can not open [/dev/net/tun].");
+        LOGE(TAG, "Can not open [/dev/net/tun].");
         return false;
     }
 
@@ -32,11 +32,11 @@ bool TapDev::open() {
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
     strncpy(ifr.ifr_name, TAP_NAME, IFNAMSIZ);
     if (ioctl(tap_fd, TUNSETIFF, (void*)&ifr) == -1) {
-        LOGE(TAPDEV_TAG, "ioctl(TUNSETIFF) failed.");
+        LOGE(TAG, "ioctl(TUNSETIFF) failed.");
         return false;
     }
     if (ioctl(tap_fd, SIOCGIFHWADDR, &ifr) == -1) {
-        LOGE(TAPDEV_TAG, "ioctl(SIOCGIFHWADDR) failed.");
+        LOGE(TAG, "ioctl(SIOCGIFHWADDR) failed.");
         return false;
     }
     memcpy(macAddress_, ifr.ifr_hwaddr.sa_data, 6);
@@ -70,10 +70,10 @@ bool TapDev::setIpv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
     cmd << "ip addr flush dev " << TAP_NAME << " && ";
     cmd << "ip addr add " << cidr.str() << " dev " << TAP_NAME;
     if (system(cmd.str().c_str())) {
-        LOGE(TAPDEV_TAG, "Setting %s IP address to %s failed.", TAP_NAME, cidr.str().c_str());
+        LOGE(TAG, "Setting %s IP address to %s failed.", TAP_NAME, cidr.str().c_str());
         return false;
     }
-    LOGI(TAPDEV_TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
+    LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
 
     return true;
 }
@@ -81,7 +81,7 @@ bool TapDev::setIpv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
     ssize_t writeBytes = ::write(tap_fd, buf, bufLen);
     if (writeBytes < bufLen) {
-        LOGE(TAPDEV_TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
+        LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
         ++writeErrCnt_;
     }
 
@@ -96,7 +96,7 @@ ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
 
     ssize_t readBytes = ::read(tap_fd, buf, bufLen);
     if (readBytes == -1) {
-        LOGE(TAPDEV_TAG, "Reading from tap device failed.");
+        LOGE(TAG, "Reading from tap device failed.");
         ++readErrCnt_;
     }
 

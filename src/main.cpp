@@ -2,7 +2,7 @@
 #include "TapLan.hpp"
 
 TapLan* TapLanPtr = nullptr;
-const char* TAG = "TapLan";
+static const char* TAG = "Main";
 // default configuration
 RunMode runMode = RunMode_Server;
 char serverIpv6Addr[64] = "::ffff:";

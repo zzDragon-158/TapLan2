@@ -32,7 +32,8 @@ private:
     void recvSockData();
     void handleTapData(void* buf, size_t bufLen);
     void readTapData();
-    void syncNodeStatusToClient();
+    void syncNodeStatusToClients();
     void syncNodeStatusFromServer();
     void syncNodeStatus();
+    void showNodeStatus();
 };
