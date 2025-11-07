@@ -53,7 +53,7 @@ public:
     UniversalSocket(const UniversalSocket&) = delete;
     UniversalSocket& operator=(const UniversalSocket&) = delete;
     UniversalSocket& operator=(UniversalSocket&& other) noexcept;
-    operator TapLanSocket() { return fd_; };
+    explicit operator TapLanSocket() { return fd_; };
 protected:
     TapLanSocket fd_;
     bool fdValid_;
@@ -73,9 +73,9 @@ protected:
 class TcpSocket: public UniversalSocket {
 public:
     // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, TapLanSocket sock, void* respBuf, size_t& respLen)> CbRecvFunc;
-    TcpSocket(uint16_t localPort);                      // for listen
-    TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr);                 // for connect
-    TcpSocket(TapLanSocket fd, sockaddr_in6 remote);    // for accept
+    TcpSocket(uint16_t localPort);                              // for listen
+    TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr);     // for connect
+    TcpSocket(TapLanSocket fd, sockaddr_in6 remoteAddr);        // for accept
     TcpSocket(TcpSocket&& other) noexcept;
     ~TcpSocket();
     TcpSocket& operator=(TcpSocket&& other) noexcept;

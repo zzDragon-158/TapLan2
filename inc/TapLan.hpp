@@ -13,8 +13,8 @@ typedef enum {
 class TapLan {
 public:
     TapLan() = delete;
-    TapLan(uint16_t port);                                      // server
-    TapLan(const char* ipv6Addr, const uint16_t port);          // client
+    TapLan(uint16_t localPort);                                 // server
+    TapLan(uint16_t localPort, const char* ipv6Addr, const uint16_t ipv6Port);          // client
     ~TapLan();
     bool run();
     bool stop();
@@ -22,6 +22,7 @@ public:
 private:
     bool            runFlag_;
     RunMode         runMode_;
+    uint16_t        localPort_;
     sockaddr_in6    serverAddr_;
     Mac             mac_;
     UdpSocket*      udpSockPtr_;

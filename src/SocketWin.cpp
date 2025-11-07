@@ -1,7 +1,7 @@
 #include "Socket.hpp"
 #include "LogMgr.hpp"
 
-static const char* TAG = "[socket]";
+static const char* TAG = "[Socket]";
 const int udpBufferSize = 1024 * 1024 * 8;
 bool UniversalSocket::s_isWsaInitialized_ = false;
 

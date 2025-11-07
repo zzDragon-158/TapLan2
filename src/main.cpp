@@ -2,7 +2,7 @@
 #include "TapLan.hpp"
 
 TapLan* TapLanPtr = nullptr;
-static const char* TAG = "Main";
+static const char* TAG = "[TapLan]";
 // default configuration
 RunMode runMode = RunMode_Server;
 char serverIpv6Addr[64] = "::ffff:";
@@ -82,7 +82,7 @@ int main(int argc, char* argv[])
         TapLanPtr = new TapLan(serverPort);
     } else {
         std::cout << "We are running in client mode." << std::endl;
-        TapLanPtr = new TapLan(serverIpv6Addr, serverPort);
+        TapLanPtr = new TapLan(serverPort, serverIpv6Addr, serverPort);
     }
     if (!TapLanPtr->run())
         delayExit(-1, 3);

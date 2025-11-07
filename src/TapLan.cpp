@@ -2,15 +2,16 @@
 
 static const char* TAG = "[TapLan]";
 
-TapLan::TapLan(uint16_t port): runFlag_(false), runMode_(RunMode_Server), udpSockPtr_(nullptr)
+TapLan::TapLan(uint16_t localPort): runFlag_(false), runMode_(RunMode_Server),
+                                    localPort_(localPort),
+                                    udpSockPtr_(nullptr), tcpSockPtr_(nullptr)
 {
     memset(&serverAddr_, 0, sizeof(serverAddr_));
     serverAddr_.sin6_family = AF_INET6;
-    serverAddr_.sin6_port = htons(port);
+    serverAddr_.sin6_port = htons(localPort_);
 
-    udpSockPtr_ = new UdpSocket(port);
-    tcpSockPtr_ = new TcpSocket(port);
-    runFlag_ = udpSockPtr_->isFdValid() && tcpSockPtr_->isFdValid() && TapDevPtr->open();
+    udpSockPtr_ = new UdpSocket(localPort_);
+    runFlag_ = udpSockPtr_->isFdValid() && TapDevPtr->open();
 
     if (runFlag_) {
         mac_.num = 0;
@@ -21,17 +22,19 @@ TapLan::TapLan(uint16_t port): runFlag_(false), runMode_(RunMode_Server), udpSoc
     }
 }
 
-TapLan::TapLan(const char* ipv6Addr, uint16_t port): runFlag_(false), runMode_(RunMode_Client), udpSockPtr_(nullptr)
+TapLan::TapLan(uint16_t localPort, const char* ipv6Addr, uint16_t ipv6Port): runFlag_(false), runMode_(RunMode_Client),
+                                                                             localPort_(localPort),
+                                                                             udpSockPtr_(nullptr), tcpSockPtr_(nullptr)
 {
     memset(&serverAddr_, 0, sizeof(serverAddr_));
     serverAddr_.sin6_family = AF_INET6;
     inet_pton(AF_INET6, ipv6Addr, &serverAddr_.sin6_addr);
-    serverAddr_.sin6_port = htons(port);
+    serverAddr_.sin6_port = htons(ipv6Port);
 
-    udpSockPtr_ = new UdpSocket(port);
+    udpSockPtr_ = new UdpSocket(localPort_);
     // TODO: tcp bind port should not equal server port
-    tcpSockPtr_ = new TcpSocket(port, serverAddr_);
-    runFlag_ = udpSockPtr_->isFdValid() && tcpSockPtr_->isFdValid() && TapDevPtr->open();
+    // tcpSockPtr_ = new TcpSocket(port, serverAddr_);
+    runFlag_ = udpSockPtr_->isFdValid() && TapDevPtr->open();
 
     if (runFlag_) {
         mac_.num = 0;
@@ -159,63 +162,20 @@ void TapLan::recvSockData()
 
 void TapLan::syncNodeStatusToClients()
 {
-    // callback of handle-recv-data
-    // TcpSocket::CbRecvFunc cbRecv = [&](const void* reqBuf, const size_t& reqLen,
-    //     const sockaddr_in6* addr, TapLanSocket sock,
-    //     void* respBuf, size_t& respLen)
-    // {
-    //     if (reqLen != sizeof(SyncMessage))
-    //         return false;
+    tcpSockPtr_ = new TcpSocket(localPort_);
+    if (!tcpSockPtr_->isFdValid() || !tcpSockPtr_->listen(5)) {
+        LOGF(TAG, "run sync server failed.");
+        runFlag_ = false;
+        return ;
+    }
 
-    //     // req value check
-    //     const SyncMessage* req = reinterpret_cast<const SyncMessage*>(reqBuf);
-    //     if (req->op != 1 || req->ipv4Addr.s_addr != 0 || req->netIDLen != 0 || req->numsOfNode != 0) {
-    //         return false;
-    //     }
-
-    //     // new node if not exist
-    //     Node* node = NodeMgrPtr->findNode(req->mac.num);
-    //     if (!node) {
-    //         node = NodeMgrPtr->newNode(addr, req->mac.addr);
-    //         if (!NodeMgrPtr->addNode(node)) {
-    //             LOGE(TAG, "allocate node failed.");
-    //             return false;
-    //         }
-    //     }
-
-    //     // fill resp
-    //     memcpy(respBuf, reqBuf, reqLen);
-    //     SyncMessage* resp = reinterpret_cast<SyncMessage*>(respBuf);
-    //     resp->op = 2;
-    //     resp->netIDLen = 24;
-    //     resp->ipv4Addr.s_addr = node->ipv4Addr.s_addr;
-
-    //     // fill all node status
-    //     size_t bufOffset = reqLen;
-    //     auto fillNodeToSM = [&](uint64_t m, Node* n) {
-    //         memcpy(respBuf + bufOffset, n, sizeof(Node));
-    //         bufOffset += sizeof(Node);
-    //         ++(resp->numsOfNode);
-    //     };
-    //     NodeMgrPtr->forEach(fillNodeToSM);
-    //     if (respLen < bufOffset) {
-    //         LOGE(TAG, "not enough buffer to resp.");
-    //         return false;
-    //     }
-    //     respLen = bufOffset;
-
-    //     return true;
-    // };
-
-    tcpSockPtr_->listen(5);
     std::vector<TapLanPollFd> pfds;
     std::vector<TcpSocket> clients;
-    pfds.push_back({ *tcpSockPtr_, POLLIN, 0 });
+    pfds.push_back({ static_cast<TapLanSocket>(*tcpSockPtr_), POLLIN, 0 });
     while (runFlag_) {
-        // tcpSockPtr_->recv(cbRecv);
         int pollCnt = TapLanPoll(pfds.data(), pfds.size(), 5000);
         if (pollCnt < 0) {
-            LOGE(TAG, "TapLanPoll failed. %d");
+            LOGE(TAG, "TapLanPoll failed.");
             continue;
         }
 
@@ -286,6 +246,14 @@ void TapLan::syncNodeStatusFromServer()
     uint8_t buf[65536];
 
     auto retryConnect = [&]() {
+        delete tcpSockPtr_;
+        tcpSockPtr_ = new TcpSocket(localPort_, serverAddr_);
+        if (!tcpSockPtr_->isFdValid()) {
+            LOGE(TAG, "create tcp socket failed.");
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            return false;
+        }
+
         while (!isConnected) {
             if (!tcpSockPtr_->connect()) {
                 LOGE(TAG, "Can not connect to server, retrying ...");
@@ -294,9 +262,11 @@ void TapLan::syncNodeStatusFromServer()
             }
             isConnected = true;
         }
+
+        return true;
     };
 
-    auto getAndSetIPv4Addr = [&] () {
+    auto getAndSetIPv4Addr = [&]() {
         if (hasIPv4Addr)
             return ;
         SyncMessage* req = reinterpret_cast<SyncMessage*>(buf);
@@ -310,7 +280,8 @@ void TapLan::syncNodeStatusFromServer()
             if (recvBytes == 0) {
                 LOGW(TAG, "server has close, retrying to connect...");
                 isConnected = false;
-                retryConnect();
+                while (!retryConnect());
+                hasIPv4Addr = false;
                 continue;
             } else if (recvBytes < sizeof(SyncMessage)) {
                 LOGE(TAG, "recvBytes[%ld] is not correct.", recvBytes);
@@ -329,7 +300,7 @@ void TapLan::syncNodeStatusFromServer()
     };
 
     do {
-        retryConnect();
+        while (!retryConnect());
         getAndSetIPv4Addr();
         ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf));
         if (recvBytes == 0) {

@@ -9,7 +9,7 @@ NodeMgr::NodeMgr(): netId_((192 << 24) + (168 << 16) + (208 << 8)), netIdLen_(24
 NodeMgr::~NodeMgr()
 {
     auto freeNode = [](uint64_t k, Node* n) {
-        delete [] n;
+        delete n;
     };
     forEach(freeNode);
 }
@@ -34,7 +34,7 @@ Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
         }
     }
     if (hostId == 0) {
-        delete [] nodePtr;
+        delete nodePtr;
         return nullptr;
     }
     nodePtr->ipv4Addr.s_addr = htonl(netId_ + hostId);
@@ -46,7 +46,7 @@ bool NodeMgr::addNode(Node* n)
 {
     uint32_t hostId = n->ipv4Addr.s_addr >> netIdLen_;// & (1 << (32 - netIdLen_) - 1);
     if (hostId == 0 || hostId == addrPool_.size() - 1) {
-        delete [] n;
+        delete n;
         return false;
     }
 
@@ -63,7 +63,7 @@ bool NodeMgr::delNode(uint64_t mac)
         return false;
 
     uint32_t hostId = n->ipv4Addr.s_addr & (1 << (32 - netIdLen_) - 1);
-    delete [] n;
+    delete n;
     addrPool_.reset(hostId);
     macToNodeMap_.erase(mac);
 

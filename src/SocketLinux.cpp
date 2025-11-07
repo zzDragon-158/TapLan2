@@ -1,7 +1,7 @@
 #include "Socket.hpp"
 #include "LogMgr.hpp"
 
-static const char* TAG = "[socket]";
+static const char* TAG = "[Socket]";
 const int udpBufferSize = 1024 * 1024 * 8;
 
 UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
