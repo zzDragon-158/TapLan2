@@ -43,7 +43,7 @@ void parseParams(int argc, char* argv[])
         if (opt == 'c') {
             size_t optargLen = strlen(optarg);
             if (optargLen > 39) {
-                fprintf(stderr, "your input IP address is invalid\n");
+                LOGF(TAG, "your input IP address is invalid\n");
                 delayExit(-1, 3);
             }
 
@@ -52,7 +52,7 @@ void parseParams(int argc, char* argv[])
             in6_addr ipv6Addr;
             if (inet_pton(AF_INET6, serverIpv6Addr, &(ipv6Addr)) == 0) {
                 if (inet_pton(AF_INET6, serverIpv6Addr + ipv6AddrOffset, &(ipv6Addr)) == 0) {
-                    fprintf(stderr, "your input IP address is invalid\n");
+                    LOGF(TAG, "your input IP address is invalid\n");
                     delayExit(-1, 3);
                 } else {
                     memmove(serverIpv6Addr, serverIpv6Addr + ipv6AddrOffset, optargLen);
@@ -62,7 +62,7 @@ void parseParams(int argc, char* argv[])
         } else if (opt == 'p') {
             serverPort = atoi(optarg);
             if (serverPort > 65535) {
-                fprintf(stderr, "port number is invalid, range 0-65535");
+                LOGF(TAG, "port number is invalid, range 0-65535");
                 delayExit(-1, 3);
             }
         } else if (opt == 'h') {
@@ -78,16 +78,30 @@ int main(int argc, char* argv[])
     parseParams(argc, argv);
 
     if (runMode == RunMode_Server) {
-        std::cout << "We are running in server mode." << std::endl;
+        LOGI(TAG, "We are running in server mode.");
         TapLanPtr = new TapLan(serverPort);
     } else {
-        std::cout << "We are running in client mode." << std::endl;
+        LOGI(TAG, "We are running in client mode.");
         TapLanPtr = new TapLan(serverPort, serverIpv6Addr, serverPort);
     }
     if (!TapLanPtr->run())
         delayExit(-1, 3);
 
+    std::string input;
+    LOGI(TAG, "enter \"/quit\" to exit");
     while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        LOGR("tapLan> ");
+        std::getline(std::cin, input);
+        if (input == "/quit") {
+            LOGI(TAG, "Waiting for thread termination......");
+            TapLanPtr->stop();
+            break;
+        } else if (input == "/show err") {
+            TapLanPtr->showErrorCount();
+        } else if (input == "/show fib") {
+            TapLanPtr->showNodeStatus();
+        }
     }
+    LOGI(TAG, "The program has exited.");
+    delayExit(0, 3);
 }

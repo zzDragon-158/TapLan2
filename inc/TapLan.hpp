@@ -18,6 +18,8 @@ public:
     ~TapLan();
     bool run();
     bool stop();
+    void showNodeStatus();
+    void showErrorCount();
 
 private:
     bool            runFlag_;
@@ -36,5 +38,4 @@ private:
     void syncNodeStatusToClients();
     void syncNodeStatusFromServer();
     void syncNodeStatus();
-    void showNodeStatus();
 };

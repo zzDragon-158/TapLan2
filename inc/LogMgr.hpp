@@ -11,6 +11,7 @@
 #include    <sstream>
 
 #define     LogMgrPtr                   LogMgr::ptr()
+#define     LOGR(fmt, ...)              LogMgrPtr->logOutput(fmt, ##__VA_ARGS__)
 #define     LOGF(TAG, fmt, ...)         LogMgrPtr->logOutput(LOG_FATAL, TAG, fmt, ##__VA_ARGS__)
 #define     LOGE(TAG, fmt, ...)         LogMgrPtr->logOutput(LOG_ERROR, TAG, fmt, ##__VA_ARGS__)
 #define     LOGW(TAG, fmt, ...)         LogMgrPtr->logOutput(LOG_WARN, TAG, fmt, ##__VA_ARGS__)
@@ -32,6 +33,7 @@ class LogMgr {
 public:
     bool run();
     bool terminate();
+    void logOutput(const char* format, ...);
     void logOutput(int level, const char* tag, const char* format, ...);
     static LogMgr* ptr();
 

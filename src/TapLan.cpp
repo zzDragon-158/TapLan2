@@ -324,8 +324,8 @@ void TapLan::syncNodeStatus()
 
 void TapLan::showNodeStatus()
 {
-    fprintf(stdout, "status     TapLan MAC address    TapLan IP address    Public IP address\n");
-//  fprintf(stdout, "offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
+    LOGR("status     TapLan MAC address    TapLan IP address    Public IP address\n");
+//  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
     auto printNodeStatus = [&](uint64_t m, Node* n) {
         char tapmacbuf[32];
@@ -343,11 +343,17 @@ void TapLan::showNodeStatus()
         sprintf(buf, "%-11s%-22s%-21s[%s]:%u\n",
             (n->status == NodeStatus_ONLINE? "ONLINE": "OFFLINE"),
             tapmacbuf, tapipbuf, ipv6str.c_str(), ntohs(n->ipv6Port));
-        fprintf(stdout, "%s", buf);
+        LOGR("%s", buf);
     };
     NodeMgrPtr->forEach(printNodeStatus);
 
     fflush(stdout);
+}
+
+void TapLan::showErrorCount()
+{
+    // TODO: show error count
+    LOGI(TAG, "not support tmporarily.");
 }
 
 bool TapLan::run()

@@ -33,7 +33,28 @@ bool LogMgr::terminate()
     return true;
 }
 
-void LogMgr::logOutput(int level, const char* tag, const char* format, ...) {
+void LogMgr::logOutput(const char* format, ...)
+{
+    if (!running_)
+        return ;
+
+    std::stringstream msg;
+    char buf[MAX_BUF_SIZE] = { 0 };
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, MAX_BUF_SIZE, format, args);
+    va_end(args);
+    msg << buf;
+
+    {
+        std::lock_guard<std::mutex> lock(logMutex_);
+        logQueue_.push(msg.str());
+    }
+    logCv_.notify_one();
+}
+
+void LogMgr::logOutput(int level, const char* tag, const char* format, ...)
+{
     if (!running_ || level > logLevel_)
         return ;
 
@@ -45,7 +66,7 @@ void LogMgr::logOutput(int level, const char* tag, const char* format, ...) {
     va_start(args, format);
     vsnprintf(buf, MAX_BUF_SIZE, format, args);
     va_end(args);
-    msg << buf;
+    msg << buf << std::endl;
 
     {
         std::lock_guard<std::mutex> lock(logMutex_);
@@ -62,7 +83,7 @@ void LogMgr::logWorker()
 
         while (!logQueue_.empty()) {
             // logFile_ << logQueue_.front() << std::endl;
-            std::cout << logQueue_.front() << std::endl;
+            std::cout << logQueue_.front();
             logQueue_.pop();
         }
     }
