@@ -47,10 +47,12 @@ inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
 class UniversalSocket {
 public:
     UniversalSocket();
+    UniversalSocket(UniversalSocket&& other) noexcept;
     ~UniversalSocket();
-    virtual bool open();
-    bool close();
     bool isFdValid() { return fdValid_; };
+    UniversalSocket(const UniversalSocket&) = delete;
+    UniversalSocket& operator=(const UniversalSocket&) = delete;
+    UniversalSocket& operator=(UniversalSocket&& other) noexcept;
     operator TapLanSocket() { return fd_; };
 protected:
     TapLanSocket fd_;
@@ -63,15 +65,20 @@ protected:
 #ifdef _WIN32
     static bool s_isWsaInitialized_;
 #endif
+
+    virtual bool open();
+    bool close();
 };
 
 class TcpSocket: public UniversalSocket {
 public:
     // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, TapLanSocket sock, void* respBuf, size_t& respLen)> CbRecvFunc;
     TcpSocket(uint16_t localPort);                      // for listen
-    TcpSocket(sockaddr_in6 serverAddr);                 // for connect
+    TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr);                 // for connect
     TcpSocket(TapLanSocket fd, sockaddr_in6 remote);    // for accept
+    TcpSocket(TcpSocket&& other) noexcept;
     ~TcpSocket();
+    TcpSocket& operator=(TcpSocket&& other) noexcept;
     bool connect();
     bool listen(int backlog);
     bool accept(TapLanSocket& fd, sockaddr_in6& addr);

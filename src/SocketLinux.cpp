@@ -11,6 +11,13 @@ UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
     // nothing to do
 }
 
+UniversalSocket::UniversalSocket(UniversalSocket&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
+                                                                    totalSendBytes_(other.totalSendBytes_), totalRecvBytes_(other.totalRecvBytes_),
+                                                                    sendErrCnt_(other.sendErrCnt_), recvErrCnt_(other.sendErrCnt_)
+{
+    other.fd_ = INVALID_SOCKET;
+}
+
 UniversalSocket::~UniversalSocket()
 {
     close();
@@ -27,6 +34,7 @@ bool UniversalSocket::open()
 bool UniversalSocket::close()
 {
     if (fd_ != INVALID_SOCKET) {
+        LOGT(TAG, "close fd_[%ld]", fd_);
         ::close(fd_);
         fd_ = INVALID_SOCKET;
     }
@@ -34,15 +42,27 @@ bool UniversalSocket::close()
     return true;
 }
 
-TcpSocket::TcpSocket(uint16_t port): UniversalSocket(), isPassive_(true)
+UniversalSocket& UniversalSocket::operator=(UniversalSocket&& other) noexcept
 {
-    bindPort_ = port;
+    if (this != &other) {
+        close();
+        fd_ = other.fd_;
+        other.fd_ = -1;
+    }
+
+    return *this;
+}
+
+TcpSocket::TcpSocket(uint16_t localPort): UniversalSocket(), isPassive_(true)
+{
+    bindPort_ = localPort;
     memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(sockaddr_in6 serverAddr): UniversalSocket(), isPassive_(false)
+TcpSocket::TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr): UniversalSocket(), isPassive_(false)
 {
+    bindPort_ = localPort;
     memcpy(&remoteAddr_, &serverAddr, sizeof(sockaddr_in6));
     fdValid_ = open();
 }
@@ -54,9 +74,26 @@ TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPas
     fdValid_ = (fd != INVALID_SOCKET);
 }
 
+TcpSocket::TcpSocket(TcpSocket&& other) noexcept: UniversalSocket(std::move(other)), isPassive_(other.isPassive_)
+{
+    LOGT(TAG, "move construction fd_[%ld]", fd_);
+    memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
+}
+
 TcpSocket::~TcpSocket()
 {
     // nothing to do
+}
+
+TcpSocket& TcpSocket::operator=(TcpSocket&& other) noexcept
+{
+    if (this != &other) {
+        UniversalSocket::operator=(std::move(other));
+        memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
+        memset(&other.remoteAddr_, 0, sizeof(sockaddr_in6));
+    }
+
+    return *this;
 }
 
 bool TcpSocket::open()

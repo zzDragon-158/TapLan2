@@ -3,7 +3,7 @@
 const size_t MAX_BUF_SIZE = 512;
 const char* logLevelStr[NUMS_OF_LEVEL] = { "[FATAL]", "[ERROR]", "[WARN]", "[INFO]", "[DEBUG]", "[TRACE]" };
 
-LogMgr::LogMgr()
+LogMgr::LogMgr(): logLevel_(LOG_TRACE)
 {
     // logFile_.open("TapLan.log", std::ios::out | std::ios::app);
     run();
@@ -34,7 +34,7 @@ bool LogMgr::terminate()
 }
 
 void LogMgr::logOutput(int level, const char* tag, const char* format, ...) {
-    if (!running_ || level < logLevel_)
+    if (!running_ || level > logLevel_)
         return ;
 
     std::stringstream msg;

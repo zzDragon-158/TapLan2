@@ -29,18 +29,13 @@ TapLan::TapLan(const char* ipv6Addr, uint16_t port): runFlag_(false), runMode_(R
     serverAddr_.sin6_port = htons(port);
 
     udpSockPtr_ = new UdpSocket(port);
-    tcpSockPtr_ = new TcpSocket(serverAddr_);
+    // TODO: tcp bind port should not equal server port
+    tcpSockPtr_ = new TcpSocket(port, serverAddr_);
     runFlag_ = udpSockPtr_->isFdValid() && tcpSockPtr_->isFdValid() && TapDevPtr->open();
 
     if (runFlag_) {
         mac_.num = 0;
         TapDevPtr->getMacAddr(mac_.addr, sizeof(Mac));
-        // in_addr ipv4Addr;
-        // ipv4Addr.S_un.S_un_b.s_b1 = 192;
-        // ipv4Addr.S_un.S_un_b.s_b2 = 168;
-        // ipv4Addr.S_un.S_un_b.s_b3 = 208;
-        // ipv4Addr.S_un.S_un_b.s_b4 = 3;
-        // TapDevPtr->setIpv4Addr(&ipv4Addr, 24);   // needmod
     }
 }
 
@@ -111,11 +106,6 @@ void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
         bool needBroadcast = eh->dst[0] & 0x01;
         bool isSendToMe = needBroadcast || (dstMacNum == mac_.num);
 
-        Node* node = NodeMgrPtr->findNode(dstMacNum);
-        if (!node) {
-            return ;
-        }
-
         if (needBroadcast) {        // broadcast
             auto broadcast = [&](uint64_t m, Node* n) {
                 if (n->status == NodeStatus_OFFLINE || n->mac.num == srcMacNum || n->mac.num == mac_.num)
@@ -129,6 +119,10 @@ void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
             NodeMgrPtr->forEach(broadcast);
             TapDevPtr->write(buf, bufLen);
         } else if (!isSendToMe) {   // not broadcast && not send to me
+            Node* node = NodeMgrPtr->findNode(dstMacNum);
+            if (!node) {
+                return ;
+            }
             memcpy(&dstAddr.sin6_addr, &node->ipv6Addr, sizeof(dstAddr.sin6_addr));
             dstAddr.sin6_port = node->ipv6Port;
             udpSockPtr_->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
@@ -226,7 +220,6 @@ void TapLan::syncNodeStatusToClients()
         }
 
         size_t pfdsLen = pfds.size();
-        auto it = pfds.end() - 1;
         if (pfds.begin()->revents != 0) {
             --pollCnt;
             TapLanSocket tcpFd = INVALID_SOCKET;
@@ -238,17 +231,17 @@ void TapLan::syncNodeStatusToClients()
                 LOGE(TAG, "accept failed.");
             }
         }
-        while (pollCnt && it-- >= pfds.begin()) {
-            if (it->revents != 0) {
+        for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
+            if (pfds[i].revents != 0) {
                 --pollCnt;
                 uint8_t recvBuf[65536];
                 uint8_t sendBuf[65536];
-                auto idx = std::distance(pfds.begin(), it) - 1;
-                TcpSocket& client = clients[idx];
+                TcpSocket& client = clients[i - 1];
                 ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
                 if (recvBytes == 0) {
-                    pfds.erase(it);
-                    clients.erase(clients.begin() + idx);
+                    pfds.erase(pfds.begin() + i);
+                    clients.erase(clients.begin() + i - 1);
+                    continue;
                 } else if (recvBytes != sizeof(SyncMessage)) {
                     continue;
                 }
@@ -315,6 +308,7 @@ void TapLan::syncNodeStatusFromServer()
 
             ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf));
             if (recvBytes == 0) {
+                LOGW(TAG, "server has close, retrying to connect...");
                 isConnected = false;
                 retryConnect();
                 continue;

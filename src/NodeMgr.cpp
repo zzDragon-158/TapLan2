@@ -44,7 +44,7 @@ Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
 
 bool NodeMgr::addNode(Node* n)
 {
-    uint32_t hostId = n->ipv4Addr.s_addr & (1 << (32 - netIdLen_) - 1);
+    uint32_t hostId = n->ipv4Addr.s_addr >> netIdLen_;// & (1 << (32 - netIdLen_) - 1);
     if (hostId == 0 || hostId == addrPool_.size() - 1) {
         delete [] n;
         return false;
