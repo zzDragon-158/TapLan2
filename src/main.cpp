@@ -14,26 +14,26 @@ uint8_t netIdLen = 24;
 void delayExit(int code, int64_t delaySeconds)
 {
     if (delaySeconds > 0) {
-        std::cout << "The program will terminate after " << delaySeconds << " seconds." << std::endl;
+        LOGI(TAG, "The program will terminate after %ld seconds.", delaySeconds);
         std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
     }
-    std::cout << "Program terminated with exit code " << code << std::endl;
+    LOGI(TAG, "Program terminated with exit code %d", code);
 
     exit(code);
 }
 
 void printHelpInfo(const char* name)
 {
-    printf("Usage as server: %s [-s <CIDR>] [-p <server port>] [-k <aes key>]\n", name);
-    printf("Usage as client: %s [-c <server address>] [-p <server port>] [-k <aes key>]\n", name);
-    // printf("Server or Client:\n");
-    printf("    -p      <server port>       server port to listen on/connect to <server port>\n");
-    // printf("    -k      <key>               use <key>(ASE-128) to encrypto data\n");
-    printf("Server specific:\n");
-    // printf("    -s      <CIDR>              run in server mode, allocate ipv4 address within <CIDR>\n");
-    printf("Client specific:\n");
-    printf("    -c      <server address>    run in client mode, connect to <server address>");
-    // printf("    -d                          all data will be sent directly to the destination instead of the server\n");
+    LOGR(TAG, "Usage as server: %s [-s <CIDR>] [-p <server port>] [-k <aes key>]\n", name);
+    LOGR(TAG, "Usage as client: %s [-c <server address>] [-p <server port>] [-k <aes key>]\n", name);
+    // LOGR(TAG, "Server or Client:\n");
+    LOGR(TAG, "    -p      <server port>       server port to listen on/connect to <server port>\n");
+    // LOGR(TAG, "    -k      <key>               use <key>(ASE-128) to encrypto data\n");
+    LOGR(TAG, "Server specific:\n");
+    // LOGR(TAG, "    -s      <CIDR>              run in server mode, allocate ipv4 address within <CIDR>\n");
+    LOGR(TAG, "Client specific:\n");
+    LOGR(TAG, "    -c      <server address>    run in client mode, connect to <server address>");
+    // LOGR(TAG, "    -d                          all data will be sent directly to the destination instead of the server\n");
 }
 
 void parseParams(int argc, char* argv[])
@@ -90,7 +90,7 @@ int main(int argc, char* argv[])
     std::string input;
     LOGI(TAG, "enter \"/quit\" to exit");
     while (true) {
-        LOGR("tapLan> ");
+        LOGR("TapLan> ");
         std::getline(std::cin, input);
         if (input == "/quit") {
             LOGI(TAG, "Waiting for thread termination......");

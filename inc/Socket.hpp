@@ -99,7 +99,7 @@ public:
     UdpSocket(uint16_t port);
     ~UdpSocket();
     ssize_t sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr, socklen_t addrLen);
-    ssize_t recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen);
+    ssize_t recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen, int timeout = -1);
 
 private:
     bool open();

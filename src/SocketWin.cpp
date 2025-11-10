@@ -184,6 +184,7 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
 {
     ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
     if (sendBytes < bufLen) {
+        ++sendErrCnt_;
         LOGE(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %d", sendBytes, bufLen, WSAGetLastError());
     }
 
@@ -195,67 +196,29 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
     if (timeout >= 0) {
         TapLanPollFd pfd = { fd_, POLLIN, 0 };
         int pollCnt = TapLanPoll(&pfd, 1, timeout);
-        if (pollCnt <= 0) {
-            if (pollCnt == -1) {
-                LOGE(TAG, "Poll failed.");
-            }
-            return pollCnt;
+        if (pollCnt == 0) {
+            return -1;
+        } else if (pollCnt == -1) {
+            ++recvErrCnt_;
+            LOGE(TAG, "TCP poll failed.");
+            return -1;
         }
     }
 
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1) {
         int err = WSAGetLastError();
-        if (err == WSAECONNRESET || err == WSAETIMEDOUT) {
-            recvBytes = 0;
-        } else {
+        if (err != WSAECONNRESET && err != WSAETIMEDOUT) {
+            ++recvErrCnt_;
             LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %d", fd_, WSAGetLastError());
             std::this_thread::sleep_for(std::chrono::seconds(1));
+        } else if (err == WSAECONNRESET) {
+            recvBytes = 0;
         }
     }
 
     return recvBytes;
 }
-
-// bool TcpSocket::recv(CbRecvFunc& cbRecv)
-// {
-//     uint8_t recvBuf[65536];
-//     uint8_t sendBuf[65536];
-//     int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), 5000);
-//     if (pollCnt < 0) {
-//         LOGE(TAG, "TapLanPoll failed. %d", WSAGetLastError());
-//         return false;
-//     }
-
-//     size_t pfdsLen = pfds_.size();
-//     if (pfds_[0].revents != 0) {
-//         --pollCnt;
-//         if (!accept()) {
-//             LOGE(TAG, "TCP accept failed. %d", WSAGetLastError());
-//         }
-//     }
-//     size_t offset = 0;
-//     for (size_t i = pfdsLen - 1; i > 0 && pollCnt; --pfdsLen) {
-//         if (pfds_[i].revents != 0) {
-//             --pollCnt;
-//             TcpSocket& client = clients_[i - 1];
-//             ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
-//             if (recvBytes == 0) {
-//                 // TODO: need set node status
-//                 pfds_.erase(pfds_.begin() + i);
-//                 clients_.erase(clients_.begin() + i);
-//                 continue;
-//             } else if (recvBytes == -1) {
-//                 continue;
-//             }
-//             size_t sendBytes = sizeof(sendBuf);
-//             cbRecv(recvBuf, recvBytes, reinterpret_cast<const sockaddr_in6*>(&client.remoteAddr_), sendBuf, sendBytes);
-//             client.send(sendBuf, sendBytes);
-//         }
-//     }
-
-//     return true;
-// }
 
 void TcpSocket::getRemoteAddr(sockaddr_in6* addr)
 {
@@ -320,16 +283,6 @@ bool UdpSocket::open()
         }
     }
 
-    // /* set timeout */ {
-    //     timeval timeout;
-    //     timeout.tv_sec = 5;
-    //     timeout.tv_usec = 0;
-    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout))) {
-    //         LOGE(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lds%ldus. %d", timeout.tv_sec, timeout.tv_usec, WSAGetLastError());
-    //         return false;
-    //     }
-    // }
-
     /* windows bug: udp socket 10054 */ {
         BOOL bEnalbeConnRestError = FALSE;
         DWORD dwBytesReturned = 0;
@@ -346,21 +299,31 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        LOGE(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %d", sendBytes, bufLen, WSAGetLastError());
         ++sendErrCnt_;
+        LOGE(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %d", sendBytes, bufLen, WSAGetLastError());
     }
 
     return sendBytes;
 }
 
-ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen)
+ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen, int timeout)
 {
+    if (timeout >= 0) {
+        TapLanPollFd pfd = { fd_, POLLIN, 0 };
+        int pollCnt = TapLanPoll(&pfd, 1, timeout);
+        if (pollCnt == 0) {
+            return -1;
+        } else if (pollCnt == -1) {
+            ++recvErrCnt_;
+            LOGE(TAG, "UDP poll failed.");
+            return -1;
+        }
+    }
+
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
-        if (WSAETIMEDOUT != WSAGetLastError()) {
-            LOGE(TAG, "UDP receiving from UDP socket failed. %d", WSAGetLastError());
-            ++recvErrCnt_;
-        }
+        ++recvErrCnt_;
+        LOGE(TAG, "UDP receiving from UDP socket failed. %d", WSAGetLastError());
     }
 
     return recvBytes;

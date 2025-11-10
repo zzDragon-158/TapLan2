@@ -88,7 +88,7 @@ void TapLan::readTapData()
     uint8_t tapRxBuf[65536];
 
     while (runFlag_) {
-        ssize_t readBytes = TapDevPtr->read(tapRxBuf, sizeof(tapRxBuf), 5000);
+        ssize_t readBytes = TapDevPtr->read(tapRxBuf, sizeof(tapRxBuf), 3000);
         if (readBytes <= ETHERNET_HEADER_LEN) {
             continue;
         }
@@ -150,8 +150,8 @@ void TapLan::recvSockData()
     memset(&dstAddr, 0, sizeof(dstAddr));
     dstAddr.sin6_family = AF_INET6;
 
-    while (runMode_) {
-        ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
+    while (runFlag_) {
+        ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen, 3000);
         if (recvBytes <= ETHERNET_HEADER_LEN) {
             continue;
         }
@@ -173,7 +173,7 @@ void TapLan::syncNodeStatusToClients()
     std::vector<TcpSocket> clients;
     pfds.push_back({ static_cast<TapLanSocket>(*tcpSockPtr_), POLLIN, 0 });
     while (runFlag_) {
-        int pollCnt = TapLanPoll(pfds.data(), pfds.size(), 5000);
+        int pollCnt = TapLanPoll(pfds.data(), pfds.size(), 3000);
         if (pollCnt < 0) {
             LOGE(TAG, "TapLanPoll failed.");
             continue;
@@ -246,46 +246,51 @@ void TapLan::syncNodeStatusFromServer()
     uint8_t buf[65536];
 
     auto retryConnect = [&]() {
+        if (isConnected) {
+            return isConnected;
+        }
+
         delete tcpSockPtr_;
         tcpSockPtr_ = new TcpSocket(localPort_, serverAddr_);
         if (!tcpSockPtr_->isFdValid()) {
             LOGE(TAG, "create tcp socket failed.");
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            return false;
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+            return isConnected;
         }
 
-        while (!isConnected) {
+        while (!isConnected && runFlag_) {
             if (!tcpSockPtr_->connect()) {
                 LOGE(TAG, "Can not connect to server, retrying ...");
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+                std::this_thread::sleep_for(std::chrono::seconds(3));
                 continue;
             }
             isConnected = true;
         }
 
-        return true;
+        return isConnected;
     };
 
     auto getAndSetIPv4Addr = [&]() {
         if (hasIPv4Addr)
-            return ;
+            return hasIPv4Addr;
+
         SyncMessage* req = reinterpret_cast<SyncMessage*>(buf);
         memset(req, 0, sizeof(SyncMessage));
         req->op = 1;
         req->mac.num = mac_.num;
-        while (!hasIPv4Addr) {
+        while (!hasIPv4Addr && runFlag_) {
             tcpSockPtr_->send(req, sizeof(SyncMessage));
 
-            ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf));
+            ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf), 3000);
             if (recvBytes == 0) {
                 LOGW(TAG, "server has close, retrying to connect...");
                 isConnected = false;
-                while (!retryConnect());
+                while (!retryConnect() && runFlag_);
                 hasIPv4Addr = false;
                 continue;
             } else if (recvBytes < sizeof(SyncMessage)) {
                 LOGE(TAG, "recvBytes[%ld] is not correct.", recvBytes);
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+                std::this_thread::sleep_for(std::chrono::seconds(3));
                 continue;
             }
 
@@ -297,12 +302,14 @@ void TapLan::syncNodeStatusFromServer()
             TapDevPtr->setIpv4Addr(&resp->ipv4Addr, resp->netIDLen);
             hasIPv4Addr = true;
         }
+
+        return hasIPv4Addr;
     };
 
     do {
-        while (!retryConnect());
-        getAndSetIPv4Addr();
-        ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf));
+        while (!retryConnect() && runFlag_);
+        while (!getAndSetIPv4Addr() && runFlag_);
+        ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf), 3000);
         if (recvBytes == 0) {
             isConnected = false;
             hasIPv4Addr = false;
@@ -346,8 +353,6 @@ void TapLan::showNodeStatus()
         LOGR("%s", buf);
     };
     NodeMgrPtr->forEach(printNodeStatus);
-
-    fflush(stdout);
 }
 
 void TapLan::showErrorCount()
@@ -376,10 +381,13 @@ bool TapLan::stop()
     runFlag_ = false;
     if (threadReadTapData_.joinable())
         threadReadTapData_.join();
+    LOGT(TAG, "threadReadTapData_ has been terminated.");
     if (threadRecvSockData_.joinable())
         threadRecvSockData_.join();
+    LOGT(TAG, "threadRecvSockData_ has been terminated.");
     if (threadSyncNodeStatus_.joinable())
         threadSyncNodeStatus_.join();
+    LOGT(TAG, "threadSyncNodeStatus_ has been terminated.");
 
     return true;
 }

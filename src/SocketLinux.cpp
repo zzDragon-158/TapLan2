@@ -173,6 +173,7 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
 {
     ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
     if (sendBytes < bufLen) {
+        ++sendErrCnt_;
         LOGE(TAG, "TCP sendBytes[%ld] is less than expected[%ld].", sendBytes, bufLen);
     }
 
@@ -184,20 +185,23 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
     if (timeout >= 0) {
         TapLanPollFd pfd = { fd_, POLLIN, 0 };
         int pollCnt = TapLanPoll(&pfd, 1, timeout);
-        if (pollCnt <= 0) {
-            if (pollCnt == -1) {
-                LOGE(TAG, "Poll failed.");
-            }
-            return pollCnt;
+        if (pollCnt == 0) {
+            return -1;
+        } else if (pollCnt == -1) {
+            ++recvErrCnt_;
+            LOGE(TAG, "TCP poll failed.");
+            return -1;
         }
     }
 
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1) {
-        if (errno == ECONNRESET || errno == ETIMEDOUT) {
+        if (errno != ECONNRESET && errno != ETIMEDOUT) {
+            ++recvErrCnt_;
+            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %d", fd_, errno);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        } else if (errno == ECONNRESET) {
             recvBytes = 0;
-        } else {
-            LOGE(TAG, "TCP receiving from TCP socket failed.");
         }
     }
 
@@ -257,16 +261,6 @@ bool UdpSocket::open()
         }
     }
 
-    // /* set timeout */ {
-    //     timeval timeout;
-    //     timeout.tv_sec = 5;
-    //     timeout.tv_usec = 0;
-    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout))) {
-    //         LOGE(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lds%ldus.", timeout.tv_sec, timeout.tv_usec);
-    //         return false;
-    //     }
-    // }
-
     return true;
 }
 
@@ -274,21 +268,31 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        LOGE(TAG, "UDP sendBytes[%ld] is less than expected[%ld].", sendBytes, bufLen);
         ++sendErrCnt_;
+        LOGE(TAG, "UDP sendBytes[%ld] is less than expected[%ld].", sendBytes, bufLen);
     }
 
     return sendBytes;
 }
 
-ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen)
+ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen, int timeout)
 {
+    if (timeout >= 0) {
+        TapLanPollFd pfd = { fd_, POLLIN, 0 };
+        int pollCnt = TapLanPoll(&pfd, 1, timeout);
+        if (pollCnt == 0) {
+            return -1;
+        } else if (pollCnt == -1) {
+            ++recvErrCnt_;
+            LOGE(TAG, "UDP poll failed.");
+            return -1;
+        }
+    }
+
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGE(TAG, "UDP receiving from UDP socket failed.");
-            ++recvErrCnt_;
-        }
+        ++recvErrCnt_;
+        LOGE(TAG, "UDP receiving from UDP socket failed.");
     }
 
     return recvBytes;
