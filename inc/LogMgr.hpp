@@ -9,6 +9,7 @@
 #include    <thread>
 #include    <atomic>
 #include    <sstream>
+#include    <pthread.h>
 
 #define     LogMgrPtr                   LogMgr::ptr()
 #define     LOGR(fmt, ...)              LogMgrPtr->logOutput(fmt, ##__VA_ARGS__)

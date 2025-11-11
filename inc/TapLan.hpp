@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <pthread.h>
 #include "LogMgr.hpp"
 #include "NodeMgr.hpp"
 #include "Socket.hpp"

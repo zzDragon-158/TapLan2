@@ -19,6 +19,7 @@ bool LogMgr::run()
 {
     running_ = true;
     logThread_ = std::thread(&LogMgr::logWorker, this);
+    pthread_setname_np(logThread_.native_handle(), "logWorker");
 
     return true;
 }
@@ -66,7 +67,7 @@ void LogMgr::logOutput(int level, const char* tag, const char* format, ...)
     va_start(args, format);
     vsnprintf(buf, MAX_BUF_SIZE, format, args);
     va_end(args);
-    msg << buf << std::endl;
+    msg << buf << '\n';
 
     {
         std::lock_guard<std::mutex> lock(logMutex_);
@@ -77,7 +78,7 @@ void LogMgr::logOutput(int level, const char* tag, const char* format, ...)
 
 void LogMgr::logWorker()
 {
-    while (running_ || !logQueue_.empty()) {
+    while (running_) {
         std::unique_lock<std::mutex> lock(logMutex_);
         logCv_.wait(lock, [&]{ return !running_ || !logQueue_.empty(); });
 

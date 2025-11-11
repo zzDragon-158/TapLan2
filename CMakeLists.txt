@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
-project(tapLan)
+project(TapLan)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
-# use c++11 standard
-set(CMAKE_CXX_STANDARD 11)
+# use c++17 standard
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXE_LINKER_FLAGS "-static")

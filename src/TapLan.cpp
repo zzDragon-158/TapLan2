@@ -367,8 +367,13 @@ bool TapLan::run()
         return false;
 
     threadReadTapData_ = std::thread(&TapLan::readTapData, this);
+    pthread_setname_np(threadReadTapData_.native_handle(), "tapWorker");
+
     threadRecvSockData_ = std::thread(&TapLan::recvSockData, this);
+    pthread_setname_np(threadRecvSockData_.native_handle(), "udpWorker");
+
     threadSyncNodeStatus_ = std::thread(&TapLan::syncNodeStatus, this);
+    pthread_setname_np(threadSyncNodeStatus_.native_handle(), "syncWorker");
 
     return true;
 }
