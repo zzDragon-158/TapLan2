@@ -7,7 +7,6 @@
 #include    <mutex>
 #include    <condition_variable>
 #include    <thread>
-#include    <atomic>
 #include    <sstream>
 #include    <pthread.h>
 
@@ -34,6 +33,7 @@ class LogMgr {
 public:
     bool run();
     bool terminate();
+    bool isRunning() { return running_; };
     void logOutput(const char* format, ...);
     void logOutput(int level, const char* tag, const char* format, ...);
     static LogMgr* ptr();
@@ -44,8 +44,9 @@ private:
     std::queue<std::string> logQueue_;
     std::mutex logMutex_;
     std::condition_variable logCv_;
+    const char* logThreadName_;
     std::thread logThread_;
-    std::atomic<bool> running_{false};
+    bool running_;
 
     LogMgr();
     ~LogMgr();

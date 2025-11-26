@@ -3,29 +3,32 @@
 const size_t MAX_BUF_SIZE = 512;
 const char* logLevelStr[NUMS_OF_LEVEL] = { "[FATAL]", "[ERROR]", "[WARN]", "[INFO]", "[DEBUG]", "[TRACE]" };
 
-LogMgr::LogMgr(): logLevel_(LOG_TRACE)
+LogMgr::LogMgr(): logLevel_(LOG_TRACE), logThreadName_("logWorker"), running_(false)
 {
     // logFile_.open("TapLan.log", std::ios::out | std::ios::app);
-    run();
 }
 
 LogMgr::~LogMgr()
 {
-    terminate();
     // logFile_.close();
 }
 
 bool LogMgr::run()
 {
-    running_ = true;
+    if (running_)
+        return false;
+
     logThread_ = std::thread(&LogMgr::logWorker, this);
-    pthread_setname_np(logThread_.native_handle(), "logWorker");
+    pthread_setname_np(logThread_.native_handle(), logThreadName_);
 
     return true;
 }
 
 bool LogMgr::terminate()
 {
+    if (!running_)
+        return false;
+
     running_ = false;
     logCv_.notify_all();
     if (logThread_.joinable())
@@ -78,6 +81,8 @@ void LogMgr::logOutput(int level, const char* tag, const char* format, ...)
 
 void LogMgr::logWorker()
 {
+    running_ = true;
+
     while (running_) {
         std::unique_lock<std::mutex> lock(logMutex_);
         logCv_.wait(lock, [&]{ return !running_ || !logQueue_.empty(); });
@@ -88,4 +93,6 @@ void LogMgr::logWorker()
             logQueue_.pop();
         }
     }
+
+    std::cout << "Thread " << logThreadName_ << " has exited." << std::endl;
 }

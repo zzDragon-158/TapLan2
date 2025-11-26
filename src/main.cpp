@@ -1,99 +1,33 @@
 #include <getopt.h>
 #include "TapLan.hpp"
 
+#define cfgData TapLan::config_
+
 TapLan* TapLanPtr = nullptr;
-static const char* TAG = "[TapLan]";
-// default configuration
-RunMode runMode = RunMode_Server;
-char serverIpv6Addr[64] = "::ffff:";
-const size_t ipv6AddrOffset = 7;
-uint16_t serverPort = 3460;
-uint32_t netId = (192 << 24) + (168 << 16) + (208 << 8);
-uint8_t netIdLen = 24;
 
-void delayExit(int code, int64_t delaySeconds)
-{
-    if (delaySeconds > 0) {
-        LOGI(TAG, "The program will terminate after %ld seconds.", delaySeconds);
-        std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
-    }
-    LOGI(TAG, "Program terminated with exit code %d", code);
-
-    exit(code);
-}
-
-void printHelpInfo(const char* name)
-{
-    LOGR(TAG, "Usage as server: %s [-s <CIDR>] [-p <server port>] [-k <aes key>]\n", name);
-    LOGR(TAG, "Usage as client: %s [-c <server address>] [-p <server port>] [-k <aes key>]\n", name);
-    // LOGR(TAG, "Server or Client:\n");
-    LOGR(TAG, "    -p      <server port>       server port to listen on/connect to <server port>\n");
-    // LOGR(TAG, "    -k      <key>               use <key>(ASE-128) to encrypto data\n");
-    LOGR(TAG, "Server specific:\n");
-    // LOGR(TAG, "    -s      <CIDR>              run in server mode, allocate ipv4 address within <CIDR>\n");
-    LOGR(TAG, "Client specific:\n");
-    LOGR(TAG, "    -c      <server address>    run in client mode, connect to <server address>");
-    // LOGR(TAG, "    -d                          all data will be sent directly to the destination instead of the server\n");
-}
-
-void parseParams(int argc, char* argv[])
-{
-    int opt;
-    while ((opt = getopt(argc, argv, "c:p:h")) != -1) {
-        if (opt == 'c') {
-            size_t optargLen = strlen(optarg);
-            if (optargLen > 39) {
-                LOGF(TAG, "your input IP address is invalid\n");
-                delayExit(-1, 3);
-            }
-
-            runMode = RunMode_Client;
-            strncpy(serverIpv6Addr + ipv6AddrOffset, optarg, optargLen);
-            in6_addr ipv6Addr;
-            if (inet_pton(AF_INET6, serverIpv6Addr, &(ipv6Addr)) == 0) {
-                if (inet_pton(AF_INET6, serverIpv6Addr + ipv6AddrOffset, &(ipv6Addr)) == 0) {
-                    LOGF(TAG, "your input IP address is invalid\n");
-                    delayExit(-1, 3);
-                } else {
-                    memmove(serverIpv6Addr, serverIpv6Addr + ipv6AddrOffset, optargLen);
-                    serverIpv6Addr[optargLen] = '\0';
-                }
-            }
-        } else if (opt == 'p') {
-            serverPort = atoi(optarg);
-            if (serverPort > 65535) {
-                LOGF(TAG, "port number is invalid, range 0-65535");
-                delayExit(-1, 3);
-            }
-        } else if (opt == 'h') {
-            printHelpInfo(argv[0]);
-            delayExit(0, 0);
-        }
-    }
-}
+void setDefaultConfig();
+void parseParams(int argc, char* argv[]);
+void printHelpInfo(const char* name);
+void delayExit(int code, int64_t delaySeconds);
 
 int main(int argc, char* argv[])
 {
-    LOGI(TAG, "Hello, world!");
+    LogMgrPtr->run();
+    while (!LogMgrPtr->isRunning());
+    setDefaultConfig();
     parseParams(argc, argv);
 
-    if (runMode == RunMode_Server) {
-        LOGI(TAG, "We are running in server mode.");
-        TapLanPtr = new TapLan(serverPort);
-    } else {
-        LOGI(TAG, "We are running in client mode.");
-        TapLanPtr = new TapLan(serverPort, serverIpv6Addr, serverPort);
-    }
+    TapLanPtr = new TapLan();
     if (!TapLanPtr->run())
         delayExit(-1, 3);
 
     std::string input;
-    LOGI(TAG, "enter \"/quit\" to exit");
+    LOGR("enter \"/quit\" to exit\n");
     while (true) {
         LOGR("TapLan> ");
         std::getline(std::cin, input);
         if (input == "/quit") {
-            LOGI(TAG, "Waiting for thread termination......");
+            LOGR("Waiting for thread termination......\n");
             TapLanPtr->stop();
             break;
         } else if (input == "/show err") {
@@ -102,6 +36,100 @@ int main(int argc, char* argv[])
             TapLanPtr->showNodeStatus();
         }
     }
-    LOGI(TAG, "The program has exited.");
+
     delayExit(0, 3);
+}
+
+void setDefaultConfig()
+{
+    cfgData.runMode = RunMode_Server;
+    cfgData.localPort = 3460;
+    cfgData.netNum = (192 << 24) + (168 << 16) + (208 << 8);
+    cfgData.netNumLen = 24;
+    memset(&cfgData.remoteAddr, 0, sizeof(in6_addr));
+    cfgData.remotePort = 3460;
+    cfgData.isMultiPortEnable = false;
+}
+
+void parseParams(int argc, char* argv[])
+{
+    int opt;
+    char ipv6Str[64] = "::ffff:";
+    const size_t ipv6StrOffset = 7;
+
+    while ((opt = getopt(argc, argv, "c:p:mh")) != -1) {
+        switch (opt) {
+            case 'c': {
+                size_t optargLen = strlen(optarg);
+                if (optargLen > 39) {
+                    LOGR("your input IP address length exceeds the limit\n");
+                    delayExit(-1, 3);
+                }
+
+                cfgData.runMode = RunMode_Client;
+                strncpy(ipv6Str + ipv6StrOffset, optarg, optargLen);
+                if (inet_pton(AF_INET6, ipv6Str, &(cfgData.remoteAddr)) == 0) {
+                    if (inet_pton(AF_INET6, ipv6Str + ipv6StrOffset, &(cfgData.remoteAddr)) == 0) {
+                        LOGR("your input IP address is invalid\n");
+                        delayExit(-1, 0);
+                    // } else {
+                    //     memmove(ipv6Str, ipv6Str + ipv6StrOffset, optargLen);
+                    //     ipv6Str[optargLen] = '\0';
+                    }
+                }
+
+                break;
+            }
+            case 'p': {
+                cfgData.localPort = atoi(optarg);
+                if (cfgData.localPort > 65535) {
+                    LOGR("port number is invalid, range 0-65535\n");
+                    delayExit(-1, 0);
+                }
+
+                break;
+            }
+            case 'm': {
+                cfgData.isMultiPortEnable = true;
+
+                break;
+            }
+            case '?':
+            case 'h': {
+                printHelpInfo(argv[0]);
+                delayExit(0, 0);
+                
+                break;
+            }
+        }
+    }
+}
+
+void printHelpInfo(const char* name)
+{
+    LOGR("Usage as server: %s [-s <CIDR>] [-p <server port>] [-k <aes key>]\n", name);
+    LOGR("Usage as client: %s [-c <server address>] [-p <server port>] [-k <aes key>]\n", name);
+    LOGR("Server or Client:\n");
+    LOGR("  -p  <port>              local port\n");
+    LOGR("  -m                      enable multi-port transport mode\n");
+    LOGR("  -k  <key>               use <key>(ASE-128) to encrypto data\n");
+    LOGR("  -h                      print the messages you see\n");
+    LOGR("Server specific:\n");
+    LOGR("  -s  <CIDR>              run in server mode, allocate ipv4 address within <CIDR>\n");
+    LOGR("Client specific:\n");
+    LOGR("  -c  <Ipv4/v6>:<port>    run in client mode, connect to <Ipv4/v6>:<port>\n");
+ // LOGR("  -d                      all data will be sent directly to the destination instead of the server\n");
+}
+
+void delayExit(int code, int64_t delaySeconds)
+{
+    LogMgrPtr->terminate();
+
+    if (delaySeconds > 0) {
+        std::cout << "Program will terminate after "<< delaySeconds <<" seconds." << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
+    }
+    std::cout << "Program terminated with exit code " << code << std::endl;
+
+    exit(code);
 }

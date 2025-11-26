@@ -1,44 +1,49 @@
 #include "TapLan.hpp"
 
 static const char* TAG = "[TapLan]";
+ConfigDataT TapLan::config_;
 
-TapLan::TapLan(uint16_t localPort): runFlag_(false), runMode_(RunMode_Server),
-                                    localPort_(localPort),
-                                    udpSockPtr_(nullptr), tcpSockPtr_(nullptr)
+TapLan::TapLan(): runFlag_(false),
+                  udpSockPtr_(nullptr), tcpSockPtr_(nullptr),
+                  recvThreadName_("recvWorker"), sendThreadName_("sendWorker"), syncThreadName_("syncWorker")
 {
     memset(&serverAddr_, 0, sizeof(serverAddr_));
-    serverAddr_.sin6_family = AF_INET6;
-    serverAddr_.sin6_port = htons(localPort_);
+    mac_.num = 0;
+    memset(&udpSockPtrArr_, 0, sizeof(udpSockPtrArr_));
 
-    udpSockPtr_ = new UdpSocket(localPort_);
-    runFlag_ = udpSockPtr_->isFdValid() && TapDevPtr->open();
+    if (config_.runMode == RunMode_Server) {
+        LOGI(TAG, "We are running in server mode.");
 
-    if (runFlag_) {
-        mac_.num = 0;
-        TapDevPtr->getMacAddr(mac_.addr, sizeof(Mac));
-        Node* n = NodeMgrPtr->newNode(&serverAddr_, mac_.addr);
-        NodeMgrPtr->addNode(n);
-        TapDevPtr->setIpv4Addr(&n->ipv4Addr, 24);   // needmod
-    }
-}
+        serverAddr_.sin6_family = AF_INET6;
+        serverAddr_.sin6_port = htons(config_.localPort);
 
-TapLan::TapLan(uint16_t localPort, const char* ipv6Addr, uint16_t ipv6Port): runFlag_(false), runMode_(RunMode_Client),
-                                                                             localPort_(localPort),
-                                                                             udpSockPtr_(nullptr), tcpSockPtr_(nullptr)
-{
-    memset(&serverAddr_, 0, sizeof(serverAddr_));
-    serverAddr_.sin6_family = AF_INET6;
-    inet_pton(AF_INET6, ipv6Addr, &serverAddr_.sin6_addr);
-    serverAddr_.sin6_port = htons(ipv6Port);
+        initUdpSockPtr();
 
-    udpSockPtr_ = new UdpSocket(localPort_);
-    // TODO: tcp bind port should not equal server port
-    // tcpSockPtr_ = new TcpSocket(port, serverAddr_);
-    runFlag_ = udpSockPtr_->isFdValid() && TapDevPtr->open();
+        runFlag_ = udpSockPtr_->isFdValid() && TapDevPtr->open();
 
-    if (runFlag_) {
-        mac_.num = 0;
-        TapDevPtr->getMacAddr(mac_.addr, sizeof(Mac));
+        if (runFlag_) {
+            TapDevPtr->getMacAddr(mac_.addr, sizeof(Mac));
+            // TODO: Support variable network-number and variable network-number-length
+            Node* n = NodeMgrPtr->newNode(&serverAddr_, mac_.addr);
+            NodeMgrPtr->addNode(n);
+            TapDevPtr->setIpv4Addr(&n->ipv4Addr, 24);   // needmod
+        }
+    } else if (config_.runMode == RunMode_Client) {
+        LOGI(TAG, "We are running in client mode.");
+
+        serverAddr_.sin6_family = AF_INET6;
+        memcpy(&serverAddr_.sin6_addr, &config_.remoteAddr, sizeof(in6_addr));
+        serverAddr_.sin6_port = htons(config_.remotePort);
+
+        initUdpSockPtr();
+
+        runFlag_ = udpSockPtr_->isFdValid() && TapDevPtr->open();
+
+        if (runFlag_) {
+            TapDevPtr->getMacAddr(mac_.addr, sizeof(Mac));
+        }
+    } else {
+        // RunMode_None
     }
 }
 
@@ -47,20 +52,47 @@ TapLan::~TapLan()
     stop();
 }
 
+void TapLan::initUdpSockPtr()
+{
+    if (config_.isMultiPortEnable) {
+        uint16_t startPort = config_.localPort - config_.localPort % 4;
+        for (int i = 0; i < 4; ++i) {
+            uint16_t port = startPort + i;
+            udpSockPtrArr_[i] = new UdpSocket(port);
+            if (!udpSockPtrArr_[i]->isFdValid()) {
+                config_.isMultiPortEnable = false;
+            }
+
+            if (port == config_.localPort) {
+                udpSockPtr_ = udpSockPtrArr_[i];
+            }
+        }
+    } else {
+        udpSockPtr_ = new UdpSocket(config_.localPort);
+    }
+
+    if (!udpSockPtr_) {
+        udpSockPtr_ = new UdpSocket(config_.localPort);
+    }
+}
+
 void TapLan::handleTapData(void* buf, size_t bufLen)
 {
     sockaddr_in6 dstAddr;
     memset(&dstAddr, 0, sizeof(dstAddr));
     dstAddr.sin6_family = AF_INET6;
 
-    if (runMode_ == RunMode_Server) {
+    std::time_t now = std::time(nullptr);
+    uint16_t portOffset = (now / 60 % 60) % 4;
+
+    if (config_.runMode == RunMode_Server) {
         EtherHeader* eh = reinterpret_cast<EtherHeader*>(buf);
         bool needBroadcast = eh->dst[0] & 0x01;
         if (!needBroadcast) {
             Node* n = NodeMgrPtr->findNode(NodeMgrPtr->getMacNum(eh->dst));
             memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
             dstAddr.sin6_port = n->ipv6Port;
-            udpSockPtr_->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
+            (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
 
             return ;
         }
@@ -72,12 +104,12 @@ void TapLan::handleTapData(void* buf, size_t bufLen)
 
             memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
             dstAddr.sin6_port = n->ipv6Port;
-            udpSockPtr_->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+            (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
         };
         NodeMgrPtr->forEach(broadcast);
     }
-    else if (runMode_ == RunMode_Client) {
-        udpSockPtr_->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
+    else if (config_.runMode == RunMode_Client) {
+        (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
     } else {
         // RunMode_None
     }
@@ -95,11 +127,16 @@ void TapLan::readTapData()
 
         handleTapData(tapRxBuf, readBytes);
     }
+
+    std::cout << "Thread " << sendThreadName_ << " has exited." << std::endl;
 }
 
 void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
 {
-    if (runMode_ == RunMode_Server) {
+    std::time_t now = std::time(nullptr);
+    uint16_t portOffset = (now / 60 % 60) % 4;
+
+    if (config_.runMode == RunMode_Server) {
         sockaddr_in6 dstAddr;
         memset(&dstAddr, 0, sizeof(dstAddr));
         dstAddr.sin6_family = AF_INET6;
@@ -116,23 +153,23 @@ void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
 
                 memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 dstAddr.sin6_port = n->ipv6Port;
-                udpSockPtr_->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+                (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
             };
 
             NodeMgrPtr->forEach(broadcast);
             TapDevPtr->write(buf, bufLen);
         } else if (!isSendToMe) {   // not broadcast && not send to me
-            Node* node = NodeMgrPtr->findNode(dstMacNum);
-            if (!node) {
+            Node* n = NodeMgrPtr->findNode(dstMacNum);
+            if (!n) {
                 return ;
             }
-            memcpy(&dstAddr.sin6_addr, &node->ipv6Addr, sizeof(dstAddr.sin6_addr));
-            dstAddr.sin6_port = node->ipv6Port;
-            udpSockPtr_->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
+            memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
+            dstAddr.sin6_port = n->ipv6Port;
+            (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
         } else {                    // not broadcast && send to me
             TapDevPtr->write(buf, bufLen);
         }
-    } else if (runMode_ == RunMode_Client) {
+    } else if (config_.runMode == RunMode_Client) {
         TapDevPtr->write(buf, bufLen);
     } else {
         // RunMode_None
@@ -150,19 +187,49 @@ void TapLan::recvSockData()
     memset(&dstAddr, 0, sizeof(dstAddr));
     dstAddr.sin6_family = AF_INET6;
 
-    while (runFlag_) {
-        ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen, 3000);
-        if (recvBytes <= ETHERNET_HEADER_LEN) {
-            continue;
+    TapLanPollFd pfds[4];
+    if (config_.isMultiPortEnable) {
+        for (int i = 0; i < 4; ++i) {
+            pfds[i] = { static_cast<TapLanSocket>(*udpSockPtrArr_[i]), POLLIN, 0 };
         }
-
-        handleSockData(udpRxBuf, recvBytes, srcAddr);
     }
+
+    while (runFlag_) {
+        if (!config_.isMultiPortEnable) {
+            ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen, 3000);
+            if (recvBytes <= ETHERNET_HEADER_LEN) {
+                continue;
+            }
+
+            handleSockData(udpRxBuf, recvBytes, srcAddr);
+            continue;
+        } else {
+            int pollCnt = TapLanPoll(pfds, 4, 3000);
+            if (pollCnt < 0) {
+                LOGE(TAG, "TapLanPoll failed.");
+                continue;
+            } else if (pollCnt == 0) {
+                continue;
+            }
+            for (int i = 0; i < 4; ++i) {
+                if (pfds[i].revents != 0) {
+                    ssize_t recvBytes = udpSockPtrArr_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen, -1);
+                    if (recvBytes <= ETHERNET_HEADER_LEN) {
+                        continue;
+                    }
+
+                    handleSockData(udpRxBuf, recvBytes, srcAddr);
+                }
+            }
+        }
+    }
+
+    std::cout << "Thread " << recvThreadName_ << " has exited." << std::endl;
 }
 
 void TapLan::syncNodeStatusToClients()
 {
-    tcpSockPtr_ = new TcpSocket(localPort_);
+    tcpSockPtr_ = new TcpSocket(config_.localPort);
     if (!tcpSockPtr_->isFdValid() || !tcpSockPtr_->listen(5)) {
         LOGF(TAG, "run sync server failed.");
         runFlag_ = false;
@@ -251,7 +318,7 @@ void TapLan::syncNodeStatusFromServer()
         }
 
         delete tcpSockPtr_;
-        tcpSockPtr_ = new TcpSocket(localPort_, serverAddr_);
+        tcpSockPtr_ = new TcpSocket(config_.localPort, serverAddr_);
         if (!tcpSockPtr_->isFdValid()) {
             LOGE(TAG, "create tcp socket failed.");
             std::this_thread::sleep_for(std::chrono::seconds(3));
@@ -320,13 +387,15 @@ void TapLan::syncNodeStatusFromServer()
 
 void TapLan::syncNodeStatus()
 {
-    if (runMode_ == RunMode_Server) {
+    if (config_.runMode == RunMode_Server) {
         syncNodeStatusToClients();
-    } else if (runMode_ == RunMode_Client) {
+    } else if (config_.runMode == RunMode_Client) {
         syncNodeStatusFromServer();
     } else {
         // RunMode_None
     }
+
+    std::cout << "Thread " << syncThreadName_ << " has exited." << std::endl;
 }
 
 void TapLan::showNodeStatus()
@@ -366,14 +435,14 @@ bool TapLan::run()
     if (!runFlag_)
         return false;
 
-    threadReadTapData_ = std::thread(&TapLan::readTapData, this);
-    pthread_setname_np(threadReadTapData_.native_handle(), "tapWorker");
+    sendThread_ = std::thread(&TapLan::readTapData, this);
+    pthread_setname_np(sendThread_.native_handle(), sendThreadName_);
 
-    threadRecvSockData_ = std::thread(&TapLan::recvSockData, this);
-    pthread_setname_np(threadRecvSockData_.native_handle(), "udpWorker");
+    recvThread_ = std::thread(&TapLan::recvSockData, this);
+    pthread_setname_np(recvThread_.native_handle(), recvThreadName_);
 
-    threadSyncNodeStatus_ = std::thread(&TapLan::syncNodeStatus, this);
-    pthread_setname_np(threadSyncNodeStatus_.native_handle(), "syncWorker");
+    syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
+    pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
 
     return true;
 }
@@ -384,15 +453,12 @@ bool TapLan::stop()
         return false;
 
     runFlag_ = false;
-    if (threadReadTapData_.joinable())
-        threadReadTapData_.join();
-    LOGT(TAG, "threadReadTapData_ has been terminated.");
-    if (threadRecvSockData_.joinable())
-        threadRecvSockData_.join();
-    LOGT(TAG, "threadRecvSockData_ has been terminated.");
-    if (threadSyncNodeStatus_.joinable())
-        threadSyncNodeStatus_.join();
-    LOGT(TAG, "threadSyncNodeStatus_ has been terminated.");
+    if (sendThread_.joinable())
+        sendThread_.join();
+    if (recvThread_.joinable())
+        recvThread_.join();
+    if (syncThread_.joinable())
+        syncThread_.join();
 
     return true;
 }
