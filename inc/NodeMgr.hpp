@@ -17,8 +17,6 @@
 
 #endif
 
-#define     NodeMgrPtr      NodeMgr::ptr()
-
 typedef enum {
     NodeStatus_ONLINE = 0,
     NodeStatus_OFFLINE,
@@ -50,7 +48,7 @@ struct Node {
 
 class NodeMgr {
 public:
-                NodeMgr();
+                NodeMgr(uint32_t netNum = ((192 << 24) + (168 << 16) + (208 << 8)), uint8_t netNumLen = 24);
                 ~NodeMgr();
     Node*       newNode(const sockaddr_in6* addr, const uint8_t* mac);
     bool        addNode(Node* n);
@@ -66,17 +64,10 @@ public:
             f(key, value);
         }
     }
-    static NodeMgr* ptr();
 
 private:
-    uint32_t netId_;
-    uint8_t netIdLen_;
+    uint32_t netNum_;
+    uint8_t netNumLen_;
     std::bitset<256> addrPool_;
     std::map<uint64_t, Node*> macToNodeMap_;
 };
-
-inline NodeMgr* NodeMgr::ptr()
-{
-    static NodeMgr ins;
-    return &ins;
-}

@@ -1,6 +1,6 @@
 #include "NodeMgr.hpp"
 
-NodeMgr::NodeMgr(): netId_((192 << 24) + (168 << 16) + (208 << 8)), netIdLen_(24)
+NodeMgr::NodeMgr(uint32_t netNum, uint8_t netNumLen): netNum_(netNum), netNumLen_(netNumLen)
 {
     addrPool_.set(0);
     addrPool_.set(addrPool_.size() - 1);
@@ -26,31 +26,31 @@ Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
     memcpy(nodePtr->mac.addr, mac, 6);
     nodePtr->status = NodeStatus_ONLINE;
 
-    uint32_t hostId = 0;
+    uint32_t hostNum = 0;
     for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
         if (!addrPool_.test(i)) {
-            hostId = i;
+            hostNum = i;
             break;
         }
     }
-    if (hostId == 0) {
+    if (hostNum == 0) {
         delete nodePtr;
         return nullptr;
     }
-    nodePtr->ipv4Addr.s_addr = htonl(netId_ + hostId);
+    nodePtr->ipv4Addr.s_addr = htonl(netNum_ + hostNum);
 
     return nodePtr;
 }
 
 bool NodeMgr::addNode(Node* n)
 {
-    uint32_t hostId = n->ipv4Addr.s_addr >> netIdLen_;// & (1 << (32 - netIdLen_) - 1);
-    if (hostId == 0 || hostId == addrPool_.size() - 1) {
+    uint32_t hostNum = n->ipv4Addr.s_addr >> netNumLen_;// & (1 << (32 - netNumLen_) - 1);
+    if (hostNum == 0 || hostNum == addrPool_.size() - 1) {
         delete n;
         return false;
     }
 
-    addrPool_.set(hostId);
+    addrPool_.set(hostNum);
     macToNodeMap_[n->mac.num] = n;
 
     return true;
@@ -62,9 +62,9 @@ bool NodeMgr::delNode(uint64_t mac)
     if (!n)
         return false;
 
-    uint32_t hostId = n->ipv4Addr.s_addr & (1 << (32 - netIdLen_) - 1);
+    uint32_t hostNum = n->ipv4Addr.s_addr & (1 << (32 - netNumLen_) - 1);
     delete n;
-    addrPool_.reset(hostId);
+    addrPool_.reset(hostNum);
     macToNodeMap_.erase(mac);
 
     return true;
@@ -94,3 +94,5 @@ uint64_t NodeMgr::getMacNum(const uint8_t* mac)
 //         f(key, value);
 //     }
 // }
+
+// TODO: support sync node status

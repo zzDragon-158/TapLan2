@@ -5,6 +5,7 @@ ConfigDataT TapLan::config_;
 
 TapLan::TapLan(): runFlag_(false),
                   udpSockPtr_(nullptr), tcpSockPtr_(nullptr),
+                  nodeMgrPtr_(nullptr),
                   recvThreadName_("recvWorker"), sendThreadName_("sendWorker"), syncThreadName_("syncWorker")
 {
     memset(&serverAddr_, 0, sizeof(serverAddr_));
@@ -13,6 +14,8 @@ TapLan::TapLan(): runFlag_(false),
 
     if (config_.runMode == RunMode_Server) {
         LOGI(TAG, "We are running in server mode.");
+
+        nodeMgrPtr_ = new NodeMgr(config_.netNum, config_.netNumLen);
 
         serverAddr_.sin6_family = AF_INET6;
         serverAddr_.sin6_port = htons(config_.localPort);
@@ -23,9 +26,8 @@ TapLan::TapLan(): runFlag_(false),
 
         if (runFlag_) {
             TapDevPtr->getMacAddr(mac_.addr, sizeof(Mac));
-            // TODO: Support variable network-number and variable network-number-length
-            Node* n = NodeMgrPtr->newNode(&serverAddr_, mac_.addr);
-            NodeMgrPtr->addNode(n);
+            Node* n = nodeMgrPtr_->newNode(&serverAddr_, mac_.addr);
+            nodeMgrPtr_->addNode(n);
             TapDevPtr->setIpv4Addr(&n->ipv4Addr, 24);   // needmod
         }
     } else if (config_.runMode == RunMode_Client) {
@@ -89,7 +91,7 @@ void TapLan::handleTapData(void* buf, size_t bufLen)
         EtherHeader* eh = reinterpret_cast<EtherHeader*>(buf);
         bool needBroadcast = eh->dst[0] & 0x01;
         if (!needBroadcast) {
-            Node* n = NodeMgrPtr->findNode(NodeMgrPtr->getMacNum(eh->dst));
+            Node* n = nodeMgrPtr_->findNode(nodeMgrPtr_->getMacNum(eh->dst));
             memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
             dstAddr.sin6_port = n->ipv6Port;
             (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
@@ -97,7 +99,7 @@ void TapLan::handleTapData(void* buf, size_t bufLen)
             return ;
         }
 
-        uint64_t srcMacNum = NodeMgrPtr->getMacNum(eh->src);
+        uint64_t srcMacNum = nodeMgrPtr_->getMacNum(eh->src);
         auto broadcast = [&](uint64_t m, Node* n) {
             if (n->status == NodeStatus_OFFLINE || n->mac.num == srcMacNum)
                 return ;
@@ -106,7 +108,7 @@ void TapLan::handleTapData(void* buf, size_t bufLen)
             dstAddr.sin6_port = n->ipv6Port;
             (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
         };
-        NodeMgrPtr->forEach(broadcast);
+        nodeMgrPtr_->forEach(broadcast);
     }
     else if (config_.runMode == RunMode_Client) {
         (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
@@ -141,8 +143,8 @@ void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
         memset(&dstAddr, 0, sizeof(dstAddr));
         dstAddr.sin6_family = AF_INET6;
         EtherHeader* eh = reinterpret_cast<EtherHeader*>(buf);
-        uint64_t srcMacNum = NodeMgrPtr->getMacNum(eh->src);
-        uint64_t dstMacNum = NodeMgrPtr->getMacNum(eh->dst);
+        uint64_t srcMacNum = nodeMgrPtr_->getMacNum(eh->src);
+        uint64_t dstMacNum = nodeMgrPtr_->getMacNum(eh->dst);
         bool needBroadcast = eh->dst[0] & 0x01;
         bool isSendToMe = needBroadcast || (dstMacNum == mac_.num);
 
@@ -156,10 +158,10 @@ void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
                 (config_.isMultiPortEnable? udpSockPtrArr_[portOffset]: udpSockPtr_)->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
             };
 
-            NodeMgrPtr->forEach(broadcast);
+            nodeMgrPtr_->forEach(broadcast);
             TapDevPtr->write(buf, bufLen);
         } else if (!isSendToMe) {   // not broadcast && not send to me
-            Node* n = NodeMgrPtr->findNode(dstMacNum);
+            Node* n = nodeMgrPtr_->findNode(dstMacNum);
             if (!n) {
                 return ;
             }
@@ -278,16 +280,16 @@ void TapLan::syncNodeStatusToClients()
                     continue;
                 }
 
-                Node* node = NodeMgrPtr->findNode(req->mac.num);
+                Node* node = nodeMgrPtr_->findNode(req->mac.num);
                 if (!node) {
                     sockaddr_in6 addr;
                     client.getRemoteAddr(&addr);
-                    node = NodeMgrPtr->newNode(&addr, req->mac.addr);
+                    node = nodeMgrPtr_->newNode(&addr, req->mac.addr);
                     if (!node) {
                         LOGE(TAG, "new node failed.");
                         continue;
                     }
-                    if (!NodeMgrPtr->addNode(node)) {
+                    if (!nodeMgrPtr_->addNode(node)) {
                         LOGE(TAG, "add node failed.");
                         continue;
                     }
@@ -400,7 +402,7 @@ void TapLan::syncNodeStatus()
 
 void TapLan::showNodeStatus()
 {
-    LOGR("status     TapLan MAC address    TapLan IP address    Public IP address\n");
+    LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
     auto printNodeStatus = [&](uint64_t m, Node* n) {
@@ -421,7 +423,7 @@ void TapLan::showNodeStatus()
             tapmacbuf, tapipbuf, ipv6str.c_str(), ntohs(n->ipv6Port));
         LOGR("%s", buf);
     };
-    NodeMgrPtr->forEach(printNodeStatus);
+    nodeMgrPtr_->forEach(printNodeStatus);
 }
 
 void TapLan::showErrorCount()

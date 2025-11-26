@@ -92,6 +92,8 @@ void LogMgr::logWorker()
             std::cout << logQueue_.front();
             logQueue_.pop();
         }
+
+        std::cout << std::flush;
     }
 
     std::cout << "Thread " << logThreadName_ << " has exited." << std::endl;
