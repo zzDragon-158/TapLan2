@@ -32,8 +32,8 @@ int main(int argc, char* argv[])
             LOGR("Waiting for thread termination......\n");
             TapLanPtr->stop();
             break;
-        } else if (input == "/show err") {
-            TapLanPtr->showErrorCount();
+        } else if (input == "/show stats") {
+            TapLanPtr->showStats();
         } else if (input == "/show fib") {
             TapLanPtr->showNodeStatus();
         }

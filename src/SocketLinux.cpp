@@ -5,15 +5,15 @@ static const char* TAG = "[Socket]";
 const int udpBufferSize = 1024 * 1024 * 8;
 
 UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
-                          totalSendBytes_(0), totalRecvBytes_(0),
-                          sendErrCnt_(0), recvErrCnt_(0)
+                          sendBytes_(0), recvBytes_(0),
+                          sendErrors_(0), recvErrors_(0)
 {
     // nothing to do
 }
 
 UniversalSocket::UniversalSocket(UniversalSocket&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
-                                                                    totalSendBytes_(other.totalSendBytes_), totalRecvBytes_(other.totalRecvBytes_),
-                                                                    sendErrCnt_(other.sendErrCnt_), recvErrCnt_(other.sendErrCnt_)
+                                                                    sendBytes_(other.sendBytes_), recvBytes_(other.recvBytes_),
+                                                                    sendErrors_(other.sendErrors_), recvErrors_(other.sendErrors_)
 {
     other.fd_ = INVALID_SOCKET;
 }
@@ -29,6 +29,11 @@ bool UniversalSocket::open()
     LOGT(TAG, "Why are we here?");
 
     return true;
+}
+
+std::string UniversalSocket::getErrStr()
+{
+    return "[Error " + std::to_string(errno) + "] " + strerror(errno);
 }
 
 bool UniversalSocket::close()
@@ -107,7 +112,7 @@ bool TcpSocket::open()
     /* listen to ipv4 and ipv6 */ {
         int off = 0;
         if (setsockopt(fd_, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off, sizeof(off))) {
-            LOGE(TAG, "TCP setsockopt(IPV6_V6ONLY) failed.");
+            LOGE(TAG, "TCP setsockopt(IPV6_V6ONLY) failed. %s", getErrStr().c_str());
             return false;
         }
     }
@@ -116,7 +121,7 @@ bool TcpSocket::open()
         int optval = 1;
         int optlevel = (SO_REUSEADDR | SO_REUSEPORT);
         if (setsockopt(fd_, SOL_SOCKET, optlevel, (char*)&optval, sizeof(optval))) {
-            LOGE(TAG, "TCP setsockopt(SO_REUSEADDR) failed.");
+            LOGE(TAG, "TCP setsockopt(SO_REUSEADDR) failed. %s", getErrStr().c_str());
             return false;
         }
     }
@@ -128,7 +133,7 @@ bool TcpSocket::open()
         sa.sin6_addr = in6addr_any;
         sa.sin6_port = htons(bindPort_);
         if (bind(fd_, (sockaddr*)(&sa), sizeof(sockaddr_in6))) {
-            LOGE(TAG, "TCP can not bind to [::]:%u.", bindPort_);
+            LOGE(TAG, "TCP can not bind to [::]:%u. %s", bindPort_, getErrStr().c_str());
             return false;
         }
     }
@@ -139,7 +144,7 @@ bool TcpSocket::open()
 bool TcpSocket::connect()
 {
     if (::connect(fd_, reinterpret_cast<const sockaddr *>(&remoteAddr_), sizeof(remoteAddr_))) {
-        LOGE(TAG, "TCP connect failed.");
+        LOGE(TAG, "TCP connect failed. %s", getErrStr().c_str());
         return false;
     }
     isPassive_ = false;
@@ -150,7 +155,7 @@ bool TcpSocket::connect()
 bool TcpSocket::listen(int backlog)
 {
     if (::listen(fd_, backlog)) {
-        LOGE(TAG, "TCP listen failed.");
+        LOGE(TAG, "TCP listen failed. %s", getErrStr().c_str());
         return false;
     }
     isPassive_ = true;
@@ -173,10 +178,11 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
 {
     ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
     if (sendBytes < bufLen) {
-        ++sendErrCnt_;
-        LOGE(TAG, "TCP sendBytes[%ld] is less than expected[%ld].", sendBytes, bufLen);
+        ++sendErrors_;
+        LOGW(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
     }
 
+    sendBytes_ += sendBytes;
     return sendBytes;
 }
 
@@ -188,7 +194,7 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
         if (pollCnt == 0) {
             return -1;
         } else if (pollCnt == -1) {
-            ++recvErrCnt_;
+            ++recvErrors_;
             LOGE(TAG, "TCP poll failed.");
             return -1;
         }
@@ -197,14 +203,15 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1) {
         if (errno != ECONNRESET && errno != ETIMEDOUT) {
-            ++recvErrCnt_;
-            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %d", fd_, errno);
+            ++recvErrors_;
+            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
             std::this_thread::sleep_for(std::chrono::seconds(1));
         } else if (errno == ECONNRESET) {
             recvBytes = 0;
         }
     }
 
+    recvBytes_ += recvBytes;
     return recvBytes;
 }
 
@@ -228,14 +235,14 @@ bool UdpSocket::open()
 {
     fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
     if (fd_ == -1) {
-        LOGE(TAG, "Can not create udp socket.");
+        LOGE(TAG, "Can not create udp socket. %s", getErrStr().c_str());
         return false;
     }
 
     /* listen to ipv4 and ipv6 */ {
         int off = 0;
         if (setsockopt(fd_, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off, sizeof(off))) {
-            LOGE(TAG, "UDP setsockopt(IPV6_V6ONLY) failed.");
+            LOGE(TAG, "UDP setsockopt(IPV6_V6ONLY) failed. %s", getErrStr().c_str());
             return false;
         }
     }
@@ -247,17 +254,26 @@ bool UdpSocket::open()
         sa.sin6_addr = in6addr_any;
         sa.sin6_port = htons(bindPort_);
         if (bind(fd_, (sockaddr*)(&sa), sizeof(sockaddr_in6))) {
-            LOGE(TAG, "UDP can not bind to [::]:%u.", bindPort_);
+            LOGE(TAG, "UDP can not bind to [::]:%u. %s", bindPort_, getErrStr().c_str());
             return false;
+        }
+    }
+
+    /* set timeout */ {
+        timeval timeout;
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
         }
     }
 
     /* set udp buffer size */ {
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGE(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d.", udpBufferSize);
+            LOGE(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
         }
         if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGE(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d.", udpBufferSize);
+            LOGE(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
         }
     }
 
@@ -268,31 +284,24 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        ++sendErrCnt_;
-        LOGE(TAG, "UDP sendBytes[%ld] is less than expected[%ld].", sendBytes, bufLen);
+        ++sendErrors_;
+        LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
     }
 
+    sendBytes_ += sendBytes;
     return sendBytes;
 }
 
-ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen, int timeout)
+ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen)
 {
-    if (timeout >= 0) {
-        TapLanPollFd pfd = { fd_, POLLIN, 0 };
-        int pollCnt = TapLanPoll(&pfd, 1, timeout);
-        if (pollCnt == 0) {
-            return -1;
-        } else if (pollCnt == -1) {
-            ++recvErrCnt_;
-            LOGE(TAG, "UDP poll failed.");
-            return -1;
-        }
-    }
-
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
-        ++recvErrCnt_;
-        LOGE(TAG, "UDP receiving from UDP socket failed.");
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            ++recvErrors_;
+            LOGE(TAG, "UDP receiving from UDP socket failed. %s", getErrStr().c_str());
+        }
+    } else {
+        recvBytes_ += recvBytes;
     }
 
     return recvBytes;

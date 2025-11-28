@@ -32,7 +32,7 @@ public:
     bool run();
     bool stop();
     void showNodeStatus();
-    void showErrorCount();
+    void showStats();
 
 private:
     bool            runFlag_;

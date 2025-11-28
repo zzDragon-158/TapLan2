@@ -198,7 +198,7 @@ void TapLan::recvSockData()
 
     while (runFlag_) {
         if (!config_.isMultiPortEnable) {
-            ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen, 3000);
+            ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
             if (recvBytes <= ETHERNET_HEADER_LEN) {
                 continue;
             }
@@ -215,7 +215,7 @@ void TapLan::recvSockData()
             }
             for (int i = 0; i < 4; ++i) {
                 if (pfds[i].revents != 0) {
-                    ssize_t recvBytes = udpSockPtrArr_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen, -1);
+                    ssize_t recvBytes = udpSockPtrArr_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
                     if (recvBytes <= ETHERNET_HEADER_LEN) {
                         continue;
                     }
@@ -402,6 +402,12 @@ void TapLan::syncNodeStatus()
 
 void TapLan::showNodeStatus()
 {
+    // TODO: client mode not support this api temporly
+    if (config_.runMode != RunMode_Server) {
+        LOGI(TAG, "client mode not support this api tmporarily.");
+        return ;
+    }
+
     LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
@@ -426,10 +432,38 @@ void TapLan::showNodeStatus()
     nodeMgrPtr_->forEach(printNodeStatus);
 }
 
-void TapLan::showErrorCount()
+void TapLan::showStats()
 {
     // TODO: show error count
-    LOGI(TAG, "not support tmporarily.");
+    uint64_t totalSendBytes = 0, totalSendErrors = 0, totalRecvBytes = 0, totalRecvErrors = 0;
+    LOGR("multi-port mode is %s\n", (config_.isMultiPortEnable? "enable": "disable"));
+    if (config_.isMultiPortEnable) {
+        for (int i = 0; i < 4; ++i) {
+            uint64_t sendBytes = udpSockPtrArr_[i]->getSendBytes(),
+                     sendErrors = udpSockPtrArr_[i]->getSendErrors(),
+                     recvBytes = udpSockPtrArr_[i]->getRecvBytes(),
+                     recvErrors = udpSockPtrArr_[i]->getRecvErrors();
+            LOGR("UDP port %u:\n", udpSockPtrArr_[i]->getBindPort());
+            LOGR("    TX bytes:   %lu\n", sendBytes);
+            LOGR("    TX errors:  %lu\n", sendErrors);
+            LOGR("    RX bytes:   %lu\n", recvBytes);
+            LOGR("    RX errors:  %lu\n", recvErrors);
+            totalSendBytes += sendBytes;
+            totalSendErrors += sendErrors;
+            totalRecvBytes += recvBytes;
+            totalRecvErrors += recvErrors;
+        }
+    } else {
+        totalSendBytes += udpSockPtr_->getSendBytes();
+        totalSendErrors += udpSockPtr_->getSendErrors();
+        totalRecvBytes += udpSockPtr_->getRecvBytes();
+        totalRecvErrors += udpSockPtr_->getRecvErrors();
+    }
+    LOGR("total:\n");
+    LOGR("    TX bytes:   %lu\n", totalSendBytes);
+    LOGR("    TX errors:  %lu\n", totalSendErrors);
+    LOGR("    RX bytes:   %lu\n", totalRecvBytes);
+    LOGR("    RX errors:  %lu\n", totalRecvErrors);
 }
 
 bool TapLan::run()
