@@ -350,7 +350,7 @@ void TapLan::syncNodeStatusFromServer()
         while (!hasIPv4Addr && runFlag_) {
             tcpSockPtr_->send(req, sizeof(SyncMessage));
 
-            ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf), 3000);
+            ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf));
             if (recvBytes == 0) {
                 LOGW(TAG, "server has close, retrying to connect...");
                 isConnected = false;
@@ -378,7 +378,7 @@ void TapLan::syncNodeStatusFromServer()
     do {
         while (!retryConnect() && runFlag_);
         while (!getAndSetIPv4Addr() && runFlag_);
-        ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf), 3000);
+        ssize_t recvBytes = tcpSockPtr_->recv(buf, sizeof(buf));
         if (recvBytes == 0) {
             isConnected = false;
             hasIPv4Addr = false;

@@ -138,6 +138,15 @@ bool TcpSocket::open()
         }
     }
 
+    /* set timeout */ {
+        timeval timeout;
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
+        }
+    }
+
     return true;
 }
 
@@ -180,38 +189,23 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
     if (sendBytes < bufLen) {
         ++sendErrors_;
         LOGW(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
+    } else {
+        sendBytes_ += sendBytes;
     }
 
-    sendBytes_ += sendBytes;
     return sendBytes;
 }
 
-ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
+ssize_t TcpSocket::recv(void* buf, size_t bufLen)
 {
-    if (timeout >= 0) {
-        TapLanPollFd pfd = { fd_, POLLIN, 0 };
-        int pollCnt = TapLanPoll(&pfd, 1, timeout);
-        if (pollCnt == 0) {
-            return -1;
-        } else if (pollCnt == -1) {
-            ++recvErrors_;
-            LOGE(TAG, "TCP poll failed.");
-            return -1;
-        }
-    }
-
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
-    if (recvBytes == -1) {
-        if (errno != ECONNRESET && errno != ETIMEDOUT) {
-            ++recvErrors_;
-            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        } else if (errno == ECONNRESET) {
-            recvBytes = 0;
-        }
+    if (recvBytes == -1 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT)) {
+        ++recvErrors_;
+        LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
+    } else {
+        recvBytes_ += recvBytes;
     }
 
-    recvBytes_ += recvBytes;
     return recvBytes;
 }
 
@@ -286,9 +280,10 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
     if (sendBytes < bufLen) {
         ++sendErrors_;
         LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
+    } else {
+        sendBytes_ += sendBytes;
     }
 
-    sendBytes_ += sendBytes;
     return sendBytes;
 }
 

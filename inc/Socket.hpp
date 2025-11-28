@@ -91,7 +91,7 @@ public:
     bool listen(int backlog);
     bool accept(TapLanSocket& fd, sockaddr_in6& addr);
     ssize_t send(const void* buf, size_t bufLen);
-    ssize_t recv(void* buf, size_t bufLen, int timeout = -1);
+    ssize_t recv(void* buf, size_t bufLen);
     // bool recv(CbRecvFunc& cbRecv);
     void getRemoteAddr(sockaddr_in6* addr);
 

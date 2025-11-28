@@ -179,6 +179,13 @@ bool TcpSocket::open()
         }
     }
 
+    /* set timeout */ {
+        DWORD timeoutMs = 3000;
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMs, sizeof(timeoutMs))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lu ms. %s", timeoutMs, getErrStr().c_str());
+        }
+    }
+
     return true;
 }
 
@@ -222,38 +229,23 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
     if (sendBytes < bufLen) {
         ++sendErrors_;
         LOGW(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
+    } else {
+        sendBytes_ += sendBytes;
     }
 
-    sendBytes_ += sendBytes;
     return sendBytes;
 }
 
-ssize_t TcpSocket::recv(void* buf, size_t bufLen, int timeout)
+ssize_t TcpSocket::recv(void* buf, size_t bufLen)
 {
-    if (timeout >= 0) {
-        TapLanPollFd pfd = { fd_, POLLIN, 0 };
-        int pollCnt = TapLanPoll(&pfd, 1, timeout);
-        if (pollCnt == 0) {
-            return -1;
-        } else if (pollCnt == -1) {
-            ++recvErrors_;
-            LOGW(TAG, "TCP poll failed. %s", getErrStr().c_str());
-            return -1;
-        }
-    }
-
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
-    if (recvBytes == -1) {
-        if (errno != WSAECONNRESET && errno != WSAETIMEDOUT) {
-            ++recvErrors_;
-            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        } else if (errno == WSAECONNRESET) {
-            recvBytes = 0;
-        }
+    if (recvBytes == -1 && WSAGetLastError() != WSAETIMEDOUT) {
+        ++recvErrors_;
+        LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
+    } else {
+        recvBytes_ += recvBytes;
     }
 
-    recvBytes_ += recvBytes;
     return recvBytes;
 }
 
@@ -338,9 +330,10 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
     if (sendBytes < bufLen) {
         ++sendErrors_;
         LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %d", sendBytes, bufLen, getErrStr().c_str());
+    } else {
+        sendBytes_ += sendBytes;
     }
 
-    sendBytes_ += sendBytes;
     return sendBytes;
 }
 
