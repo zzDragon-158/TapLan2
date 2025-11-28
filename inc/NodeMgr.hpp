@@ -55,6 +55,7 @@ public:
     bool        delNode(uint64_t mac);
     Node*       findNode(uint64_t mac);
     uint64_t    getMacNum(const uint8_t* mac);
+    bool        setNodeStatus(uint64_t mac, NodeStatus status);
     template<typename Func>
     void forEach(Func&& f)
     {

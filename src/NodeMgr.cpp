@@ -88,6 +88,17 @@ uint64_t NodeMgr::getMacNum(const uint8_t* mac)
     return m.num;
 }
 
+bool NodeMgr::setNodeStatus(uint64_t mac, NodeStatus status)
+{
+    Node* n = findNode(mac);
+    if (!n)
+        return false;
+
+    n->status = status;
+
+    return true;
+}
+
 // void NodeMgr::forEach(const std::function<void(uint64_t, Node*)>& f)
 // {
 //     for (auto& [key, value]: macToNodeMap_) {

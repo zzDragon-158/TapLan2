@@ -200,8 +200,12 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
 {
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT)) {
-        ++recvErrors_;
-        LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
+        if (errno == ECONNRESET) {
+            recvBytes = 0;
+        } else {
+            ++recvErrors_;
+            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
+        }
     } else {
         recvBytes_ += recvBytes;
     }

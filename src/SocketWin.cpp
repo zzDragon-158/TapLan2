@@ -239,9 +239,14 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
 ssize_t TcpSocket::recv(void* buf, size_t bufLen)
 {
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
-    if (recvBytes == -1 && WSAGetLastError() != WSAETIMEDOUT) {
-        ++recvErrors_;
-        LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
+    int errorCode = WSAGetLastError();
+    if (recvBytes == -1 && errorCode != WSAETIMEDOUT) {
+        if (errorCode == WSAECONNRESET) {
+            recvBytes = 0;
+        } else {
+            ++recvErrors_;
+            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
+        }
     } else {
         recvBytes_ += recvBytes;
     }

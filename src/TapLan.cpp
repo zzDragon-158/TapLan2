@@ -240,6 +240,7 @@ void TapLan::syncNodeStatusToClients()
 
     std::vector<TapLanPollFd> pfds;
     std::vector<TcpSocket> clients;
+    std::map<TapLanSocket, uint64_t> sockToMacMap;
     pfds.push_back({ static_cast<TapLanSocket>(*tcpSockPtr_), POLLIN, 0 });
     while (runFlag_) {
         int pollCnt = TapLanPoll(pfds.data(), pfds.size(), 3000);
@@ -270,6 +271,11 @@ void TapLan::syncNodeStatusToClients()
                 if (recvBytes == 0) {
                     pfds.erase(pfds.begin() + i);
                     clients.erase(clients.begin() + i - 1);
+                    auto it = sockToMacMap.find(static_cast<TapLanSocket>(client));
+                    if (it != sockToMacMap.end()) {
+                        nodeMgrPtr_->setNodeStatus(it->second, NodeStatus_OFFLINE);
+                        sockToMacMap.erase(it->first);
+                    }
                     continue;
                 } else if (recvBytes != sizeof(SyncMessage)) {
                     continue;
@@ -294,6 +300,9 @@ void TapLan::syncNodeStatusToClients()
                         continue;
                     }
                 }
+
+                sockToMacMap[static_cast<TapLanSocket>(client)] = req->mac.num;
+                nodeMgrPtr_->setNodeStatus(req->mac.num, NodeStatus_ONLINE);
 
                 memcpy(sendBuf, recvBuf, recvBytes);
                 SyncMessage* resp = reinterpret_cast<SyncMessage*>(sendBuf);
