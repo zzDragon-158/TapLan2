@@ -22,10 +22,16 @@
 #endif
 
 typedef enum {
-    NodeStatus_ONLINE = 0,
-    NodeStatus_OFFLINE,
-    NUMS_OF_NodeSTATUS,
+    NODE_ONLINE = 0,
+    NODE_OFFLINE,
 } NodeStatus;
+
+// TODO: maybe need this in future
+// typedef enum {
+//     NODE_CONNECTED = 0,
+//     NODE_DISCONNECTED,
+//     NODE_INFO_UPDATED,
+// } NodeEvent;
 
 #pragma pack(push, 1)
 union Mac {
@@ -50,12 +56,6 @@ struct Node {
     time_t      lastSeen;
 };
 #pragma pack(pop)
-
-typedef enum {
-    NODE_CONNECTED = 0,
-    NODE_DISCONNECTED,
-    NODE_INFO_UPDATED,
-} NodeEvent;
 
 class NodeMgr {
 public:

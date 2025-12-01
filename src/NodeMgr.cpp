@@ -37,7 +37,7 @@ std::shared_ptr<Node> NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum
     n->ipv6Port = addr->sin6_port;
     n->ipv4Addr.s_addr = htonl(netNum_ + hostNum);
     n->mac.num = macNum;
-    n->status = NodeStatus_ONLINE;
+    n->status = NODE_ONLINE;
     n->lastSeen = time(nullptr);
 
     addrPool_.set(hostNum);

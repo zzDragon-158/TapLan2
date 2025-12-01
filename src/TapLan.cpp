@@ -102,7 +102,7 @@ void TapLan::handleTapData(void* buf, size_t bufLen)
 
         uint64_t srcMacNum = getMacNum(eh->src);
         auto broadcast = [&](uint64_t m, std::shared_ptr<Node> n) {
-            if (n->status == NodeStatus_OFFLINE || n->mac.num == srcMacNum)
+            if (n->status == NODE_OFFLINE || n->mac.num == srcMacNum)
                 return ;
 
             memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
@@ -151,7 +151,7 @@ void TapLan::handleSockData(void* buf, size_t bufLen, sockaddr_in6& srcAddr)
 
         if (needBroadcast) {        // broadcast
             auto broadcast = [&](uint64_t m, std::shared_ptr<Node> n) {
-                if (n->status == NodeStatus_OFFLINE || n->mac.num == srcMacNum || n->mac.num == mac_.num)
+                if (n->status == NODE_OFFLINE || n->mac.num == srcMacNum || n->mac.num == mac_.num)
                     return ;
 
                 memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
@@ -272,7 +272,7 @@ void TapLan::syncNodeStatusToClients()
                 if (recvBytes == 0) {
                     auto it = sockToMacMap.find(static_cast<TapLanSocket>(client));
                     if (it != sockToMacMap.end()) {
-                        if (!nodeMgrPtr_->setNodeStatus(it->second, NodeStatus_OFFLINE))
+                        if (!nodeMgrPtr_->setNodeStatus(it->second, NODE_OFFLINE))
                             LOGW(TAG, "set node status failed.");
                         sockToMacMap.erase(it->first);
                     }
@@ -300,7 +300,7 @@ void TapLan::syncNodeStatusToClients()
                 }
 
                 sockToMacMap[static_cast<TapLanSocket>(client)] = req->mac.num;
-                nodeMgrPtr_->setNodeStatus(req->mac.num, NodeStatus_ONLINE);
+                nodeMgrPtr_->setNodeStatus(req->mac.num, NODE_ONLINE);
 
                 memcpy(sendBuf, recvBuf, recvBytes);
                 SyncMessage* resp = reinterpret_cast<SyncMessage*>(sendBuf);
@@ -444,7 +444,7 @@ void TapLan::showNodeStatus()
 
         char buf[128];
         sprintf(buf, "%-11s%-22s%-21s[%s]:%u\n",
-            (n->status == NodeStatus_ONLINE? "ONLINE": "OFFLINE"),
+            (n->status == NODE_ONLINE? "ONLINE": "OFFLINE"),
             tapmacbuf, tapipbuf, ipv6str.c_str(), ntohs(n->ipv6Port));
         LOGR("%s", buf);
     };
