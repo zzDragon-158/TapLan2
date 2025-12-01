@@ -1,9 +1,13 @@
 #pragma     once
 #include    <cstdint>
 #include    <cstring>
+#include    <ctime>
+#include    <memory>
 #include    <map>
 #include    <bitset>
 #include    <functional>
+#include    <mutex>
+#include    <shared_mutex>
 
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
@@ -43,22 +47,30 @@ struct Node {
     in_addr     ipv4Addr;
     Mac         mac;
     uint16_t    status;
+    time_t      lastSeen;
 };
 #pragma pack(pop)
 
+typedef enum {
+    NODE_CONNECTED = 0,
+    NODE_DISCONNECTED,
+    NODE_INFO_UPDATED,
+} NodeEvent;
+
 class NodeMgr {
 public:
-                NodeMgr(uint32_t netNum = ((192 << 24) + (168 << 16) + (208 << 8)), uint8_t netNumLen = 24);
-                ~NodeMgr();
-    Node*       newNode(const sockaddr_in6* addr, const uint8_t* mac);
-    bool        addNode(Node* n);
-    bool        delNode(uint64_t mac);
-    Node*       findNode(uint64_t mac);
-    uint64_t    getMacNum(const uint8_t* mac);
-    bool        setNodeStatus(uint64_t mac, NodeStatus status);
+    NodeMgr(uint32_t netNum = ((192 << 24) + (168 << 16) + (208 << 8)), uint8_t netNumLen = 24);
+    ~NodeMgr();
+    std::shared_ptr<Node>   addNode(const sockaddr_in6* addr, uint64_t macNum);
+    std::shared_ptr<Node>   addNode(uint64_t macNum, Node& node);
+    std::shared_ptr<Node>   delNode(uint64_t macNum);
+    std::shared_ptr<Node>   findNode(uint64_t macNum, bool isLocked = false);
+    bool        setNodeStatus(uint64_t macNum, NodeStatus status);
+    size_t      getNodeNums() { return macToNodeMap_.size(); };
     template<typename Func>
     void forEach(Func&& f)
     {
+        std::unique_lock<std::shared_mutex> wLock(rwMutex_);
         for (auto& it : macToNodeMap_) {
             auto& key = it.first;
             auto& value = it.second;
@@ -70,5 +82,6 @@ private:
     uint32_t netNum_;
     uint8_t netNumLen_;
     std::bitset<256> addrPool_;
-    std::map<uint64_t, Node*> macToNodeMap_;
+    std::map<uint64_t, std::shared_ptr<Node>> macToNodeMap_;
+    std::shared_mutex rwMutex_;
 };

@@ -1,4 +1,7 @@
 #include "NodeMgr.hpp"
+#include "LogMgr.hpp"
+
+const char* TAG = "[NodeMgr]";
 
 NodeMgr::NodeMgr(uint32_t netNum, uint8_t netNumLen): netNum_(netNum), netNumLen_(netNumLen)
 {
@@ -8,23 +11,14 @@ NodeMgr::NodeMgr(uint32_t netNum, uint8_t netNumLen): netNum_(netNum), netNumLen
 
 NodeMgr::~NodeMgr()
 {
-    auto freeNode = [](uint64_t k, Node* n) {
-        delete n;
-    };
-    forEach(freeNode);
+    // pass
 }
 
-Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
+std::shared_ptr<Node> NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
 {
-    Node* nodePtr = new Node;
-    if (!nodePtr)
-        return nullptr;
-
-    memset(nodePtr, 0, sizeof(Node));
-    memcpy(&nodePtr->ipv6Addr, &addr->sin6_addr, sizeof(in6_addr));
-    nodePtr->ipv6Port = addr->sin6_port;
-    memcpy(nodePtr->mac.addr, mac, 6);
-    nodePtr->status = NodeStatus_ONLINE;
+    std::shared_ptr<Node> n = findNode(macNum);
+    if (n)
+        return n;
 
     uint32_t hostNum = 0;
     for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
@@ -34,63 +28,60 @@ Node* NodeMgr::newNode(const sockaddr_in6* addr, const uint8_t* mac)
         }
     }
     if (hostNum == 0) {
-        delete nodePtr;
+        LOGE(TAG, "no enough addr for allocating.");
         return nullptr;
     }
-    nodePtr->ipv4Addr.s_addr = htonl(netNum_ + hostNum);
 
-    return nodePtr;
-}
-
-bool NodeMgr::addNode(Node* n)
-{
-    uint32_t hostNum = n->ipv4Addr.s_addr >> netNumLen_;// & (1 << (32 - netNumLen_) - 1);
-    if (hostNum == 0 || hostNum == addrPool_.size() - 1) {
-        delete n;
-        return false;
-    }
+    n = std::make_shared<Node>();
+    memcpy(&n->ipv6Addr, &addr->sin6_addr, sizeof(in6_addr));
+    n->ipv6Port = addr->sin6_port;
+    n->ipv4Addr.s_addr = htonl(netNum_ + hostNum);
+    n->mac.num = macNum;
+    n->status = NodeStatus_ONLINE;
+    n->lastSeen = time(nullptr);
 
     addrPool_.set(hostNum);
-    macToNodeMap_[n->mac.num] = n;
+    macToNodeMap_[macNum] = n;
 
-    return true;
+    return n;
 }
 
-bool NodeMgr::delNode(uint64_t mac)
-{ 
-    Node* n = findNode(mac);
+std::shared_ptr<Node> NodeMgr::addNode(uint64_t macNum, Node& node)
+{
+    std::shared_ptr n = std::make_shared<Node>();
+    memcpy(n.get(), &node, sizeof(Node));
+
+    // TODO: addrPool_.set(hostNum)
+    macToNodeMap_[macNum] = n;
+
+    return n;
+}
+
+std::shared_ptr<Node> NodeMgr::delNode(uint64_t macNum)
+{
+    std::shared_ptr<Node> n = findNode(macNum, true);
     if (!n)
-        return false;
+        return nullptr;
 
     uint32_t hostNum = n->ipv4Addr.s_addr & (1 << (32 - netNumLen_) - 1);
-    delete n;
     addrPool_.reset(hostNum);
-    macToNodeMap_.erase(mac);
+    macToNodeMap_.erase(macNum);
 
-    return true;
+    return n;
 }
 
-Node* NodeMgr::findNode(uint64_t mac)
+std::shared_ptr<Node> NodeMgr::findNode(uint64_t macNum, bool isLocked)
 {
-    auto it = macToNodeMap_.find(mac);
+    auto it = macToNodeMap_.find(macNum);
     if (it == macToNodeMap_.end())
         return nullptr;
 
     return it->second;
 }
 
-uint64_t NodeMgr::getMacNum(const uint8_t* mac)
+bool NodeMgr::setNodeStatus(uint64_t macNum, NodeStatus status)
 {
-    Mac m;
-    m.num = 0;
-    memcpy(m.addr, mac, 6);
-
-    return m.num;
-}
-
-bool NodeMgr::setNodeStatus(uint64_t mac, NodeStatus status)
-{
-    Node* n = findNode(mac);
+    std::shared_ptr<Node> n = findNode(macNum);
     if (!n)
         return false;
 

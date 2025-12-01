@@ -41,7 +41,7 @@ private:
     UdpSocket*      udpSockPtr_;
     UdpSocket*      udpSockPtrArr_[4];
     TcpSocket*      tcpSockPtr_;
-    NodeMgr*        nodeMgrPtr_;
+    std::shared_ptr<NodeMgr>    nodeMgrPtr_;
     const char      *recvThreadName_, *sendThreadName_, *syncThreadName_;
     std::thread     recvThread_, sendThread_, syncThread_;
 
