@@ -7,7 +7,6 @@
 
 TapLan* TapLanPtr = nullptr;
 
-void setDefaultConfig();
 void parseParams(int argc, char* argv[]);
 void printHelpInfo(const char* name);
 void delayExit(int code, int64_t delaySeconds = 0);
@@ -16,7 +15,6 @@ int main(int argc, char* argv[])
 {
     LogMgrPtr->run();
     while (!LogMgrPtr->isRunning());
-    setDefaultConfig();
     parseParams(argc, argv);
 
     TapLanPtr = new TapLan();
@@ -40,17 +38,6 @@ int main(int argc, char* argv[])
     }
 
     delayExit(0, 3);
-}
-
-void setDefaultConfig()
-{
-    cfgData.runMode = RunMode_Server;
-    cfgData.localPort = 3460;
-    cfgData.netNum = (192 << 24) + (168 << 16) + (208 << 8);
-    cfgData.netNumLen = 24;
-    memset(&cfgData.remoteAddr, 0, sizeof(in6_addr));
-    cfgData.remotePort = 3460;
-    cfgData.isMultiPortEnable = false;
 }
 
 void parseParams(int argc, char* argv[])
@@ -97,7 +84,7 @@ void parseParams(int argc, char* argv[])
 
                 std::string portStr = hostPortPair.substr(idx + 1);
                 try {
-                    cfgData.remotePort = std::stoi(portStr);
+                    cfgData.remotePort = htons(std::stoi(portStr));
                 } catch (const std::exception& e) {
                     LOGR("parse [%s] to remote port failed, reason: %s\n", portStr.c_str(), e.what());
                     delayExit(-1);
