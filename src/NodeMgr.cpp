@@ -350,6 +350,8 @@ void NodeMgr::client()
                 continue;
             }
 
+            macToNode_.clear();
+            addrPool_.reset();
             isSync = handleResponse(rcvBuf, recvBytes);
             if (isSync)
                 LOGI(TAG, "success to sync node status.");
