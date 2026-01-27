@@ -4,6 +4,7 @@
 #include    <ctime>
 #include    <memory>
 #include    <map>
+#include    <unordered_map>
 #include    <bitset>
 #include    <functional>
 #include    <mutex>
@@ -31,6 +32,7 @@ enum OP_TYPE {
     OP_RESP_IP,
     OP_REQ_SYNC_NODE,
     OP_RESP_SYNC_NODE,
+    OP_MOD,
 };
 
 // TODO: maybe need this in future
@@ -98,18 +100,18 @@ public:
     std::shared_ptr<Node>   delNode(uint64_t macNum);
     std::shared_ptr<Node>   findNode(uint64_t macNum);
     bool        setNodeStatus(uint64_t macNum, uint8_t status);
-    size_t      getNodeNums() { return macToNodeMap_.size(); };
+    size_t      getNodeNums() { return macToNode_.size(); };
     template<typename Func>
     void forEach(Func&& f, bool isWrite)
     {
         if (isWrite) {
             std::unique_lock<std::shared_mutex> wLock(rwMutex_);
-            for (auto& [key, value] : macToNodeMap_) {
+            for (auto& [key, value] : macToNode_) {
                 f(key, value);
             }
         } else {
             std::shared_lock<std::shared_mutex> rLock(rwMutex_);
-            for (auto& [key, value] : macToNodeMap_) {
+            for (auto& [key, value] : macToNode_) {
                 f(key, value);
             }
         }
@@ -121,11 +123,17 @@ private:
     uint32_t netNum_;
     uint8_t netNumLen_;
     std::bitset<256> addrPool_;
-    std::map<uint64_t, std::shared_ptr<Node>> macToNodeMap_;
+    std::map<uint64_t, std::shared_ptr<Node>> macToNode_;
     uint32_t verNum_;
     std::shared_mutex rwMutex_;
     TcpSocket* tcpSockPtr_;
+    std::vector<TapLanPollFd> pfds_;
+    std::vector<TcpSocket> clients_;
+    std::map<TapLanSocket, uint64_t> sockToMac_;
+    std::unordered_map<uint64_t, std::shared_ptr<Node>> activeDeltaBuffer_;
+    std::unordered_map<uint64_t, std::shared_ptr<Node>> processingBuffer_;
 
     bool handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr);
+    bool syncNodeStatus();
     bool handleResponse(uint8_t* rcvBuf, size_t bufLen);
 };

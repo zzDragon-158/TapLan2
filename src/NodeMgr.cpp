@@ -46,8 +46,8 @@ std::shared_ptr<Node> NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum
 
     std::unique_lock<std::shared_mutex> wLock(rwMutex_);
     addrPool_.set(hostNum);
-    macToNodeMap_[macNum] = n;
-    ++verNum_;
+    macToNode_[macNum] = n;
+    activeDeltaBuffer_[macNum] = n;
 
     return n;
 }
@@ -55,13 +55,13 @@ std::shared_ptr<Node> NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum
 std::shared_ptr<Node> NodeMgr::addNode(uint64_t macNum, Node& node)
 {
     std::shared_ptr n = std::make_shared<Node>();
-    memcpy(n.get(), &node, sizeof(Node));
+    std::memcpy(n.get(), &node, sizeof(Node));
 
     std::unique_lock<std::shared_mutex> wLock(rwMutex_);
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
     uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
     addrPool_.set(hostNum);
-    macToNodeMap_[macNum] = n;
+    macToNode_[macNum] = n;
 
     return n;
 }
@@ -76,8 +76,7 @@ std::shared_ptr<Node> NodeMgr::delNode(uint64_t macNum)
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
     uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
     addrPool_.reset(hostNum);
-    macToNodeMap_.erase(macNum);
-    ++verNum_;
+    macToNode_.erase(macNum);
 
     return n;
 }
@@ -85,8 +84,8 @@ std::shared_ptr<Node> NodeMgr::delNode(uint64_t macNum)
 std::shared_ptr<Node> NodeMgr::findNode(uint64_t macNum)
 {
     std::shared_lock<std::shared_mutex> rLock(rwMutex_);
-    auto it = macToNodeMap_.find(macNum);
-    if (it == macToNodeMap_.end())
+    auto it = macToNode_.find(macNum);
+    if (it == macToNode_.end())
         return nullptr;
 
     return it->second;
@@ -100,7 +99,7 @@ bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
 
     std::unique_lock<std::shared_mutex> wLock(rwMutex_);
     n->status = status;
-    ++verNum_;
+    activeDeltaBuffer_[macNum] = n;
 
     return true;
 }
@@ -115,45 +114,42 @@ void NodeMgr::server()
         return ;
     }
 
-    std::vector<TapLanPollFd> pfds;
-    std::vector<TcpSocket> clients;
-    std::map<TapLanSocket, uint64_t> sockToMacMap;
-    pfds.push_back({ static_cast<TapLanSocket>(*tcpSockPtr_), POLLIN, 0 });
+    pfds_.push_back({ static_cast<TapLanSocket>(*tcpSockPtr_), POLLIN, 0 });
     while (cfgData.isRunning) {
-        int pollCnt = TapLanPoll(pfds.data(), pfds.size(), 3000);
+        int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), 3000);
         if (pollCnt < 0) {
             LOGE(TAG, "TapLanPoll failed.");
             continue;
         }
 
-        size_t pfdsLen = pfds.size();
-        if (pfds.begin()->revents != 0) {
+        size_t pfdsLen = pfds_.size();
+        if (pfds_.begin()->revents != 0) {
             --pollCnt;
             TapLanSocket tcpFd = INVALID_SOCKET;
             sockaddr_in6 addr;
             if (tcpSockPtr_->accept(tcpFd, addr)) {
-                pfds.push_back({ tcpFd, POLLIN, 0 });
-                clients.push_back({ tcpFd, addr });
+                pfds_.push_back({ tcpFd, POLLIN, 0 });
+                clients_.push_back({ tcpFd, addr });
             } else {
                 LOGE(TAG, "accept failed.");
             }
         }
         for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
-            if (pfds[i].revents != 0) {
+            if (pfds_[i].revents != 0) {
                 --pollCnt;
                 uint8_t recvBuf[65536];
                 uint8_t sendBuf[65536];
-                TcpSocket& client = clients[i - 1];
+                TcpSocket& client = clients_[i - 1];
                 ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
                 if (recvBytes == 0) {   // 对方关闭连接
-                    auto it = sockToMacMap.find(static_cast<TapLanSocket>(client));
-                    if (it != sockToMacMap.end()) {
+                    auto it = sockToMac_.find(static_cast<TapLanSocket>(client));
+                    if (it != sockToMac_.end()) {
                         if (!setNodeStatus(it->second, NODE_OFFLINE))
                             LOGW(TAG, "set node status failed.");
-                        sockToMacMap.erase(it->first);
+                        sockToMac_.erase(it->first);
                     }
-                    pfds.erase(pfds.begin() + i);
-                    clients.erase(clients.begin() + i - 1);
+                    pfds_.erase(pfds_.begin() + i);
+                    clients_.erase(clients_.begin() + i - 1);
                     continue;
                 } else if (recvBytes != sizeof(SyncMessage)) {  // 接收消息格式不对
                     continue;
@@ -167,6 +163,7 @@ void NodeMgr::server()
                 handleRequest(client, reqMsgHdr);
             }
         }
+        syncNodeStatus();
     }
 }
 
@@ -190,6 +187,10 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
                 LOGE(TAG, "add node failed.");
                 return false;
             }
+            if (n->status != NODE_ONLINE) {
+                n->status = NODE_ONLINE;
+                activeDeltaBuffer_[rspMsgHdr.mac] = n;
+            }
 
             RespIpMessage& rspMsg = reinterpret_cast<RespIpMessage&>(*(sndBuf + sendBytes));
             rspMsg.netIDLen = cfgData.netNumLen;
@@ -199,6 +200,7 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
             break;
         }
         case OP_REQ_SYNC_NODE: {
+            sockToMac_[static_cast<TapLanSocket>(client)] = rspMsgHdr.mac;
             rspMsgHdr.op = OP_RESP_SYNC_NODE;
 
             RespNodeStatusMessage& rspMsg = reinterpret_cast<RespNodeStatusMessage&>(*(sndBuf + sendBytes));
@@ -220,6 +222,43 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
     }
 
     client.send(sndBuf, sendBytes);
+    return true;
+}
+
+bool NodeMgr::syncNodeStatus()
+{
+    /* swap buffer */ {
+        std::unique_lock<std::shared_mutex> wLock(rwMutex_);
+        if (activeDeltaBuffer_.empty())
+            return true;
+
+        activeDeltaBuffer_.swap(processingBuffer_);
+    }
+
+    // construct sync message
+    uint8_t sndBuf[65536];
+    size_t sendBytes = 0;
+    SyncMessage& syncMsgHdr = reinterpret_cast<SyncMessage&>(*sndBuf);
+    sendBytes += sizeof(SyncMessage);
+    syncMsgHdr.mac = cfgData.mac;
+    syncMsgHdr.op = OP_MOD;
+    // syncMsgHdr.key = ;
+    RespNodeStatusMessage& syncMsg = reinterpret_cast<RespNodeStatusMessage&>(*(sndBuf + sendBytes));
+    sendBytes += sizeof(RespNodeStatusMessage);
+    syncMsg.numsOfNode = 0;
+    syncMsg.verNum = ++verNum_;
+    for (auto& [k, v]: processingBuffer_) {
+        std::memcpy(sndBuf + sendBytes, v.get(), sizeof(Node));
+        sendBytes += sizeof(Node);
+        ++syncMsg.numsOfNode;
+    }
+    processingBuffer_.clear();
+
+    for (auto& client: clients_) {
+        if (sockToMac_.find(static_cast<TapLanSocket>(client)) != sockToMac_.end())
+            client.send(sndBuf, sendBytes);
+    }
+
     return true;
 }
 
@@ -289,7 +328,7 @@ void NodeMgr::client()
         return hasIPv4Addr;
     };
 
-    auto syncNodeStatus = [&]() {
+    auto getNodeStatus = [&]() {
         SyncMessage reqMsgHdr{};
         reqMsgHdr.op = OP_REQ_SYNC_NODE;
         reqMsgHdr.mac = cfgData.mac;
@@ -312,6 +351,8 @@ void NodeMgr::client()
             }
 
             isSync = handleResponse(rcvBuf, recvBytes);
+            if (isSync)
+                LOGI(TAG, "success to sync node status.");
         }
 
         return isSync;
@@ -320,13 +361,16 @@ void NodeMgr::client()
     do {
         while (!retryConnect() && cfgData.isRunning);
         while (!getAndSetIPv4Addr() && cfgData.isRunning);
-        while (!syncNodeStatus() && cfgData.isRunning);
+        while (!getNodeStatus() && cfgData.isRunning);
         ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
         if (recvBytes == 0) {
             isConnected = false;
             hasIPv4Addr = false;
             isSync = false;
+        } else if (recvBytes < 0) {
+            continue;
         }
+        handleResponse(rcvBuf, recvBytes);
         std::this_thread::sleep_for(std::chrono::seconds(1));
     } while (cfgData.isRunning);
 }
@@ -345,14 +389,17 @@ bool NodeMgr::handleResponse(uint8_t* rcvBuf, size_t recvbytes)
         netNum_ = ntohl(rspMsg.ipv4Addr.s_addr) & subnetMask;
         TapDevPtr->setIpv4Addr(&rspMsg.ipv4Addr, rspMsg.netIDLen);
         } break;
-    case OP_RESP_SYNC_NODE: {
+    case OP_RESP_SYNC_NODE:
+    case OP_MOD: {
         RespNodeStatusMessage& rspMsg = reinterpret_cast<RespNodeStatusMessage&>(*(rcvBuf + offset));
         offset += sizeof(RespNodeStatusMessage);
+        if ((rspMsgHdr.op == OP_MOD) && (verNum_ + 1 != rspMsg.verNum)) {
+            LOGW(TAG, "vernum expect [%u] but [%u]", verNum_ + 1, rspMsg.verNum);
+        }
         verNum_ = rspMsg.verNum;
 
         if (rspMsg.numsOfNode * sizeof(Node) != recvbytes - offset) {
-            LOGE(TAG, "handle OP_RESP_SYNC_NODE failed.");
-            std::this_thread::sleep_for(std::chrono::seconds(3));
+            LOGE(TAG, "handle %u failed.", rspMsgHdr.op);
             return false;
         }
 
