@@ -2,7 +2,7 @@
 #include    "LogMgr.hpp"
 
 static const char* TAG = "[TapDev]";
-static int tap_fd;
+int tap_fd;
 
 TapDev::TapDev(): writeErrCnt_(0), readErrCnt_(0) {
     memset(macAddress_, 0, sizeof(macAddress_));

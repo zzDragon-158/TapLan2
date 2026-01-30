@@ -1,16 +1,24 @@
-#pragma once
-#include <cstdint>
-#include <ctime>
-#include <pthread.h>
-#include "LogMgr.hpp"
-#include "NodeMgr.hpp"
-#include "Socket.hpp"
-#include "TapDev.hpp"
+#pragma     once
+#include    <cstdint>
+#include    <ctime>
+#include    <pthread.h>
+#include    <liburing.h>
+#include    "LogMgr.hpp"
+#include    "NodeMgr.hpp"
+#include    "Socket.hpp"
+#include    "TapDev.hpp"
 
 enum RunModeT{
     RunMode_None = 0,
     RunMode_Server,
     RunMode_Client,
+};
+
+enum {
+    TOKEN_UDP_RECV  = 1,
+    TOKEN_TAP_READ  = 2,
+    TOKEN_TAP_WRITE = 3,
+    TOKEN_UDP_SEND  = 4,
 };
 
 struct ConfigDataT {
@@ -58,4 +66,20 @@ private:
     void handleTapData(uint8_t* buf, size_t bufLen);
     void readTapData();
     void syncNodeStatus();
+
+    // for io_uring
+    struct uring_send_msg {
+        msghdr hdr;
+        iovec io;
+        sockaddr_in6 addr;
+    };
+    const uint32_t QD = 256;
+    const uint32_t UDP_BUF_GRP_ID = 1;
+    const uint32_t UDP_BUF_NUM = 1024;
+    const uint32_t UDP_BUF_SIZE = 65536;
+    const uint32_t TAP_BUF_COUNT = 16;
+    const uint32_t TAP_BUF_SIZE = 65536;
+
+    void uring_udp_wrk();
+    void uring_tap_wrk();
 };

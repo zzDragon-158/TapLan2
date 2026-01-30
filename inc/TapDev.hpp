@@ -35,6 +35,7 @@ struct EtherHeader {
     uint16_t type;
 };
 #pragma pack(pop)
+extern int tap_fd;
 
 class TapDev {
 public:
