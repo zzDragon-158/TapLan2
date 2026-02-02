@@ -308,16 +308,19 @@ bool TapLan::run()
     if (!config_.isRunning)
         return false;
 
-    // sendThread_ = std::thread(&TapLan::uring_tap_wrk, this);
-    // recvThread_ = std::thread(&TapLan::uring_udp_wrk, this);
-    sendThread_ = std::thread(&TapLan::readTapData, this);
-    recvThread_ = std::thread(&TapLan::recvSockData, this);
+    if (config_.isIoUringEnable) {
+        sendThread_ = std::thread(&TapLan::uring_tap_wrk, this);
+        recvThread_ = std::thread(&TapLan::uring_udp_wrk, this);
+    } else {
+        sendThread_ = std::thread(&TapLan::readTapData, this);
+        recvThread_ = std::thread(&TapLan::recvSockData, this);
+    }
 
     pthread_setname_np(sendThread_.native_handle(), sendThreadName_);
     pthread_setname_np(recvThread_.native_handle(), recvThreadName_);
 
-    syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
-    pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
+    // syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
+    // pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
 
     return true;
 }
@@ -340,6 +343,7 @@ bool TapLan::stop()
 
 void TapLan::uring_tap_wrk()
 {
+    const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
     TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
     io_uring tap_uring;
     io_uring_params params{};
@@ -351,37 +355,49 @@ void TapLan::uring_tap_wrk()
     }
 
     uint8_t *read_bufs;
-    posix_memalign((void **)&read_bufs, 4096, TAP_BUF_COUNT * TAP_BUF_SIZE);
+    posix_memalign((void **)&read_bufs, 4096, TAP_BUF_NUM * TAP_BUF_SIZE);
 
-    auto prep_tap_read = [&](uint32_t i) {
+    iovec iovs[TAP_BUF_NUM];
+    for (size_t i = 0; i < TAP_BUF_NUM; ++i) {
+        iovs[i].iov_base = read_bufs + i * TAP_BUF_SIZE;
+        iovs[i].iov_len = TAP_BUF_SIZE;
+    }
+    if (io_uring_register_buffers(&tap_uring, iovs, TAP_BUF_NUM) < 0) {
+        fprintf(stderr, "Error registering tap buffers\n");
+        config_.isRunning = false;
+        return ;
+    }
+
+    auto prep_tap_read = [&](uint32_t buf_id) {
+        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
         io_uring_sqe* sqe = io_uring_get_sqe(&tap_uring);
-        io_uring_prep_read(sqe, tap_fd, read_bufs + (i * TAP_BUF_SIZE), TAP_BUF_SIZE, 0);
-        sqe->user_data = (TOKEN_TAP_READ << 16) | i;
+        io_uring_prep_read_fixed(sqe, tap_fd, msg->data, TAP_BUF_SIZE - MSG_HDR_SIZE, 0, buf_id);
+        sqe->user_data = (TOKEN_TAP_READ << 16) | buf_id;
     };
 
-    for (size_t idx = 0; idx < TAP_BUF_COUNT; ++idx) {
+    for (size_t idx = 0; idx < TAP_BUF_NUM; ++idx) {
+        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (idx * TAP_BUF_SIZE));
+        std::memset(msg, 0, sizeof(uring_send_msg));
+        msg->hdr.msg_name = &msg->addr;
+        msg->hdr.msg_namelen = sizeof(sockaddr_in6);
+        msg->hdr.msg_iov = &msg->iov;
+        msg->hdr.msg_iovlen = 1;
+        msg->iov.iov_base = msg->data;
         prep_tap_read(idx);
     }
     io_uring_submit(&tap_uring);
 
     auto handle_tap_read = [&](io_uring_cqe *cqe) {
-        uint32_t buf_id = (uint16_t)cqe->user_data;
+        uint16_t buf_id = (uint16_t)cqe->user_data;
         if (cqe->res <= 0) {
             // fprintf(stderr, "handle_tap_read failed.[%s]", strerror(-cqe->res));
             prep_tap_read(buf_id);
             return ;
         }
 
-        uint8_t *data_ptr = (uint8_t*)read_bufs + (buf_id * TAP_BUF_SIZE);
-        uring_send_msg *msg = (uring_send_msg *)(data_ptr + cqe->res);
-        std::memset(msg, 0, sizeof(uring_send_msg));
+        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
         std::memcpy(&msg->addr, &serverAddr_, sizeof(sockaddr_in6));
-        msg->hdr.msg_name = &msg->addr;
-        msg->hdr.msg_namelen = sizeof(sockaddr_in6);
-        msg->hdr.msg_iov = &msg->io;
-        msg->hdr.msg_iovlen = 1;
-        msg->io.iov_base = data_ptr;
-        msg->io.iov_len = cqe->res;
+        msg->iov.iov_len = cqe->res;
         io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
         io_uring_prep_sendmsg(sqe, udp_fd, &msg->hdr, 0);
         sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
@@ -391,11 +407,13 @@ void TapLan::uring_tap_wrk()
 
     auto handle_udp_send = [&](io_uring_cqe *cqe) {
         uint32_t buf_id = (uint16_t)cqe->user_data;
-        if (cqe->res <= 0) {
-            if (cqe->res != -EAGAIN)
-                fprintf(stderr, "handle_udp_send failed.[%s]", strerror(-cqe->res));
+        if (cqe->res < 0) {
+            fprintf(stderr, "handle_udp_send failed.[%s]", strerror(-cqe->res));
         }
-        prep_tap_read(buf_id);
+
+        if (!(cqe->flags & IORING_CQE_F_MORE)) {
+            prep_tap_read(buf_id);
+        }
     };
 
     io_uring_cqe *cqe;
@@ -461,6 +479,18 @@ void TapLan::uring_udp_wrk()
 
     uint8_t *recv_bufs;
     posix_memalign((void **)&recv_bufs, 4096, UDP_BUF_NUM * UDP_BUF_SIZE);
+
+    iovec iovs[UDP_BUF_NUM];
+    for (size_t i = 0; i < UDP_BUF_NUM; ++i) {
+        iovs[i].iov_base = recv_bufs + i * UDP_BUF_SIZE;
+        iovs[i].iov_len = UDP_BUF_SIZE;
+    }
+    if (io_uring_register_buffers(&udp_uring, iovs, UDP_BUF_NUM) < 0) {
+        fprintf(stderr, "Error registering udp buffers\n");
+        config_.isRunning = false;
+        return ;
+    }
+
     io_uring_buf_ring_init(udp_buf_ring);
     int buf_ring_mask = io_uring_buf_ring_mask(UDP_BUF_NUM);
     for (size_t i = 0; i < UDP_BUF_NUM; ++i) {
@@ -499,10 +529,8 @@ void TapLan::uring_udp_wrk()
             sockaddr_in6 *client_addr = (struct sockaddr_in6 *)io_uring_recvmsg_name(out);
             uint8_t *payload = (uint8_t *)io_uring_recvmsg_payload(out, &dummy_msg_hdr);
 
-            // TapDevPtr->write(payload, out->payloadlen);
-
             io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-            io_uring_prep_write(sqe, tap_fd, payload, out->payloadlen, 0);
+            io_uring_prep_write_fixed(sqe, tap_fd, payload, out->payloadlen, 0, buf_id);
             sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
         }
 

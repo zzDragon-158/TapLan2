@@ -44,7 +44,7 @@ void parseParams(int argc, char* argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "s:c:p:mh")) != -1) {
+    while ((opt = getopt(argc, argv, "s:c:p:muh")) != -1) {
         switch (opt) {
             case 's': {
                 cfgData.runMode = RunMode_Server;
@@ -123,11 +123,12 @@ void parseParams(int argc, char* argv[])
 
                 break;
             }
-            case 'm': {
+            case 'm':
                 cfgData.isMultiPortEnable = true;
-
                 break;
-            }
+            case 'u':
+                cfgData.isIoUringEnable = true;
+                break;
             case '?':
             case 'h': {
                 printHelpInfo(argv[0]);

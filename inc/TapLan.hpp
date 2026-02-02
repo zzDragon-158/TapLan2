@@ -29,13 +29,15 @@ struct ConfigDataT {
     in6_addr    remoteAddr;
     uint16_t    remotePort;
     bool        isMultiPortEnable;
+    bool        isIoUringEnable;
     bool        isRunning;
     Mac         mac;
 
     ConfigDataT(): runMode(RunMode_Server), localPort(3460),
                     netNum((192 << 24) + (168 << 16) + (208 << 8)),
                     netNumLen(24), remoteAddr{}, remotePort(0),
-                    isMultiPortEnable(false), isRunning(false),
+                    isMultiPortEnable(false), isIoUringEnable(false),
+                    isRunning(false),
                     mac{} {
         // nothing to do
     }
@@ -70,14 +72,15 @@ private:
     // for io_uring
     struct uring_send_msg {
         msghdr hdr;
-        iovec io;
+        iovec iov;
         sockaddr_in6 addr;
+        alignas(16) uint8_t data[];
     };
-    const uint32_t QD = 256;
+    const uint32_t QD = 128;
     const uint32_t UDP_BUF_GRP_ID = 1;
-    const uint32_t UDP_BUF_NUM = 1024;
+    const uint32_t UDP_BUF_NUM = 64;
     const uint32_t UDP_BUF_SIZE = 65536;
-    const uint32_t TAP_BUF_COUNT = 16;
+    const uint32_t TAP_BUF_NUM = 64;
     const uint32_t TAP_BUF_SIZE = 65536;
 
     void uring_udp_wrk();
