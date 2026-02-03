@@ -309,8 +309,8 @@ bool TapLan::run()
         return false;
 
     if (config_.isIoUringEnable) {
-        sendThread_ = std::thread(&TapLan::uring_tap_wrk, this);
-        recvThread_ = std::thread(&TapLan::uring_udp_wrk, this);
+        sendThread_ = std::thread(&TapLan::uring_snd_wrk, this);
+        recvThread_ = std::thread(&TapLan::uring_rcv_wrk, this);
     } else {
         sendThread_ = std::thread(&TapLan::readTapData, this);
         recvThread_ = std::thread(&TapLan::recvSockData, this);
@@ -341,15 +341,17 @@ bool TapLan::stop()
     return true;
 }
 
-void TapLan::uring_tap_wrk()
+void TapLan::uring_snd_wrk()
 {
     const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
+    int ret;
     TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
     io_uring tap_uring;
     io_uring_params params{};
     params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
-    if (io_uring_queue_init_params(QD, &tap_uring, &params) < 0) {
-        perror("tap_uring init");
+    ret = io_uring_queue_init_params(QD, &tap_uring, &params);
+    if (ret < 0) {
+        LOGF(TAG, "TAP queue init params failed.[%s]", strerror(-ret));
         config_.isRunning = false;
         return ;
     }
@@ -362,8 +364,9 @@ void TapLan::uring_tap_wrk()
         iovs[i].iov_base = read_bufs + i * TAP_BUF_SIZE;
         iovs[i].iov_len = TAP_BUF_SIZE;
     }
-    if (io_uring_register_buffers(&tap_uring, iovs, TAP_BUF_NUM) < 0) {
-        fprintf(stderr, "Error registering tap buffers\n");
+    ret = io_uring_register_buffers(&tap_uring, iovs, TAP_BUF_NUM);
+    if (ret < 0) {
+        LOGF(TAG, "TAP register buffers failed.[%s]", strerror(-ret));
         config_.isRunning = false;
         return ;
     }
@@ -390,7 +393,8 @@ void TapLan::uring_tap_wrk()
     auto handle_tap_read = [&](io_uring_cqe *cqe) {
         uint16_t buf_id = (uint16_t)cqe->user_data;
         if (cqe->res <= 0) {
-            // fprintf(stderr, "handle_tap_read failed.[%s]", strerror(-cqe->res));
+            if (cqe->res != -EAGAIN && cqe->res != 0)
+                LOGE(TAG, "handle tap read failed.[%s]", strerror(-cqe->res));
             prep_tap_read(buf_id);
             return ;
         }
@@ -408,7 +412,7 @@ void TapLan::uring_tap_wrk()
     auto handle_udp_send = [&](io_uring_cqe *cqe) {
         uint32_t buf_id = (uint16_t)cqe->user_data;
         if (cqe->res < 0) {
-            fprintf(stderr, "handle_udp_send failed.[%s]", strerror(-cqe->res));
+            LOGE(TAG, "handle udp send failed.[%s]", strerror(-cqe->res));
         }
 
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
@@ -417,10 +421,13 @@ void TapLan::uring_tap_wrk()
     };
 
     io_uring_cqe *cqe;
+    __kernel_timespec timeout{3, 0};
     while (config_.isRunning) {
-        int ret = io_uring_wait_cqe(&tap_uring, &cqe);
-        if (ret < 0)
+        int ret = io_uring_wait_cqe_timeout(&tap_uring, &cqe, &timeout);
+        if (ret < 0 && ret != -ETIME) {
+            LOGF(TAG, "TAP wait cqe failed.[%s]", strerror(-ret));
             break;
+        }
 
         unsigned head;
         unsigned cqe_count = 0;
@@ -448,10 +455,11 @@ void TapLan::uring_tap_wrk()
 
     io_uring_queue_exit(&tap_uring);
     config_.isRunning = false;
+    std::cout << "Thread " << sendThreadName_ << " has exited." << std::endl;
     return ;
 }
 
-void TapLan::uring_udp_wrk()
+void TapLan::uring_rcv_wrk()
 {
     TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
     io_uring udp_uring;
@@ -513,16 +521,18 @@ void TapLan::uring_udp_wrk()
 
     auto handle_udp_recv = [&](io_uring_cqe *cqe) {
         if (!(cqe->flags & IORING_CQE_F_MORE)) {
-            fprintf(stderr, "multishot stop! [%d]\n", cqe->res);
+            LOGD(TAG, "recvmsg multishot stop.[%d]\n", strerror(-cqe->res));
             prep_udp_recv();
         }
 
-        uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-        if (cqe->res <= 0) {
-            fprintf(stderr, "handle_udp_recv failed.[%s]", strerror(-cqe->res));
+        if (cqe->res < 0) {
+            LOGE(TAG, "handle udp recv failed.[%s]", strerror(-cqe->res));
+            return 1;
+        } else if (cqe->res == 0) {
             return 1;
         }
 
+        uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
         uint8_t *data_ptr = recv_bufs + (buf_id * UDP_BUF_SIZE);
         io_uring_recvmsg_out *out = io_uring_recvmsg_validate(data_ptr, cqe->res, &dummy_msg_hdr);
         if (out && out->payloadlen > 0) {
@@ -532,24 +542,28 @@ void TapLan::uring_udp_wrk()
             io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
             io_uring_prep_write_fixed(sqe, tap_fd, payload, out->payloadlen, 0, buf_id);
             sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
+            return 0;
         }
 
-        return 0;
+        return 1;
     };
 
     auto handle_tap_write = [&](io_uring_cqe * cqe) {
-        if (cqe->res <= 0) {
-            fprintf(stderr, "handle_tap_write failed.[%s]", strerror(-cqe->res));
+        if (cqe->res < 0) {
+            LOGE(TAG, "handle_tap_write failed.[%s]", strerror(-cqe->res));
         }
 
         return 1;
     };
 
     io_uring_cqe *cqe;
+    __kernel_timespec timeout{3, 0};
     while (config_.isRunning) {
-        int ret = io_uring_wait_cqe(&udp_uring, &cqe);
-        if (ret < 0)
+        int ret = io_uring_wait_cqe_timeout(&udp_uring, &cqe, &timeout);
+        if (ret < 0 && ret != -ETIME) {
+            LOGF(TAG, "UDP wait cqe failed.[%s]", strerror(-ret));
             break;
+        }
 
         unsigned head;
         unsigned cqe_count = 0;
@@ -580,5 +594,6 @@ void TapLan::uring_udp_wrk()
 
     io_uring_queue_exit(&udp_uring);
     config_.isRunning = false;
+    std::cout << "Thread " << recvThreadName_ << " has exited." << std::endl;
     return ;
 }

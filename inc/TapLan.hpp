@@ -76,13 +76,13 @@ private:
         sockaddr_in6 addr;
         alignas(16) uint8_t data[];
     };
-    const uint32_t QD = 128;
+    const uint32_t QD = 256;
     const uint32_t UDP_BUF_GRP_ID = 1;
-    const uint32_t UDP_BUF_NUM = 64;
+    const uint32_t UDP_BUF_NUM = 128;
     const uint32_t UDP_BUF_SIZE = 65536;
-    const uint32_t TAP_BUF_NUM = 64;
+    const uint32_t TAP_BUF_NUM = 128;
     const uint32_t TAP_BUF_SIZE = 65536;
 
-    void uring_udp_wrk();
-    void uring_tap_wrk();
+    void uring_rcv_wrk();
+    void uring_snd_wrk();
 };
