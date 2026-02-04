@@ -309,8 +309,8 @@ bool TapLan::run()
         return false;
 
     if (config_.isIoUringEnable) {
-        sendThread_ = std::thread(&TapLan::uring_snd_wrk, this);
-        recvThread_ = std::thread(&TapLan::uring_rcv_wrk, this);
+        sendThread_ = std::thread(&TapLan::uring_read_tap_wrk, this);
+        recvThread_ = std::thread(&TapLan::uring_recv_udp_wrk, this);
     } else {
         sendThread_ = std::thread(&TapLan::readTapData, this);
         recvThread_ = std::thread(&TapLan::recvSockData, this);
@@ -319,8 +319,8 @@ bool TapLan::run()
     pthread_setname_np(sendThread_.native_handle(), sendThreadName_);
     pthread_setname_np(recvThread_.native_handle(), recvThreadName_);
 
-    // syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
-    // pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
+    syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
+    pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
 
     return true;
 }
@@ -341,12 +341,89 @@ bool TapLan::stop()
     return true;
 }
 
-void TapLan::uring_snd_wrk()
+void TapLan::prep_tap_read(uint32_t buf_id) {
+    uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
+    io_uring_sqe* sqe = io_uring_get_sqe(&tap_uring);
+    io_uring_prep_read_fixed(sqe, tap_fd, msg->data, TAP_BUF_SIZE - MSG_HDR_SIZE, 0, buf_id);
+    sqe->user_data = (TOKEN_TAP_READ << 16) | buf_id;
+};
+
+void TapLan::handle_tap_read(io_uring_cqe *cqe)
 {
-    const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
+    uint16_t buf_id = (uint16_t)cqe->user_data;
+    if (cqe->res <= 0) {
+        if (cqe->res != -EAGAIN && cqe->res != 0)
+            LOGE(TAG, "handle tap read failed.[%s]", strerror(-cqe->res));
+        prep_tap_read(buf_id);
+        return ;
+    }
+
+    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
+    if (config_.isMultiPortEnable) {
+        std::time_t now = std::time(nullptr);
+        uint16_t portOffset = (now / 60 % 60) % 4;
+        udp_fd = static_cast<TapLanSocket>(*udpSockPtrArr_[portOffset]);
+    }
+    uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
+    if (config_.runMode == RunMode_Server) {
+        EtherHeader& eh = reinterpret_cast<EtherHeader&>(*msg->data);
+        Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+        Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+
+        bool needBroadcast = eh.dst[0] & 0x01;
+        if (!needBroadcast) {
+            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(reinterpret_cast<Mac&>(*eh.dst));
+            if (n) {
+                msg->nums_of_addr = 1;
+                sockaddr_in6& addr = msg->addrs[0];
+                memset(&addr, 0, sizeof(sockaddr_in6));
+                addr.sin6_family = AF_INET6;
+                memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                addr.sin6_port = n->ipv6Port;
+                
+                io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
+                io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
+                sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+            }
+        } else {
+            msg->nums_of_addr = 0;
+            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+                if (n->status == NODE_OFFLINE || n->mac == srcMac)
+                    return ;
+
+                sockaddr_in6& addr = msg->addrs[msg->nums_of_addr++];
+                memset(&addr, 0, sizeof(sockaddr_in6));
+                addr.sin6_family = AF_INET6;
+                memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                addr.sin6_port = n->ipv6Port;
+
+                io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
+                io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
+                sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+            }, false);
+
+            if (msg->nums_of_addr == 0)
+                prep_tap_read(buf_id);
+        }
+    } else if (config_.runMode == RunMode_Client) {
+        msg->nums_of_addr = 1;
+        sockaddr_in6& addr = msg->addrs[0];
+        memcpy(&addr, &serverAddr_, sizeof(sockaddr_in6));
+
+        io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
+        io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&serverAddr_, sizeof(sockaddr_in6));
+        sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+    } else {
+        // RunMode_None
+    }
+
+    return ;
+}
+
+void TapLan::uring_read_tap_wrk()
+{
     int ret;
     TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
-    io_uring tap_uring;
     io_uring_params params{};
     params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
     ret = io_uring_queue_init_params(QD, &tap_uring, &params);
@@ -356,7 +433,6 @@ void TapLan::uring_snd_wrk()
         return ;
     }
 
-    uint8_t *read_bufs;
     posix_memalign((void **)&read_bufs, 4096, TAP_BUF_NUM * TAP_BUF_SIZE);
 
     iovec iovs[TAP_BUF_NUM];
@@ -371,43 +447,11 @@ void TapLan::uring_snd_wrk()
         return ;
     }
 
-    auto prep_tap_read = [&](uint32_t buf_id) {
-        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
-        io_uring_sqe* sqe = io_uring_get_sqe(&tap_uring);
-        io_uring_prep_read_fixed(sqe, tap_fd, msg->data, TAP_BUF_SIZE - MSG_HDR_SIZE, 0, buf_id);
-        sqe->user_data = (TOKEN_TAP_READ << 16) | buf_id;
-    };
-
     for (size_t idx = 0; idx < TAP_BUF_NUM; ++idx) {
         uring_send_msg *msg = (uring_send_msg *)(read_bufs + (idx * TAP_BUF_SIZE));
-        std::memset(msg, 0, sizeof(uring_send_msg));
-        msg->hdr.msg_name = &msg->addr;
-        msg->hdr.msg_namelen = sizeof(sockaddr_in6);
-        msg->hdr.msg_iov = &msg->iov;
-        msg->hdr.msg_iovlen = 1;
-        msg->iov.iov_base = msg->data;
         prep_tap_read(idx);
     }
     io_uring_submit(&tap_uring);
-
-    auto handle_tap_read = [&](io_uring_cqe *cqe) {
-        uint16_t buf_id = (uint16_t)cqe->user_data;
-        if (cqe->res <= 0) {
-            if (cqe->res != -EAGAIN && cqe->res != 0)
-                LOGE(TAG, "handle tap read failed.[%s]", strerror(-cqe->res));
-            prep_tap_read(buf_id);
-            return ;
-        }
-
-        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
-        std::memcpy(&msg->addr, &serverAddr_, sizeof(sockaddr_in6));
-        msg->iov.iov_len = cqe->res;
-        io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
-        io_uring_prep_sendmsg(sqe, udp_fd, &msg->hdr, 0);
-        sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
-
-        return ;
-    };
 
     auto handle_udp_send = [&](io_uring_cqe *cqe) {
         uint32_t buf_id = (uint16_t)cqe->user_data;
@@ -415,9 +459,9 @@ void TapLan::uring_snd_wrk()
             LOGE(TAG, "handle udp send failed.[%s]", strerror(-cqe->res));
         }
 
-        if (!(cqe->flags & IORING_CQE_F_MORE)) {
+        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
+        if (!--msg->nums_of_addr)
             prep_tap_read(buf_id);
-        }
     };
 
     io_uring_cqe *cqe;
@@ -459,10 +503,99 @@ void TapLan::uring_snd_wrk()
     return ;
 }
 
-void TapLan::uring_rcv_wrk()
+void TapLan::prep_udp_recv() {
+    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
+    io_uring_sqe* sqe = io_uring_get_sqe(&udp_uring);
+    io_uring_prep_recv_multishot(sqe, udp_fd, nullptr, 0, 0);
+    sqe->flags |= IOSQE_BUFFER_SELECT;
+    sqe->buf_group = UDP_BUF_GRP_ID;
+    sqe->user_data = (TOKEN_UDP_RECV << 16);
+}
+
+int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
+    if (!(cqe->flags & IORING_CQE_F_MORE)) {
+        LOGD(TAG, "recvmsg multishot stop.[%d]\n", strerror(-cqe->res));
+        prep_udp_recv();
+    }
+
+    if (cqe->res < 0) {
+        LOGE(TAG, "handle udp recv failed.[%s]", strerror(-cqe->res));
+        return 1;
+    } else if (cqe->res == 0) {
+        return 1;
+    }
+
+    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
+    uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+    uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
+    if (config_.isMultiPortEnable) {
+        std::time_t now = std::time(nullptr);
+        uint16_t portOffset = (now / 60 % 60) % 4;
+        udp_fd = static_cast<TapLanSocket>(*udpSockPtrArr_[portOffset]);
+    }
+    if (config_.runMode == RunMode_Server) {
+        EtherHeader eh = reinterpret_cast<EtherHeader&>(*msg->data);
+        Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+        Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+        bool needBroadcast = eh.dst[0] & 0x01;
+        bool isSendToMe = needBroadcast || (dstMac == config_.mac);
+
+        if (needBroadcast) {        // broadcast
+            msg->nums_of_addr = 0;
+            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+                if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == config_.mac)
+                    return ;
+
+                sockaddr_in6& addr = msg->addrs[msg->nums_of_addr++];
+                addr.sin6_family = AF_INET6;
+                memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                addr.sin6_port = n->ipv6Port;
+
+                io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+                io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
+                sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+            }, false);
+
+            ++msg->nums_of_addr;
+            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+            io_uring_prep_write_fixed(sqe, tap_fd, msg->data, cqe->res, 0, buf_id);
+            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
+        } else if (!isSendToMe) {   // not broadcast && not send to me
+            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
+            if (!n) {
+                return 1;
+            }
+            msg->nums_of_addr = 1;
+            sockaddr_in6& addr = msg->addrs[0];
+            memset(&addr, 0, sizeof(sockaddr_in6));
+            addr.sin6_family = AF_INET6;
+            memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+            addr.sin6_port = n->ipv6Port;
+            
+            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+            io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
+            sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+        } else {                    // not broadcast && send to me
+            msg->nums_of_addr = 1;
+            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+            io_uring_prep_write_fixed(sqe, tap_fd, msg->data, cqe->res, 0, buf_id);
+            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
+        }
+    } else if (config_.runMode == RunMode_Client) {
+        msg->nums_of_addr = 1;
+        io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+        io_uring_prep_write_fixed(sqe, tap_fd, msg->data, cqe->res, 0, buf_id);
+        sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
+    } else {
+        // RunMode_None
+    }
+
+    return 0;
+}
+
+void TapLan::uring_recv_udp_wrk()
 {
     TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
-    io_uring udp_uring;
     io_uring_params params{};
     params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
     if (io_uring_queue_init_params(QD, &udp_uring, &params) < 0) {
@@ -485,7 +618,6 @@ void TapLan::uring_rcv_wrk()
         return ;
     }
 
-    uint8_t *recv_bufs;
     posix_memalign((void **)&recv_bufs, 4096, UDP_BUF_NUM * UDP_BUF_SIZE);
 
     iovec iovs[UDP_BUF_NUM];
@@ -502,58 +634,39 @@ void TapLan::uring_rcv_wrk()
     io_uring_buf_ring_init(udp_buf_ring);
     int buf_ring_mask = io_uring_buf_ring_mask(UDP_BUF_NUM);
     for (size_t i = 0; i < UDP_BUF_NUM; ++i) {
-        io_uring_buf_ring_add(udp_buf_ring, (uint8_t *)recv_bufs + (i * UDP_BUF_SIZE), UDP_BUF_SIZE, i, buf_ring_mask, i);
+        io_uring_buf_ring_add(udp_buf_ring, recv_bufs + (i * UDP_BUF_SIZE) + MSG_HDR_SIZE,
+                                UDP_BUF_SIZE - MSG_HDR_SIZE, i, buf_ring_mask, i);
     }
     io_uring_buf_ring_advance(udp_buf_ring, UDP_BUF_NUM);
 
-    static msghdr dummy_msg_hdr{};
+    memset(&dummy_msg_hdr, 0, sizeof(msghdr));
     dummy_msg_hdr.msg_namelen = sizeof(sockaddr_in6);
-    auto prep_udp_recv = [&]() {
-        io_uring_sqe* sqe = io_uring_get_sqe(&udp_uring);
-        io_uring_prep_recvmsg_multishot(sqe, udp_fd, &dummy_msg_hdr, 0);
-        sqe->flags |= IOSQE_BUFFER_SELECT;
-        sqe->buf_group = UDP_BUF_GRP_ID;
-        sqe->user_data = (TOKEN_UDP_RECV << 16);
-    };
 
     prep_udp_recv();
     io_uring_submit(&udp_uring);
 
-    auto handle_udp_recv = [&](io_uring_cqe *cqe) {
-        if (!(cqe->flags & IORING_CQE_F_MORE)) {
-            LOGD(TAG, "recvmsg multishot stop.[%d]\n", strerror(-cqe->res));
-            prep_udp_recv();
-        }
-
-        if (cqe->res < 0) {
-            LOGE(TAG, "handle udp recv failed.[%s]", strerror(-cqe->res));
-            return 1;
-        } else if (cqe->res == 0) {
-            return 1;
-        }
-
-        uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-        uint8_t *data_ptr = recv_bufs + (buf_id * UDP_BUF_SIZE);
-        io_uring_recvmsg_out *out = io_uring_recvmsg_validate(data_ptr, cqe->res, &dummy_msg_hdr);
-        if (out && out->payloadlen > 0) {
-            sockaddr_in6 *client_addr = (struct sockaddr_in6 *)io_uring_recvmsg_name(out);
-            uint8_t *payload = (uint8_t *)io_uring_recvmsg_payload(out, &dummy_msg_hdr);
-
-            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-            io_uring_prep_write_fixed(sqe, tap_fd, payload, out->payloadlen, 0, buf_id);
-            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
-            return 0;
-        }
-
-        return 1;
-    };
-
-    auto handle_tap_write = [&](io_uring_cqe * cqe) {
+    auto handle_tap_write = [&](io_uring_cqe *cqe) {
         if (cqe->res < 0) {
             LOGE(TAG, "handle_tap_write failed.[%s]", strerror(-cqe->res));
         }
 
-        return 1;
+        uint16_t buf_id = cqe->user_data;
+        uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
+        if (!--msg->nums_of_addr)
+            return 1;
+        return 0;
+    };
+
+    auto handle_udp_send = [&](io_uring_cqe *cqe) {
+        if (cqe->res < 0) {
+            LOGE(TAG, "handle_udp_send failed.[%s]", strerror(-cqe->res));
+        }
+
+        uint16_t buf_id = cqe->user_data;
+        uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
+        if (!--msg->nums_of_addr)
+            return 1;
+        return 0;
     };
 
     io_uring_cqe *cqe;
@@ -579,6 +692,10 @@ void TapLan::uring_rcv_wrk()
 
             case TOKEN_TAP_WRITE:
                 ring_count += handle_tap_write(cqe);
+                break;
+
+            case TOKEN_UDP_SEND:
+                ring_count += handle_udp_send(cqe);
                 break;
 
             default:

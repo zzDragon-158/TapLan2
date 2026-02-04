@@ -70,10 +70,14 @@ private:
     void syncNodeStatus();
 
     // for io_uring
-    struct uring_send_msg {
+    struct uring_send_msg_hdr {
         msghdr hdr;
         iovec iov;
         sockaddr_in6 addr;
+    };
+    struct uring_send_msg {
+        uint64_t nums_of_addr;
+        sockaddr_in6 addrs[254];
         alignas(16) uint8_t data[];
     };
     const uint32_t QD = 256;
@@ -82,7 +86,18 @@ private:
     const uint32_t UDP_BUF_SIZE = 65536;
     const uint32_t TAP_BUF_NUM = 128;
     const uint32_t TAP_BUF_SIZE = 65536;
+    const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
 
-    void uring_rcv_wrk();
-    void uring_snd_wrk();
+    io_uring tap_uring;
+    uint8_t *read_bufs;
+    void prep_tap_read(uint32_t buf_id);
+    void handle_tap_read(io_uring_cqe *cqe);
+    void uring_read_tap_wrk();
+
+    io_uring udp_uring;
+    uint8_t *recv_bufs;
+    msghdr dummy_msg_hdr;
+    void prep_udp_recv();
+    int handle_udp_recv(io_uring_cqe *cqe);
+    void uring_recv_udp_wrk();
 };
