@@ -458,7 +458,7 @@ void TapLan::uring_read_tap_wrk()
     auto handle_udp_send = [&](io_uring_cqe *cqe) {
         uint32_t buf_id = (uint16_t)cqe->user_data;
         if (cqe->res < 0) {
-            LOGE(TAG, "handle udp send failed.[%s]", strerror(-cqe->res));
+            LOGE(TAG, "TAP handle udp send failed.[%s]", strerror(-cqe->res));
         }
 
         uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
@@ -549,6 +549,7 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
                     return ;
 
                 sockaddr_in6& addr = msg->addrs[msg->nums_of_addr++];
+                memset(&addr, 0, sizeof(sockaddr_in6));
                 addr.sin6_family = AF_INET6;
                 memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 addr.sin6_port = n->ipv6Port;
@@ -653,7 +654,7 @@ void TapLan::uring_recv_udp_wrk()
 
     auto handle_tap_write = [&](io_uring_cqe *cqe) {
         if (cqe->res < 0) {
-            LOGE(TAG, "handle_tap_write failed.[%s]", strerror(-cqe->res));
+            LOGE(TAG, "UDP handle tap write failed.[%s]", strerror(-cqe->res));
         }
 
         uint16_t buf_id = cqe->user_data;
@@ -690,22 +691,32 @@ void TapLan::uring_recv_udp_wrk()
         io_uring_for_each_cqe(&udp_uring, head, cqe) {
             cqe_count++;
 
+            unsigned prev_ring_count = ring_count;
+            uint16_t buf_id;
             switch (cqe->user_data >> 16)
             {
             case TOKEN_UDP_RECV:
                 ring_count += handle_udp_recv(cqe);
+                buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
                 break;
 
             case TOKEN_TAP_WRITE:
                 ring_count += handle_tap_write(cqe);
+                buf_id = cqe->user_data;
                 break;
 
             case TOKEN_UDP_SEND:
                 ring_count += handle_udp_send(cqe);
+                buf_id = cqe->user_data;
                 break;
 
             default:
                 break;
+            }
+
+            if (prev_ring_count != ring_count) {
+                io_uring_buf_ring_add(udp_buf_ring, recv_bufs + (buf_id * UDP_BUF_SIZE) + MSG_HDR_SIZE,
+                                        UDP_BUF_SIZE - MSG_HDR_SIZE, buf_id, buf_ring_mask, prev_ring_count);
             }
         }
 

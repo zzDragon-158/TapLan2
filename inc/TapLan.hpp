@@ -97,7 +97,6 @@ private:
 
     io_uring udp_uring;
     uint8_t *recv_bufs;
-    msghdr dummy_msg_hdr;
     void prep_udp_recv();
     int handle_udp_recv(io_uring_cqe *cqe);
     void uring_recv_udp_wrk();
