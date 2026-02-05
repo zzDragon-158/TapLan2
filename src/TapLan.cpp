@@ -433,7 +433,10 @@ void TapLan::uring_read_tap_wrk()
         return ;
     }
 
-    posix_memalign((void **)&read_bufs, 4096, TAP_BUF_NUM * TAP_BUF_SIZE);
+    read_bufs = (uint8_t *)mmap(NULL, TAP_BUF_NUM * TAP_BUF_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    if (read_bufs == MAP_FAILED) {
+        posix_memalign((void **)&read_bufs, 4096, TAP_BUF_NUM * TAP_BUF_SIZE);
+    }
 
     iovec iovs[TAP_BUF_NUM];
     for (size_t i = 0; i < TAP_BUF_NUM; ++i) {
@@ -448,7 +451,6 @@ void TapLan::uring_read_tap_wrk()
     }
 
     for (size_t idx = 0; idx < TAP_BUF_NUM; ++idx) {
-        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (idx * TAP_BUF_SIZE));
         prep_tap_read(idx);
     }
     io_uring_submit(&tap_uring);
@@ -467,7 +469,7 @@ void TapLan::uring_read_tap_wrk()
     io_uring_cqe *cqe;
     __kernel_timespec timeout{3, 0};
     while (config_.isRunning) {
-        int ret = io_uring_wait_cqe_timeout(&tap_uring, &cqe, &timeout);
+        ret = io_uring_wait_cqe_timeout(&tap_uring, &cqe, &timeout);
         if (ret < 0 && ret != -ETIME) {
             LOGF(TAG, "TAP wait cqe failed.[%s]", strerror(-ret));
             break;
@@ -595,11 +597,13 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
 
 void TapLan::uring_recv_udp_wrk()
 {
+    int ret;
     TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
     io_uring_params params{};
     params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
-    if (io_uring_queue_init_params(QD, &udp_uring, &params) < 0) {
-        perror("io_uring_init");
+    ret = io_uring_queue_init_params(QD, &udp_uring, &params);
+    if (ret < 0) {
+        LOGF(TAG, "UDP queue init params failed.[%s]", strerror(-ret));
         config_.isRunning = false;
         return ;
     }
@@ -612,21 +616,26 @@ void TapLan::uring_recv_udp_wrk()
     bufReg.ring_addr = reinterpret_cast<uint64_t>(udp_buf_ring);
     bufReg.ring_entries = UDP_BUF_NUM;
     bufReg.bgid = UDP_BUF_GRP_ID;
-    if (io_uring_register_buf_ring(&udp_uring, &bufReg, 0) < 0) {
-        fprintf(stderr, "Error registering buf ring\n");
+    ret = io_uring_register_buf_ring(&udp_uring, &bufReg, 0);
+    if (ret < 0) {
+        LOGF(TAG, "UDP register buf ring failed.[%s]", strerror(-ret));
         config_.isRunning = false;
         return ;
     }
 
-    posix_memalign((void **)&recv_bufs, 4096, UDP_BUF_NUM * UDP_BUF_SIZE);
+    recv_bufs = (uint8_t *)mmap(NULL, UDP_BUF_NUM * UDP_BUF_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    if (recv_bufs == MAP_FAILED) {
+        posix_memalign((void **)&recv_bufs, 4096, UDP_BUF_NUM * UDP_BUF_SIZE);
+    }
 
     iovec iovs[UDP_BUF_NUM];
     for (size_t i = 0; i < UDP_BUF_NUM; ++i) {
         iovs[i].iov_base = recv_bufs + i * UDP_BUF_SIZE;
         iovs[i].iov_len = UDP_BUF_SIZE;
     }
-    if (io_uring_register_buffers(&udp_uring, iovs, UDP_BUF_NUM) < 0) {
-        fprintf(stderr, "Error registering udp buffers\n");
+    ret = io_uring_register_buffers(&udp_uring, iovs, UDP_BUF_NUM);
+    if (ret < 0) {
+        LOGF(TAG, "UDP register udp buffers failed.[%s]", strerror(-ret));
         config_.isRunning = false;
         return ;
     }
@@ -638,9 +647,6 @@ void TapLan::uring_recv_udp_wrk()
                                 UDP_BUF_SIZE - MSG_HDR_SIZE, i, buf_ring_mask, i);
     }
     io_uring_buf_ring_advance(udp_buf_ring, UDP_BUF_NUM);
-
-    memset(&dummy_msg_hdr, 0, sizeof(msghdr));
-    dummy_msg_hdr.msg_namelen = sizeof(sockaddr_in6);
 
     prep_udp_recv();
     io_uring_submit(&udp_uring);
@@ -672,7 +678,7 @@ void TapLan::uring_recv_udp_wrk()
     io_uring_cqe *cqe;
     __kernel_timespec timeout{3, 0};
     while (config_.isRunning) {
-        int ret = io_uring_wait_cqe_timeout(&udp_uring, &cqe, &timeout);
+        ret = io_uring_wait_cqe_timeout(&udp_uring, &cqe, &timeout);
         if (ret < 0 && ret != -ETIME) {
             LOGF(TAG, "UDP wait cqe failed.[%s]", strerror(-ret));
             break;

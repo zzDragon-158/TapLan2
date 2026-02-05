@@ -3,6 +3,7 @@
 #include    <ctime>
 #include    <pthread.h>
 #include    <liburing.h>
+#include    <sys/mman.h>
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
 #include    "Socket.hpp"
@@ -83,9 +84,9 @@ private:
     const uint32_t QD = 256;
     const uint32_t UDP_BUF_GRP_ID = 1;
     const uint32_t UDP_BUF_NUM = 128;
-    const uint32_t UDP_BUF_SIZE = 65536;
+    const uint32_t UDP_BUF_SIZE = 16384;
     const uint32_t TAP_BUF_NUM = 128;
-    const uint32_t TAP_BUF_SIZE = 65536;
+    const uint32_t TAP_BUF_SIZE = 16384;
     const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
 
     io_uring tap_uring;
