@@ -55,9 +55,15 @@ public:
     bool isFdValid() { return fdValid_; };
     uint16_t getBindPort() { return bindPort_; };
     uint64_t getSendBytes() { return sendBytes_; };
-    uint64_t getSendErrors() { return sendErrors_; };
+    uint64_t getSendErrors() { return sendErrs_; };
     uint64_t getRecvBytes() { return recvBytes_; };
-    uint64_t getRecvErrors() { return recvErrors_; };
+    uint64_t getRecvErrors() { return recvErrs_; };
+    uint64_t getDropped() { return dropped_; };
+    void incSendBytes(uint64_t v) { sendBytes_ += v; };
+    void incSendErrs(uint64_t v) { sendErrs_ += v; };
+    void incRecvBytes(uint64_t v) { recvBytes_ += v; };
+    void incRecvErrs(uint64_t v) { recvErrs_ += v; };
+    void incDropped(uint64_t v) { dropped_ += v; };
 
 protected:
     TapLanSocket fd_;
@@ -65,8 +71,9 @@ protected:
     uint16_t bindPort_;
     uint64_t sendBytes_;
     uint64_t recvBytes_;
-    uint64_t sendErrors_;
-    uint64_t recvErrors_;
+    uint64_t sendErrs_;
+    uint64_t recvErrs_;
+    uint64_t dropped_;
 #ifdef _WIN32
     static bool s_isWsaInitialized_;
 

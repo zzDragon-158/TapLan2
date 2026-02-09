@@ -50,6 +50,18 @@ TapLan::~TapLan()
     stop();
 }
 
+UdpSocket* TapLan::getUdpSockPtr()
+{
+    UdpSocket* curUdpSockPtr = udpSockPtr_;
+    if (config_.isMultiPortEnable) {
+        std::time_t now = std::time(nullptr);
+        uint16_t portOffset = (now / 60 % 60) % 4;
+        curUdpSockPtr = udpSockPtrArr_[portOffset];
+    }
+
+    return curUdpSockPtr;
+}
+
 void TapLan::initUdpSockPtr()
 {
     if (config_.isMultiPortEnable) {
@@ -272,35 +284,41 @@ void TapLan::showNodeStatus()
 
 void TapLan::showStats()
 {
-    uint64_t totalSendBytes = 0, totalSendErrors = 0, totalRecvBytes = 0, totalRecvErrors = 0;
+    uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
     LOGR("multi-port mode is %s\n", (config_.isMultiPortEnable? "enable": "disable"));
     if (config_.isMultiPortEnable) {
         for (int i = 0; i < 4; ++i) {
             uint64_t sendBytes = udpSockPtrArr_[i]->getSendBytes(),
-                     sendErrors = udpSockPtrArr_[i]->getSendErrors(),
+                     sendErrs = udpSockPtrArr_[i]->getSendErrors(),
                      recvBytes = udpSockPtrArr_[i]->getRecvBytes(),
-                     recvErrors = udpSockPtrArr_[i]->getRecvErrors();
+                     recvErrs = udpSockPtrArr_[i]->getRecvErrors(),
+                     dropped = udpSockPtrArr_[i]->getDropped();
+
             LOGR("UDP port %u:\n", udpSockPtrArr_[i]->getBindPort());
             LOGR("    TX bytes:   %lu\n", sendBytes);
-            LOGR("    TX errors:  %lu\n", sendErrors);
+            LOGR("    TX errors:  %lu\n", sendErrs);
             LOGR("    RX bytes:   %lu\n", recvBytes);
-            LOGR("    RX errors:  %lu\n", recvErrors);
+            LOGR("    RX errors:  %lu\n", recvErrs);
+            LOGR("    dropped:    %lu\n", dropped);
             totalSendBytes += sendBytes;
-            totalSendErrors += sendErrors;
+            totalSendErrs += sendErrs;
             totalRecvBytes += recvBytes;
-            totalRecvErrors += recvErrors;
+            totalRecvErrs += recvErrs;
+            totalDropped += dropped;
         }
     } else {
         totalSendBytes += udpSockPtr_->getSendBytes();
-        totalSendErrors += udpSockPtr_->getSendErrors();
+        totalSendErrs += udpSockPtr_->getSendErrors();
         totalRecvBytes += udpSockPtr_->getRecvBytes();
-        totalRecvErrors += udpSockPtr_->getRecvErrors();
+        totalRecvErrs += udpSockPtr_->getRecvErrors();
+        totalDropped += udpSockPtr_->getDropped();
     }
     LOGR("total:\n");
     LOGR("    TX bytes:   %lu\n", totalSendBytes);
-    LOGR("    TX errors:  %lu\n", totalSendErrors);
+    LOGR("    TX errors:  %lu\n", totalSendErrs);
     LOGR("    RX bytes:   %lu\n", totalRecvBytes);
-    LOGR("    RX errors:  %lu\n", totalRecvErrors);
+    LOGR("    RX errors:  %lu\n", totalRecvErrs);
+    LOGR("    dropped:    %lu\n", totalDropped);
 }
 
 bool TapLan::run()
@@ -372,7 +390,7 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
 
         bool needBroadcast = eh.dst[0] & 0x01;
         if (!needBroadcast) {
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(reinterpret_cast<Mac&>(*eh.dst));
+            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
                 msg->nums_of_addr = 1;
                 sockaddr_in6& addr = msg->addrs[0];
@@ -380,10 +398,12 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
                 addr.sin6_family = AF_INET6;
                 memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 addr.sin6_port = n->ipv6Port;
-                
+
                 io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
                 io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
                 sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+            } else {
+                prep_tap_read(buf_id);
             }
         } else {
             msg->nums_of_addr = 0;
@@ -402,8 +422,9 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
                 sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
             }, false);
 
-            if (msg->nums_of_addr == 0)
+            if (msg->nums_of_addr == 0) {
                 prep_tap_read(buf_id);
+            }
         }
     } else if (config_.runMode == RunMode_Client) {
         msg->nums_of_addr = 1;
@@ -456,11 +477,14 @@ void TapLan::uring_read_tap_wrk()
     io_uring_submit(&tap_uring);
 
     auto handle_udp_send = [&](io_uring_cqe *cqe) {
+        UdpSocket* udpSockPtr = getUdpSockPtr();
         uint32_t buf_id = (uint16_t)cqe->user_data;
         if (cqe->res < 0) {
+            udpSockPtr->incSendErrs(1);
             LOGE(TAG, "TAP handle udp send failed.[%s]", strerror(-cqe->res));
         }
 
+        udpSockPtr->incSendBytes(cqe->res);
         uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
         if (!--msg->nums_of_addr)
             prep_tap_read(buf_id);
@@ -482,8 +506,14 @@ void TapLan::uring_read_tap_wrk()
 
             switch (cqe->user_data >> 16)
             {
+            case TOKEN_UDP_RECV:
+                break;
+
             case TOKEN_TAP_READ:
                 handle_tap_read(cqe);
+                break;
+
+            case TOKEN_TAP_WRITE:
                 break;
 
             case TOKEN_UDP_SEND:
@@ -515,33 +545,33 @@ void TapLan::prep_udp_recv() {
 }
 
 int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
+    UdpSocket* udpSockPtr = getUdpSockPtr();
+    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr);
+
     if (!(cqe->flags & IORING_CQE_F_MORE)) {
-        LOGD(TAG, "recvmsg multishot stop.[%d]\n", strerror(-cqe->res));
+        LOGE(TAG, "UDP recvmsg multishot stop.[%d]", strerror(-cqe->res));
         prep_udp_recv();
     }
 
     if (cqe->res < 0) {
-        LOGE(TAG, "handle udp recv failed.[%s]", strerror(-cqe->res));
+        udpSockPtr->incRecvErrs(1);
+        LOGE(TAG, "UDP handle udp recv failed.[%s]", strerror(-cqe->res));
         return 1;
     } else if (cqe->res == 0) {
+        udpSockPtr->incRecvErrs(1);
         return 1;
+    } else {
+        udpSockPtr->incRecvBytes(cqe->res);
     }
 
-    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
     uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
     uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
-    if (config_.isMultiPortEnable) {
-        std::time_t now = std::time(nullptr);
-        uint16_t portOffset = (now / 60 % 60) % 4;
-        udp_fd = static_cast<TapLanSocket>(*udpSockPtrArr_[portOffset]);
-    }
+    EtherHeader eh = reinterpret_cast<EtherHeader&>(*msg->data);
+    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+    bool needBroadcast = eh.dst[0] & 0x01;
+    bool isSendToMe = needBroadcast || (dstMac == config_.mac);
     if (config_.runMode == RunMode_Server) {
-        EtherHeader eh = reinterpret_cast<EtherHeader&>(*msg->data);
-        Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-        Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-        bool needBroadcast = eh.dst[0] & 0x01;
-        bool isSendToMe = needBroadcast || (dstMac == config_.mac);
-
         if (needBroadcast) {        // broadcast
             msg->nums_of_addr = 0;
             nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
@@ -566,6 +596,7 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
         } else if (!isSendToMe) {   // not broadcast && not send to me
             std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
             if (!n) {
+                udpSockPtr->incDropped(1);
                 return 1;
             }
             msg->nums_of_addr = 1;
@@ -585,10 +616,15 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
             sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
         }
     } else if (config_.runMode == RunMode_Client) {
-        msg->nums_of_addr = 1;
-        io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-        io_uring_prep_write_fixed(sqe, tap_fd, msg->data, cqe->res, 0, buf_id);
-        sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
+        if (isSendToMe) {
+            msg->nums_of_addr = 1;
+            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+            io_uring_prep_write_fixed(sqe, tap_fd, msg->data, cqe->res, 0, buf_id);
+            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
+        } else {
+            udpSockPtr->incDropped(1);
+            return 1;
+        }
     } else {
         // RunMode_None
     }
@@ -665,10 +701,13 @@ void TapLan::uring_recv_udp_wrk()
     };
 
     auto handle_udp_send = [&](io_uring_cqe *cqe) {
+        UdpSocket* udpSockPtr = getUdpSockPtr();
         if (cqe->res < 0) {
-            LOGE(TAG, "handle_udp_send failed.[%s]", strerror(-cqe->res));
+            udpSockPtr->incSendErrs(1);
+            LOGE(TAG, "UDP handle udp send failed.[%s]", strerror(-cqe->res));
         }
 
+        udpSockPtr->incSendBytes(cqe->res);
         uint16_t buf_id = cqe->user_data;
         uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
         if (!--msg->nums_of_addr)
@@ -698,6 +737,9 @@ void TapLan::uring_recv_udp_wrk()
             case TOKEN_UDP_RECV:
                 ring_count += handle_udp_recv(cqe);
                 buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+                break;
+
+            case TOKEN_TAP_READ:
                 break;
 
             case TOKEN_TAP_WRITE:

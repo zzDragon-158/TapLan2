@@ -71,6 +71,16 @@ private:
     void syncNodeStatus();
 
     // for io_uring
+    union uring_userdata {
+        // TODO: use this union to reinterprete [cqe->userdate]
+        uint64_t userdata;
+        struct {
+            uint8_t     op;
+            uint8_t     port_offset;
+            uint16_t    buf_id;
+            uint32_t    reserved;
+        };
+    };
     struct uring_send_msg_hdr {
         msghdr hdr;
         iovec iov;
@@ -88,6 +98,7 @@ private:
     const uint32_t TAP_BUF_NUM = 128;
     const uint32_t TAP_BUF_SIZE = 16384;
     const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
+    UdpSocket* getUdpSockPtr();
 
     io_uring tap_uring;
     uint8_t *read_bufs;

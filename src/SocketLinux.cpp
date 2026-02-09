@@ -6,14 +6,16 @@ const int udpBufferSize = 1024 * 1024 * 8;
 
 UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
                           sendBytes_(0), recvBytes_(0),
-                          sendErrors_(0), recvErrors_(0)
+                          sendErrs_(0), recvErrs_(0),
+                          dropped_(0)
 {
     // nothing to do
 }
 
 UniversalSocket::UniversalSocket(UniversalSocket&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
                                                                     sendBytes_(other.sendBytes_), recvBytes_(other.recvBytes_),
-                                                                    sendErrors_(other.sendErrors_), recvErrors_(other.sendErrors_)
+                                                                    sendErrs_(other.sendErrs_), recvErrs_(other.sendErrs_),
+                                                                    dropped_(other.dropped_)
 {
     other.fd_ = INVALID_SOCKET;
 }
@@ -187,7 +189,7 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
 {
     ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
     if (sendBytes < bufLen) {
-        ++sendErrors_;
+        ++sendErrs_;
         LOGW(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
     } else {
         sendBytes_ += sendBytes;
@@ -203,7 +205,7 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
         if (errno == ECONNRESET) {
             recvBytes = 0;
         } else {
-            ++recvErrors_;
+            ++recvErrs_;
             LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
         }
     } else {
@@ -282,7 +284,7 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        ++sendErrors_;
+        ++sendErrs_;
         LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
     } else {
         sendBytes_ += sendBytes;
@@ -296,7 +298,7 @@ ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            ++recvErrors_;
+            ++recvErrs_;
             LOGE(TAG, "UDP receiving from UDP socket failed. %s", getErrStr().c_str());
         }
     } else {
