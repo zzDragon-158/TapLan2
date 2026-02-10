@@ -2,10 +2,13 @@
 #include    "LogMgr.hpp"
 
 static const char* TAG = "[TapDev]";
-int tap_fd;
+int tap_fd = -1;
+int tap_sock = -1;
+ifreq ifr{};
 
-TapDev::TapDev(): writeErrCnt_(0), readErrCnt_(0) {
-    memset(macAddress_, 0, sizeof(macAddress_));
+TapDev::TapDev(): fdValid_(false), macAddress_{},
+                    writeErrs_(0), readErrs_(0) {
+    fdValid_ = open();
 }
 
 TapDev::~TapDev() {
@@ -13,39 +16,55 @@ TapDev::~TapDev() {
 }
 
 bool TapDev::open() {
-    if (system("ip link set dev " TAP_NAME " up")) {
-        if (system("ip tuntap add dev " TAP_NAME " mode tap"))
-            return false;
-        if (system("ip link set dev " TAP_NAME " up"))
-            return false;
-        if (system("ip link set dev " TAP_NAME " mtu 1418"))
-            return false;
-    }
     tap_fd = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
     if (tap_fd == -1) {
-        LOGE(TAG, "Can not open [/dev/net/tun].");
+        LOGF(TAG, "Failed to open [/dev/net/tun].[%s]", strerror(errno));
         return false;
     }
 
-    ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
+    tap_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (tap_sock == -1) {
+        LOGF(TAG, "Failed to create socket.[%s]", strerror(errno));
+        return false;
+    }
+
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-    strncpy(ifr.ifr_name, TAP_NAME, IFNAMSIZ);
-    if (ioctl(tap_fd, TUNSETIFF, (void*)&ifr) == -1) {
-        LOGE(TAG, "ioctl(TUNSETIFF) failed.");
+    std::strncpy(ifr.ifr_name, TAP_NAME, IFNAMSIZ);
+    if (ioctl(tap_fd, TUNSETIFF, &ifr)) {
+        LOGF(TAG, "Failed to create TAP.[%s]", strerror(errno));
         return false;
     }
-    if (ioctl(tap_fd, SIOCGIFHWADDR, &ifr) == -1) {
-        LOGE(TAG, "ioctl(SIOCGIFHWADDR) failed.");
+
+    ifr.ifr_mtu = TAP_MTU_SIZE;
+    if (ioctl(tap_sock, SIOCSIFMTU, &ifr)) {
+        LOGF(TAG, "Failed to set MTU to [%u].[%s]", TAP_MTU_SIZE, strerror(errno));
         return false;
     }
-    memcpy(macAddress_, ifr.ifr_hwaddr.sa_data, 6);
+
+    if (ioctl(tap_sock, SIOCGIFFLAGS, &ifr)) {
+        LOGF(TAG, "Failed to get flags.[%s]", strerror(errno));
+        return false;
+    }
+    ifr.ifr_flags |= (IFF_UP | IFF_RUNNING);
+    if (ioctl(tap_sock, SIOCSIFFLAGS, &ifr)) {
+        LOGF(TAG, "Failed to set status to up.[%s]", strerror(errno));
+        return false;
+    }
+
+    if (ioctl(tap_sock, SIOCGIFHWADDR, &ifr)) {
+        LOGF(TAG, "Failed to get MAC address.[%s]", strerror(errno));
+        return false;
+    }
+    std::memcpy(macAddress_, ifr.ifr_hwaddr.sa_data, 6);
 
     return true;
 }
 
 bool TapDev::close() {
-    ::close(tap_fd);
+    if (tap_fd != -1)
+        ::close(tap_fd);
+    if (tap_sock != -1)
+        ::close(tap_sock);
     // system("ip link del dev " TAP_NAME);
 
     return true;
@@ -61,30 +80,38 @@ bool TapDev::getMacAddr(uint8_t* buf, size_t bufLen) {
     return true;
 }
 
-bool TapDev::setIpv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
+bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 {
-    std::ostringstream cidr;
-    cidr << inet_ntoa(*ipv4Addr) << "/" << +netIdLen;
+    sockaddr_in* addr = (sockaddr_in*)&ifr.ifr_addr;
+    addr->sin_family = AF_INET;
 
-    std::ostringstream cmd;
-    cmd << "ip addr flush dev " << TAP_NAME << " && ";
-    cmd << "ip addr add " << cidr.str() << " dev " << TAP_NAME;
-    if (system(cmd.str().c_str())) {
-        LOGE(TAG, "Setting %s IP address to %s failed.", TAP_NAME, cidr.str().c_str());
+    addr->sin_addr.s_addr = ipv4Addr->s_addr;
+    if (ioctl(tap_sock, SIOCSIFADDR, &ifr)) {
+        LOGE(TAG, "Failed to set IPv4 address to %s.[%s]", inet_ntoa(*ipv4Addr), strerror(errno));
         return false;
     }
-    LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
 
+    addr->sin_addr.s_addr = (netIdLen == 0) ? 0 : htonl(0xFFFFFFFFU << (32 - netIdLen));
+    if (ioctl(tap_sock, SIOCSIFNETMASK, &ifr)) {
+        LOGE(TAG, "Failed to set netmask to %u.[%s]", netIdLen, strerror(errno));
+        return false;
+    }
+
+    LOGI(TAG, "%s IP address set to %s/%u", TAP_NAME, inet_ntoa(*ipv4Addr), netIdLen);
     return true;
 }
 
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
     ssize_t writeBytes = ::write(tap_fd, buf, bufLen);
-    if (writeBytes < bufLen) {
-        LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
-        ++writeErrCnt_;
+    if (writeBytes == -1) {
+        LOGE(TAG, "Failed to write to TAP.[%s]", strerror(errno));
+        ++writeErrs_;
+        return -1;
+    } else if (writeBytes < bufLen) {
+        LOGW(TAG, "Actual written [%lu]bytes are less than expected written [%lu]bytes.", writeBytes, bufLen);
     }
 
+    writeBytes_ += writeBytes;
     return writeBytes;
 }
 
@@ -96,9 +123,11 @@ ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
 
     ssize_t readBytes = ::read(tap_fd, buf, bufLen);
     if (readBytes == -1) {
-        LOGE(TAG, "Reading from tap device failed.");
-        ++readErrCnt_;
+        LOGE(TAG, "Failed to read from TAP.[%s]", strerror(errno));
+        ++readErrs_;
+        return -1;
     }
 
+    readBytes_ += readBytes;
     return readBytes;
 }

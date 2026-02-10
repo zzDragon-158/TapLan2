@@ -178,8 +178,9 @@ static bool createNewTap() {
     return ret;
 }
 
-TapDev::TapDev(): writeErrCnt_(0), readErrCnt_(0) {
-    memset(macAddress_, 0, sizeof(macAddress_));
+TapDev::TapDev(): fdValid_(true), macAddress_{},
+                    writeErrs_(0), readErrs_(0) {
+    // nothing to do
 }
 
 TapDev::~TapDev() {
@@ -233,7 +234,7 @@ bool TapDev::getMacAddr(uint8_t* buf, size_t bufLen) {
     return true;
 }
 
-bool TapDev::setIpv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
+bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 {
     std::ostringstream cidr;
     cidr << inet_ntoa(*ipv4Addr) << "/" << +netIdLen;
@@ -262,11 +263,11 @@ ssize_t TapDev::write(const void* buf, size_t bufLen) {
         ResetEvent(tapLanTapDevice.overlapWrite.hEvent);
         if (writeBytes < bufLen) {
             LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
-            ++writeErrCnt_;
+            ++writeErrs_;
         }
     } else {
         LOGE(TAG, "Writting to tap device failed. %u %u", bufLen, lastError);
-        ++writeErrCnt_;
+        ++writeErrs_;
         writeBytes = -1;
     }
 
@@ -287,7 +288,7 @@ ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
         if (lastError != ERROR_IO_PENDING) {
             waitFlag = 0;
             LOGE(TAG, "Reading from tap device failed.");
-            ++readErrCnt_;
+            ++readErrs_;
             return -1;
         }
     }

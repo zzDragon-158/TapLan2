@@ -389,7 +389,7 @@ bool NodeMgr::handleResponse(uint8_t* rcvBuf, size_t recvbytes)
         netNumLen_ = rspMsg.netIDLen;
         uint32_t subnetMask = ~(static_cast<uint32_t>(1 << (32 - rspMsg.netIDLen)) - 1);
         netNum_ = ntohl(rspMsg.ipv4Addr.s_addr) & subnetMask;
-        TapDevPtr->setIpv4Addr(&rspMsg.ipv4Addr, rspMsg.netIDLen);
+        TapDevPtr->setIPv4Addr(&rspMsg.ipv4Addr, rspMsg.netIDLen);
         } break;
     case OP_RESP_SYNC_NODE:
     case OP_MOD: {
