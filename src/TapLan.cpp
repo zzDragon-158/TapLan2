@@ -20,7 +20,7 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrArr_{},
         config_.isRunning = udpSockPtr_->isFdValid() && TapDevPtr->isFdVaild();
 
         if (config_.isRunning) {
-            TapDevPtr->getMacAddr(config_.mac.addr, sizeof(Mac));
+            TapDevPtr->getMacAddr(config_.mac);
             std::shared_ptr<Node> n = nodeMgrPtr_->addNode(&serverAddr_, config_.mac);
             TapDevPtr->setIPv4Addr(&n->ipv4Addr, config_.netNumLen);
         }
@@ -38,7 +38,7 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrArr_{},
         config_.isRunning = udpSockPtr_->isFdValid() && TapDevPtr->isFdVaild();
 
         if (config_.isRunning) {
-            TapDevPtr->getMacAddr(config_.mac.addr, sizeof(Mac));
+            TapDevPtr->getMacAddr(config_.mac);
         }
     } else {
         // RunMode_None

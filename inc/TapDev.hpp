@@ -13,6 +13,7 @@
 #include    <cstring>                               // for memset, strncpy
 #include    <sys/ioctl.h>                           // for ioctl, TUNSETIFF
 #include    <net/if.h>                              // for struct ifreq, IFNAMSIZ
+#include    <net/if_arp.h>                          // for ARPHRD_ETHER
 #include    <linux/if_tun.h>                        // for IFF_TAP, IFF_NO_PI;
 #include    <arpa/inet.h>                           // for in_addr
 #include    <poll.h>                                // for poll, pollfd
@@ -22,6 +23,8 @@
 #error      "unsupported platform!"
 
 #endif
+
+#include    "Common.hpp"
 
 #define     TAP_NAME                                "TapLan"
 #define     TAP_MTU_SIZE                            1418
@@ -45,7 +48,7 @@ public:
     bool            isFdVaild() { return fdValid_; };
     ssize_t         write(const void* buf, size_t bufLen);
     ssize_t         read(void* buf, size_t bufLen, int timeout = -1);
-    bool            getMacAddr(uint8_t* buf, size_t bufLen);
+    void            getMacAddr(Mac& mac);
     bool            setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen);
     uint64_t        getWriteBytes() { return writeBytes_; };
     uint64_t        getWriteErrs() { return writeErrs_; };
@@ -58,7 +61,7 @@ public:
 
 private:
     bool            fdValid_;
-    uint8_t         macAddress_[ETHERNET_MAC_LEN];
+    Mac             mac_;
     uint64_t        writeBytes_;
     uint64_t        writeErrs_;
     uint64_t        readBytes_;
@@ -66,6 +69,7 @@ private:
 
     TapDev();
     ~TapDev();
+    void            generateMac();
     bool            open();
     bool            close();
 };

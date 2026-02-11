@@ -6,13 +6,27 @@ int tap_fd = -1;
 int tap_sock = -1;
 ifreq ifr{};
 
-TapDev::TapDev(): fdValid_(false), macAddress_{},
+TapDev::TapDev(): fdValid_(false), mac_{},
                     writeErrs_(0), readErrs_(0) {
+    generateMac();
     fdValid_ = open();
 }
 
 TapDev::~TapDev() {
     close();
+}
+
+void TapDev::generateMac() {
+    mac_.addr[0] = 0x02;
+    mac_.addr[1] = 0x34;
+    mac_.addr[2] = 0x60;
+
+    auto now = std::chrono::high_resolution_clock::now();
+    auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+    uint32_t seed = static_cast<uint32_t>(micros ^ (getpid() << 16));
+    mac_.addr[3] = (seed >> 16) & 0xFF;
+    mac_.addr[4] = (seed >> 8) & 0xFF;
+    mac_.addr[5] = seed & 0xFF;
 }
 
 bool TapDev::open() {
@@ -35,6 +49,13 @@ bool TapDev::open() {
         return false;
     }
 
+    ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
+    std::memcpy(ifr.ifr_hwaddr.sa_data, mac_.addr, 6);
+    if (ioctl(tap_sock, SIOCSIFHWADDR, &ifr)) {
+        LOGF(TAG, "Failed to set MAC address.[%s]", strerror(errno));
+        return false;
+    }
+
     ifr.ifr_mtu = TAP_MTU_SIZE;
     if (ioctl(tap_sock, SIOCSIFMTU, &ifr)) {
         LOGF(TAG, "Failed to set MTU to [%u].[%s]", TAP_MTU_SIZE, strerror(errno));
@@ -51,12 +72,6 @@ bool TapDev::open() {
         return false;
     }
 
-    if (ioctl(tap_sock, SIOCGIFHWADDR, &ifr)) {
-        LOGF(TAG, "Failed to get MAC address.[%s]", strerror(errno));
-        return false;
-    }
-    std::memcpy(macAddress_, ifr.ifr_hwaddr.sa_data, 6);
-
     return true;
 }
 
@@ -70,14 +85,8 @@ bool TapDev::close() {
     return true;
 }
 
-bool TapDev::getMacAddr(uint8_t* buf, size_t bufLen) {
-    if (bufLen < 6) {
-        return false;
-    }
-
-    memcpy(buf, macAddress_, 6);
-
-    return true;
+void TapDev::getMacAddr(Mac& mac) {
+    mac = mac_;
 }
 
 bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)

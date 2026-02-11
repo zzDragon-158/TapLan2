@@ -178,7 +178,7 @@ static bool createNewTap() {
     return ret;
 }
 
-TapDev::TapDev(): fdValid_(true), macAddress_{},
+TapDev::TapDev(): fdValid_(true), mac_{},
                     writeErrs_(0), readErrs_(0) {
     // nothing to do
 }
@@ -211,7 +211,7 @@ bool TapDev::open() {
         LOGE(TAG, "DeviceIoControl(TAP_IOCTL_GET_MAC) failed.");
         return false;
     }
-    memcpy(macAddress_, tapLanTapDevice.adapterMac, 6);
+    std::memcpy(mac_.addr, tapLanTapDevice.adapterMac, 6);
 
     return true;
 }
@@ -224,14 +224,8 @@ bool TapDev::close() {
     return true;
 }
 
-bool TapDev::getMacAddr(uint8_t* buf, size_t bufLen) {
-    if (bufLen < 6) {
-        return false;
-    }
-
-    memcpy(buf, &tapLanTapDevice.adapterMac, 6);
-
-    return true;
+void TapDev::getMacAddr(Mac& mac) {
+    std::memcpy(mac.addr, &tapLanTapDevice.adapterMac, 6);
 }
 
 bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)

@@ -20,7 +20,9 @@
 #error      "unsupported platform!"
 
 #endif
+
 #include    "Socket.hpp"
+#include    "Common.hpp"
 
 typedef enum {
     NODE_ONLINE = 0,
@@ -43,24 +45,6 @@ enum OP_TYPE {
 // } NodeEvent;
 
 #pragma pack(push, 1)
-struct Mac {
-    uint8_t addr[6];
-
-    operator uint64_t() {
-        uint64_t num = 0;
-        __builtin_memcpy(&num, addr, 6);
-        return num;
-    };
-    Mac& operator =(const Mac& m) {
-        __builtin_memcpy(&this->addr, &m.addr, 6);
-        return *this;
-    }
-    Mac& operator =(const uint64_t& m) {
-        __builtin_memcpy(&this->addr, &m, 6);
-        return *this;
-    }
-};
-
 struct SyncMessage {
     Mac         mac;
     uint8_t     op;         // 1: reqIP; 2: respIP; 3: reqNodeStatus; 4: respNodeStatus;
