@@ -342,8 +342,13 @@ bool TapLan::run()
         return false;
 
     if (config_.isIoUringEnable) {
+#ifdef      _WIN32
+        sendThread_ = std::thread(&TapLan::readTapData, this);
+        recvThread_ = std::thread(&TapLan::recvSockData, this);
+#else
         sendThread_ = std::thread(&TapLan::uring_read_tap_wrk, this);
         recvThread_ = std::thread(&TapLan::uring_recv_udp_wrk, this);
+#endif
     } else {
         sendThread_ = std::thread(&TapLan::readTapData, this);
         recvThread_ = std::thread(&TapLan::recvSockData, this);
@@ -374,6 +379,7 @@ bool TapLan::stop()
     return true;
 }
 
+#ifdef      __linux__
 void TapLan::prep_tap_read(uint32_t buf_id) {
     uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
     io_uring_sqe* sqe = io_uring_get_sqe(&tap_uring);
@@ -793,3 +799,5 @@ void TapLan::uring_recv_udp_wrk()
     std::cout << "Thread " << recvThreadName_ << " has exited." << std::endl;
     return ;
 }
+
+#endif

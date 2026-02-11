@@ -2,8 +2,6 @@
 #include    <cstdint>
 #include    <ctime>
 #include    <pthread.h>
-#include    <liburing.h>
-#include    <sys/mman.h>
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
 #include    "Socket.hpp"
@@ -54,6 +52,7 @@ public:
     bool stop();
     void showNodeStatus();
     void showStats();
+    UdpSocket* getUdpSockPtr();
 
 private:
     sockaddr_in6    serverAddr_;
@@ -70,6 +69,7 @@ private:
     void readTapData();
     void syncNodeStatus();
 
+#ifdef      __linux__
     // for io_uring
     union uring_userdata {
         // TODO: use this union to reinterprete [cqe->userdate]
@@ -98,7 +98,6 @@ private:
     const uint32_t TAP_BUF_NUM = 128;
     const uint32_t TAP_BUF_SIZE = 16384;
     const size_t MSG_HDR_SIZE = sizeof(uring_send_msg);
-    UdpSocket* getUdpSockPtr();
 
     io_uring tap_uring;
     uint8_t *read_bufs;
@@ -111,4 +110,5 @@ private:
     void prep_udp_recv();
     int handle_udp_recv(io_uring_cqe *cqe);
     void uring_recv_udp_wrk();
+#endif
 };

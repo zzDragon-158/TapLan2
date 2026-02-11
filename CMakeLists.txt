@@ -33,11 +33,13 @@ add_executable(TapLan src/main.cpp src/TapLan.cpp)
 target_link_libraries(TapLan NodeMgr TapDev Socket LogMgr)
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)
-set(MY_URING_STATIC_PATH "/usr/local/lib/liburing.a")
-add_library(uring_static UNKNOWN IMPORTED)
-set_target_properties(uring_static PROPERTIES
-    IMPORTED_LOCATION "${MY_URING_STATIC_PATH}"
-    # 如果有头文件路径也可以在这里指定
-    # INTERFACE_INCLUDE_DIRECTORIES "/usr/local/include"
-)
-target_link_libraries(TapLan uring_static)
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+    set(MY_URING_STATIC_PATH "/usr/local/lib/liburing.a")
+    add_library(uring_static UNKNOWN IMPORTED)
+    set_target_properties(uring_static PROPERTIES
+        IMPORTED_LOCATION "${MY_URING_STATIC_PATH}"
+        # 如果有头文件路径也可以在这里指定
+        # INTERFACE_INCLUDE_DIRECTORIES "/usr/local/include"
+    )
+    target_link_libraries(TapLan uring_static)
+endif()

@@ -211,7 +211,7 @@ bool TapDev::open() {
         LOGE(TAG, "DeviceIoControl(TAP_IOCTL_GET_MAC) failed.");
         return false;
     }
-    std::memcpy(mac_.addr, tapLanTapDevice.adapterMac, 6);
+    memcpy(mac_.addr, tapLanTapDevice.adapterMac, 6);
 
     return true;
 }
@@ -225,7 +225,7 @@ bool TapDev::close() {
 }
 
 void TapDev::getMacAddr(Mac& mac) {
-    std::memcpy(mac.addr, &tapLanTapDevice.adapterMac, 6);
+    memcpy(mac.addr, &tapLanTapDevice.adapterMac, 6);
 }
 
 bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)

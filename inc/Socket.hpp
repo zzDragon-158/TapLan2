@@ -18,6 +18,8 @@ typedef SOCKET TapLanSocket;
 #include    <cstring>           // for strerror
 #include    <sys/socket.h>      // for socket
 #include    <arpa/inet.h>       // for in6addr_any
+#include    <liburing.h>        // for io_uring
+#include    <sys/mman.h>        // for mmap
 
 #define     TapLanPoll          poll
 #define     INVALID_SOCKET      -1
