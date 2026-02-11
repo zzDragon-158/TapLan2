@@ -15,62 +15,116 @@
 
 struct WinAdapterInfo {
     HANDLE handle;
-    CHAR adapterId[BUFFER_SIZE];
-    DWORD adapterIdLen;
-    CHAR adapterName[BUFFER_SIZE];
-    DWORD adapterNameLen;
-    CHAR adapterMac[6];
-    DWORD adapterMacLen;
+    CHAR netCfgInstId[BUFFER_SIZE];
+    DWORD netInstIdLen;
+    CHAR devInstId[BUFFER_SIZE];
+    DWORD devInstIdLen;
+    BYTE name[BUFFER_SIZE];
+    DWORD nameLen;
     DWORD mediaStatus;
     DWORD mediaStatusLen;
     OVERLAPPED overlapRead, overlapWrite;
 
-    WinAdapterInfo():   handle(nullptr), adapterIdLen(BUFFER_SIZE), adapterNameLen(BUFFER_SIZE), adapterMacLen(6),
-                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)) {
-        memset(adapterId, 0, sizeof(adapterId));
-        memset(adapterName, 0, sizeof(adapterName));
-        memset(adapterMac, 0, sizeof(adapterMac));
-        memset(&overlapRead, 0, sizeof(overlapRead));
-        memset(&overlapWrite, 0, sizeof(overlapWrite));
-        overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-        overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    WinAdapterInfo():   handle(nullptr), netCfgInstId{}, netInstIdLen(BUFFER_SIZE),
+                        devInstId{}, devInstIdLen(BUFFER_SIZE),
+                        name{}, nameLen(BUFFER_SIZE),
+                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)),
+                        overlapRead{}, overlapWrite{} {
+        // nothing to do
     }
 };
 
-static WinAdapterInfo tapLanTapDevice;
+static WinAdapterInfo tapInfo;
 static const char* TAG = "[TapDev]";
+
+#include <windows.h>
+#include <iostream>
+#include <string>
+
+static std::string getErrMsg(DWORD errorCode) {
+    if (errorCode == 0)
+        return "Success";
+
+    LPSTR msgBuf = nullptr;
+    size_t size = FormatMessageA(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER |
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, 
+        errorCode, 
+        // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),   // system language
+        MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),   // english
+        (LPSTR)&msgBuf, 
+        0, 
+        NULL
+    );
+    std::string msg(msgBuf, size);
+    LocalFree(msgBuf);
+
+    if (!msg.empty() && msg.back() == '\n') msg.pop_back();
+    if (!msg.empty() && msg.back() == '\r') msg.pop_back();
+
+    return msg;
+}
+
+static std::string getCurrentWorkDir() {
+    namespace fs = std::filesystem;
+    try {
+        return fs::current_path().string();
+    } catch (const fs::filesystem_error& e) {
+        return "";
+    }
+}
 
 static bool findExistedTap() {
     bool ret = false;
+    LONG err;
+    std::string errMsg;
 
     HKEY openKey0;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, NETWORK_CONNECTIONS_KEY, 0, KEY_READ, &openKey0)) {
-        LOGE(TAG, "Openning %s failed.", NETWORK_CONNECTIONS_KEY);
+    err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, NETWORK_CONNECTIONS_KEY, 0, KEY_READ, &openKey0);
+    if (err != ERROR_SUCCESS) {
+        errMsg = getErrMsg(err);
+        LOGT(TAG, "Failed to open %s.[%s]", NETWORK_CONNECTIONS_KEY, errMsg.c_str());
         return ret;
     }
 
-    for (int i = 0; ; ++i) {
-        WinAdapterInfo adapter;
-        if (RegEnumKeyExA(openKey0, i, adapter.adapterId, &adapter.adapterIdLen, nullptr, nullptr, nullptr, nullptr))
+    for (DWORD idx = 0; ; ++idx) {
+        WinAdapterInfo adapterInfo;
+
+        err = RegEnumKeyExA(openKey0, idx, adapterInfo.netCfgInstId, &adapterInfo.netInstIdLen, nullptr, nullptr, nullptr, nullptr);
+        if (err != ERROR_SUCCESS) {
+            if (err != ERROR_NO_MORE_ITEMS) {
+                errMsg = getErrMsg(err);
+                LOGT(TAG, "Failed to enum %s.[%s]", NETWORK_CONNECTIONS_KEY, errMsg.c_str());
+            }
             break;
+        }
+
+        std::stringstream regPath;
+        regPath << NETWORK_CONNECTIONS_KEY << "\\" << adapterInfo.netCfgInstId << "\\Connection";
 
         HKEY openKey1;
-        std::ostringstream regpath;
-        regpath << NETWORK_CONNECTIONS_KEY << "\\" << adapter.adapterId << "\\Connection";
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, regpath.str().c_str(), 0, KEY_READ, &openKey1))
-            continue;
-
-        int err = RegQueryValueExA(openKey1, "Name", nullptr, nullptr, (LPBYTE)adapter.adapterName, &adapter.adapterNameLen);
-        if (err) {
-            RegCloseKey(openKey1);
+        err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, regPath.str().c_str(), 0, KEY_READ, &openKey1);
+        if (err != ERROR_SUCCESS) {
+            if (err != ERROR_FILE_NOT_FOUND) {
+                errMsg = getErrMsg(err);
+                LOGT(TAG, "Failed to open %s.[%s]", regPath.str().c_str(), errMsg.c_str());
+            }
             continue;
         }
-        RegCloseKey(openKey1);
 
-        if (0 != strcmp(TAP_NAME, (const char*)adapter.adapterName))
+        err = RegGetValueA(openKey1, nullptr, "Name", RRF_RT_REG_SZ, nullptr, adapterInfo.name, &adapterInfo.nameLen);
+        RegCloseKey(openKey1);
+        if (err) {
+            LOGT(TAG, "Failed to get Name from %s.[%s]", regPath.str().c_str(), errMsg.c_str());
+            continue;
+        }
+
+        if (0 != strcmp(TAP_NAME, (const char*)adapterInfo.name))
             continue;
 
-        memcpy(&tapLanTapDevice, &adapter, sizeof(WinAdapterInfo));
+        memcpy(&tapInfo, &adapterInfo, sizeof(WinAdapterInfo));
         ret = true;
         break;
     }
@@ -81,6 +135,8 @@ static bool findExistedTap() {
 
 static bool createNewTap() {
     bool ret = false;
+    LONG err;
+    std::string errMsg;
     DWORD64 startTimestamp; {
         FILETIME ft;
         GetSystemTimeAsFileTime(&ft);
@@ -90,86 +146,106 @@ static bool createNewTap() {
     DWORD attributes = GetFileAttributesA(TAP_INSTALL);
     if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
         if (system(TAP_INSTALL " install OemVista.inf TAP0901")) {
-            LOGE(TAG, "Creating tap device failed.");
+            LOGE(TAG, "Failed to install TAP device.");
             return ret;
         }
     } else {
-        LOGE(TAG, "%s does not exist. Please place this program in the current directory.", TAP_INSTALL);
+        LOGE(TAG, "Please place [%s] in [%s].", TAP_INSTALL, getCurrentWorkDir().c_str());
         return ret;
     }
 
     HKEY openKey0;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, ADAPTER_KEY, 0, KEY_READ, &openKey0)) {
-        LOGE(TAG, "Openning %s failed.", ADAPTER_KEY);
+    err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, ADAPTER_KEY, 0, KEY_READ, &openKey0);
+    if (err != ERROR_SUCCESS) {
+        errMsg = getErrMsg(err);
+        LOGE(TAG, "Failed to open %s.[%s]", ADAPTER_KEY, errMsg.c_str());
         return false;
     }
 
-    for (int i = 0; ; ++i) {
-        WinAdapterInfo adapter;
-        CHAR driveId[BUFFER_SIZE];
-        DWORD driveIdLen = BUFFER_SIZE;
-        if (RegEnumKeyExA(openKey0, i, driveId, &driveIdLen, nullptr, nullptr, nullptr, nullptr))
+    for (DWORD idx = 0; ; ++idx) {
+        WinAdapterInfo adapterInfo;
+        CHAR driverId[BUFFER_SIZE];
+        DWORD driverIdLen = BUFFER_SIZE;
+        err = RegEnumKeyExA(openKey0, idx, driverId, &driverIdLen, nullptr, nullptr, nullptr, nullptr);
+        if (err != ERROR_SUCCESS) {
+            if (err != ERROR_NO_MORE_ITEMS) {
+                errMsg = getErrMsg(err);
+                LOGE(TAG, "Failed to enum %s.[%s]", ADAPTER_KEY, errMsg.c_str());
+            }
             break;
+        }
 
-        HKEY openKey1;
-        std::ostringstream regpath;
-        regpath << ADAPTER_KEY << "\\" << driveId;
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, regpath.str().c_str(), 0, KEY_READ, &openKey1))
-            continue;
-
-        LONG err;
         DWORD64 installTimestamp;
         DWORD installTimestampLen = sizeof(installTimestamp);
-        err = RegQueryValueExA(openKey1, "NetworkInterfaceInstallTimestamp", nullptr, nullptr, (UCHAR*)&installTimestamp, &installTimestampLen);
-        if (err || installTimestamp < startTimestamp) {
-            RegCloseKey(openKey1);
+        err = RegGetValueA(openKey0, driverId, "NetworkInterfaceInstallTimestamp", RRF_RT_QWORD, nullptr, &installTimestamp, &installTimestampLen);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGT(TAG, "Failed to get NetworkInterfaceInstallTimestamp from %s.[%s]", driverId, errMsg.c_str());
+            continue;
+        } else if (installTimestamp < startTimestamp) {
             continue;
         }
 
         CHAR providerName[BUFFER_SIZE];
         DWORD providerNameLen = BUFFER_SIZE;
-        err = RegQueryValueExA(openKey1, "ProviderName", nullptr, nullptr, (UCHAR*)&providerName, &providerNameLen);
-        if (err || strcmp("TAP-Windows Provider V9", (const char*)providerName)) {
-            RegCloseKey(openKey1);
+        err = RegGetValueA(openKey0, driverId, "ProviderName", RRF_RT_REG_SZ, nullptr, &providerName, &providerNameLen);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGT(TAG, "Failed to get ProviderName from %s.[%s]", driverId, errMsg.c_str());
+            continue;
+        } else if (strcmp("TAP-Windows Provider V9", (const char*)providerName) != 0) {
             continue;
         }
-        err = RegQueryValueExA(openKey1, "NetCfgInstanceId", nullptr, nullptr, (UCHAR*)adapter.adapterId, &adapter.adapterIdLen);
-        if (err) {
-            RegCloseKey(openKey1);
-            continue;
-        }
-        RegCloseKey(openKey1);
 
-        regpath.str("");
-        regpath << NETWORK_CONNECTIONS_KEY << "\\" << adapter.adapterId << "\\Connection";
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, regpath.str().c_str(), 0, KEY_READ, &openKey1)) {
-            LOGE(TAG, "Openning %s failed.", regpath.str().c_str());
+        err = RegGetValueA(openKey0, driverId, "DeviceInstanceID", RRF_RT_REG_SZ, nullptr, adapterInfo.devInstId, &adapterInfo.devInstIdLen);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGF(TAG, "Failed to get DeviceInstanceID from %s.[%s]", driverId, errMsg.c_str());
             break;
         }
-        err = RegQueryValueExA(openKey1, "Name", nullptr, nullptr, (LPBYTE)adapter.adapterName, &adapter.adapterNameLen);
-        if (err) {
-            RegCloseKey(openKey1);
-            LOGE(TAG, "Getting tap device name failed.");
+
+        err = RegGetValueA(openKey0, driverId, "NetCfgInstanceId", RRF_RT_REG_SZ, nullptr, adapterInfo.netCfgInstId, &adapterInfo.netInstIdLen);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGF(TAG, "Failed to get NetCfgInstanceId from %s.[%s]", driverId, errMsg.c_str());
             break;
         }
-        RegCloseKey(openKey1);
 
-        std::ostringstream cmd;
-        cmd << "netsh interface set interface name=\"" << adapter.adapterName << "\" newname=\"" << TAP_NAME << "\"";
+        std::stringstream regPath;
+        regPath << NETWORK_CONNECTIONS_KEY << "\\" << adapterInfo.netCfgInstId << "\\Connection";
+
+        HKEY openKey1;
+        err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, regPath.str().c_str(), 0, KEY_READ, &openKey1);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGE(TAG, "Failed to open %s.[%s]", regPath.str().c_str(), errMsg);
+            break;
+        }
+
+        err = RegGetValueA(openKey1, nullptr, "Name", RRF_RT_REG_SZ, nullptr, adapterInfo.name, &adapterInfo.nameLen);
+        RegCloseKey(openKey1);
+        if (err) {
+            errMsg = getErrMsg(err);
+            LOGE(TAG, "Failed to get Name from %s.[%s]", regPath.str().c_str(), errMsg.c_str());
+            break;
+        }
+
+        std::stringstream cmd;
+        cmd << "netsh interface set interface name=\"" << adapterInfo.name << "\" newname=\"" << TAP_NAME << "\"";
         if (system(cmd.str().c_str())) {
-            LOGE(TAG, "Rename tap device failed.");
+            LOGE(TAG, "Failed to rename TAP device.");
             break;
         }
         cmd.str("");
         cmd << "netsh interface ipv4 set subinterface \"" << TAP_NAME << "\" mtu=1418 store=persistent";
         if (system(cmd.str().c_str())) {
-            LOGE(TAG, "set tap device mtu to 1418 failed.");
+            LOGE(TAG, "Failed to set TAP device mtu to 1418.");
             break;
         }
 
-        strcpy(adapter.adapterName, TAP_NAME);
-        adapter.adapterNameLen = strlen(TAP_NAME) + 1;
-        memcpy(&tapLanTapDevice, &adapter, sizeof(WinAdapterInfo));
+        strcpy((char*)adapterInfo.name, TAP_NAME);
+        adapterInfo.nameLen = strlen(TAP_NAME) + 1;
+        memcpy(&tapInfo, &adapterInfo, sizeof(WinAdapterInfo));
         ret = true;
         break;
     }
@@ -178,46 +254,72 @@ static bool createNewTap() {
     return ret;
 }
 
-TapDev::TapDev(): fdValid_(true), mac_{},
+TapDev::TapDev(): fdValid_(false), mac_{},
                     writeErrs_(0), readErrs_(0) {
-    // nothing to do
+    generateMac();
+    fdValid_ = open();
 }
 
 TapDev::~TapDev() {
     close();
 }
 
+void TapDev::generateMac() {
+    mac_.addr[0] = 0x02;
+    mac_.addr[1] = 0x34;
+    mac_.addr[2] = 0x60;
+
+    auto now = std::chrono::high_resolution_clock::now();
+    auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+    uint32_t seed = static_cast<uint32_t>(micros ^ (getpid() << 16));
+    mac_.addr[3] = (seed >> 16) & 0xFF;
+    mac_.addr[4] = (seed >> 8) & 0xFF;
+    mac_.addr[5] = seed & 0xFF;
+}
+
 bool TapDev::open() {
+    std::string errMsg;
+
     if (!findExistedTap() && !createNewTap())
         return false;
 
-    std::ostringstream tapName;
-    tapName << USERMODEDEVICEDIR << tapLanTapDevice.adapterId << TAPSUFFIX;
-    tapLanTapDevice.handle = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
-    if (tapLanTapDevice.handle == INVALID_HANDLE_VALUE) {
+    std::stringstream tapName;
+    tapName << USERMODEDEVICEDIR << tapInfo.netCfgInstId << TAPSUFFIX;
+    tapInfo.handle = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
+    if (tapInfo.handle == INVALID_HANDLE_VALUE) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to open TAP device.[%s]", errMsg.c_str());
         return false;
     }
 
-    if (!DeviceIoControl(tapLanTapDevice.handle, TAP_IOCTL_SET_MEDIA_STATUS,
-        &tapLanTapDevice.mediaStatus, tapLanTapDevice.mediaStatusLen,
-        &tapLanTapDevice.mediaStatus, tapLanTapDevice.mediaStatusLen, &tapLanTapDevice.mediaStatusLen, nullptr)) {
-        LOGE(TAG, "DeviceIoControl(TAP_IOCTL_SET_MEDIA_STATUS) failed.");
+    if (!DeviceIoControl(tapInfo.handle, TAP_IOCTL_SET_MEDIA_STATUS,
+                        &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
+                        &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
+                        &tapInfo.mediaStatusLen, nullptr)) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to set status to up.[%s]", errMsg.c_str());
         return false;
     }
 
-    if (!DeviceIoControl(tapLanTapDevice.handle, TAP_IOCTL_GET_MAC,
-        tapLanTapDevice.adapterMac, tapLanTapDevice.adapterMacLen,
-        tapLanTapDevice.adapterMac, tapLanTapDevice.adapterMacLen, &tapLanTapDevice.adapterMacLen, nullptr)) {
-        LOGE(TAG, "DeviceIoControl(TAP_IOCTL_GET_MAC) failed.");
+    DWORD macLen = sizeof(mac_);
+    memset(mac_.addr, 0, 6);
+    if (!DeviceIoControl(tapInfo.handle, TAP_IOCTL_GET_MAC,
+                        mac_.addr, 6,
+                        mac_.addr, 6,
+                        &macLen, nullptr)) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to get MAC address.[%s]", errMsg.c_str());
         return false;
     }
-    memcpy(mac_.addr, tapLanTapDevice.adapterMac, 6);
+
+    tapInfo.overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    tapInfo.overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
     return true;
 }
 
 bool TapDev::close() {
-    CloseHandle(tapLanTapDevice.handle);
+    CloseHandle(tapInfo.handle);
     // if (system(TAP_INSTALL " remove TAP0901"))
     //     LOGE(TAG, "Removing tap device failed.");
 
@@ -225,15 +327,15 @@ bool TapDev::close() {
 }
 
 void TapDev::getMacAddr(Mac& mac) {
-    memcpy(mac.addr, &tapLanTapDevice.adapterMac, 6);
+    memcpy(mac.addr, mac_.addr, sizeof(mac_));
 }
 
 bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 {
-    std::ostringstream cidr;
+    std::stringstream cidr;
     cidr << inet_ntoa(*ipv4Addr) << "/" << +netIdLen;
 
-    std::ostringstream cmd;
+    std::stringstream cmd;
     cmd << "netsh interface ip set address \"" << TAP_NAME << "\" static " << cidr.str();
     if (system(cmd.str().c_str())) {
         LOGE(TAG, "Setting %s IP address to %s failed.", TAP_NAME, cidr.str().c_str());
@@ -246,21 +348,21 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
     static DWORD writeBytes;
-    if (WriteFile(tapLanTapDevice.handle, buf, bufLen, &writeBytes, &tapLanTapDevice.overlapWrite)) {
-        ResetEvent(tapLanTapDevice.overlapWrite.hEvent);
+    if (WriteFile(tapInfo.handle, buf, bufLen, &writeBytes, &tapInfo.overlapWrite)) {
+        ResetEvent(tapInfo.overlapWrite.hEvent);
         return writeBytes;
     }
 
     DWORD lastError = GetLastError();
     if (lastError == ERROR_IO_PENDING) {
-        GetOverlappedResult(tapLanTapDevice.handle, &tapLanTapDevice.overlapWrite, &writeBytes, TRUE);
-        ResetEvent(tapLanTapDevice.overlapWrite.hEvent);
+        GetOverlappedResult(tapInfo.handle, &tapInfo.overlapWrite, &writeBytes, TRUE);
+        ResetEvent(tapInfo.overlapWrite.hEvent);
         if (writeBytes < bufLen) {
             LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
             ++writeErrs_;
         }
     } else {
-        LOGE(TAG, "Writting to tap device failed. %u %u", bufLen, lastError);
+        LOGE(TAG, "Failed to write to tap device.[%s]", getErrMsg(lastError).c_str());
         ++writeErrs_;
         writeBytes = -1;
     }
@@ -271,8 +373,8 @@ ssize_t TapDev::write(const void* buf, size_t bufLen) {
 ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
     static DWORD readBytes;
     static bool waitFlag = false;
-    if (!waitFlag && ReadFile(tapLanTapDevice.handle, buf, bufLen, &readBytes, &tapLanTapDevice.overlapRead)) {
-        ResetEvent(tapLanTapDevice.overlapRead.hEvent);
+    if (!waitFlag && ReadFile(tapInfo.handle, buf, bufLen, &readBytes, &tapInfo.overlapRead)) {
+        ResetEvent(tapInfo.overlapRead.hEvent);
         return readBytes;
     }
 
@@ -281,16 +383,16 @@ ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
         DWORD lastError = GetLastError();
         if (lastError != ERROR_IO_PENDING) {
             waitFlag = 0;
-            LOGE(TAG, "Reading from tap device failed.");
+            LOGE(TAG, "Failed to read from tap device.[%s]", getErrMsg(lastError).c_str());
             ++readErrs_;
             return -1;
         }
     }
 
-    if (WAIT_OBJECT_0 == WaitForSingleObject(tapLanTapDevice.overlapRead.hEvent, timeout)) {
+    if (WAIT_OBJECT_0 == WaitForSingleObject(tapInfo.overlapRead.hEvent, timeout)) {
         waitFlag = 0;
-        GetOverlappedResult(tapLanTapDevice.handle, &tapLanTapDevice.overlapRead, &readBytes, FALSE);
-        ResetEvent(tapLanTapDevice.overlapRead.hEvent);
+        GetOverlappedResult(tapInfo.handle, &tapInfo.overlapRead, &readBytes, FALSE);
+        ResetEvent(tapInfo.overlapRead.hEvent);
         return readBytes;
     }
 

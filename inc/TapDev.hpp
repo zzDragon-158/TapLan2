@@ -1,10 +1,13 @@
 #pragma once
 #include    <iostream>
 #include    <cstdint>
+#include    <cstring>
 #include    <sstream>
 
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
+#include    <string>
+#include    <filesystem>
 #include    "WinHeaders.hpp"
 
 #elif       __linux__

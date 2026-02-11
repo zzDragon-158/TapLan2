@@ -101,20 +101,28 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
         bool needBroadcast = eh.dst[0] & 0x01;
         if (!needBroadcast) {
             std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
-            memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
-            dstAddr.sin6_port = n->ipv6Port;
-            udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
+            if (n) {
+                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
+                dstAddr.sin6_port = n->ipv6Port;
+                udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
+            } else {
+                udpSockPtr->incDropped(1);
+            }
+        } else {
+            size_t sendCnt = 0;
+            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+                if (n->status == NODE_OFFLINE || n->mac == srcMac)
+                    return ;
 
-            return ;
+                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                dstAddr.sin6_port = n->ipv6Port;
+                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+                ++sendCnt;
+            }, false);
+            if (sendCnt == 0) {
+                udpSockPtr->incDropped(1);
+            }
         }
-        nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
-            if (n->status == NODE_OFFLINE || n->mac == srcMac)
-                return ;
-
-            memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-            dstAddr.sin6_port = n->ipv6Port;
-            udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
-        }, false);
     }
     else if (config_.runMode == RunMode_Client) {
         udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
@@ -400,12 +408,8 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
     }
 
     TapDevPtr->incReadBytes(cqe->res);
-    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr_);
-    if (config_.isMultiPortEnable) {
-        std::time_t now = std::time(nullptr);
-        uint16_t portOffset = (now / 60 % 60) % 4;
-        udp_fd = static_cast<TapLanSocket>(*udpSockPtrArr_[portOffset]);
-    }
+    UdpSocket* udpSockPtr = getUdpSockPtr();
+    TapLanSocket udp_fd = static_cast<TapLanSocket>(*udpSockPtr);
     uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
     if (config_.runMode == RunMode_Server) {
         EtherHeader& eh = reinterpret_cast<EtherHeader&>(*msg->data);
@@ -447,6 +451,7 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
             }, false);
 
             if (msg->nums_of_addr == 0) {
+                udpSockPtr->incDropped(1);
                 prep_tap_read(buf_id);
             }
         }
