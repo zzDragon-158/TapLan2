@@ -133,7 +133,7 @@ static bool findExistedTap() {
     return ret;
 }
 
-static bool createNewTap() {
+static bool createNewTap(Mac mac) {
     bool ret = false;
     LONG err;
     std::string errMsg;
@@ -195,6 +195,20 @@ static bool createNewTap() {
             continue;
         } else if (strcmp("TAP-Windows Provider V9", (const char*)providerName) != 0) {
             continue;
+        }
+
+        uint64_t macNum = static_cast<uint64_t>(mac);
+        macNum = _byteswap_uint64(macNum);
+        macNum >>= 16;
+        std::stringstream macSs;
+        macSs << std::hex << std::uppercase << std::setfill('0') << std::setw(12) << macNum;
+        err = RegSetKeyValueA(openKey0, driverId, "NetworkAddress", REG_SZ, macSs.str().c_str(), macSs.str().length() + 1);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGF(TAG, "Failed to set NetworkAddress to %s.[%s]", macSs.str().c_str(), errMsg.c_str());
+        }
+        if (system(TAP_INSTALL " restart TAP0901")) {
+            LOGE(TAG, "Failed to restart TAP device.");
         }
 
         err = RegGetValueA(openKey0, driverId, "DeviceInstanceID", RRF_RT_REG_SZ, nullptr, adapterInfo.devInstId, &adapterInfo.devInstIdLen);
@@ -280,7 +294,7 @@ void TapDev::generateMac() {
 bool TapDev::open() {
     std::string errMsg;
 
-    if (!findExistedTap() && !createNewTap())
+    if (!findExistedTap() && !createNewTap(mac_))
         return false;
 
     std::stringstream tapName;
@@ -301,8 +315,8 @@ bool TapDev::open() {
         return false;
     }
 
-    DWORD macLen = sizeof(mac_);
     memset(mac_.addr, 0, 6);
+    DWORD macLen = sizeof(mac_);
     if (!DeviceIoControl(tapInfo.handle, TAP_IOCTL_GET_MAC,
                         mac_.addr, 6,
                         mac_.addr, 6,
