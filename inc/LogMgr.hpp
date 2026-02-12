@@ -33,6 +33,7 @@ class LogMgr {
 public:
     bool run();
     bool terminate();
+    void setLogLevel(LogLevel level) { logLevel_ = level; };
     bool isRunning() { return running_; };
     void logOutput(const char* format, ...);
     void logOutput(int level, const char* tag, const char* format, ...);
@@ -40,7 +41,7 @@ public:
 
 private:
     std::ofstream logFile_;
-    LogLevel logLevel_;
+    uint8_t logLevel_;
     std::queue<std::string> logQueue_;
     std::mutex logMutex_;
     std::condition_variable logCv_;

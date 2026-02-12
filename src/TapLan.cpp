@@ -53,9 +53,9 @@ TapLan::~TapLan()
 UdpSocket* TapLan::getUdpSockPtr()
 {
     UdpSocket* curUdpSockPtr = udpSockPtr_;
-    if (config_.isMultiPortEnable) {
+    if (config_.switchPortInterval) {
         std::time_t now = std::time(nullptr);
-        uint16_t portOffset = (now / 60 % 60) % 4;
+        uint16_t portOffset = (now / 60 / config_.switchPortInterval) % 4;
         curUdpSockPtr = udpSockPtrArr_[portOffset];
     }
 
@@ -64,13 +64,13 @@ UdpSocket* TapLan::getUdpSockPtr()
 
 void TapLan::initUdpSockPtr()
 {
-    if (config_.isMultiPortEnable) {
+    if (config_.switchPortInterval) {
         uint16_t startPort = config_.localPort - config_.localPort % 4;
         for (int i = 0; i < 4; ++i) {
             uint16_t port = startPort + i;
             udpSockPtrArr_[i] = new UdpSocket(port);
             if (!udpSockPtrArr_[i]->isFdValid()) {
-                config_.isMultiPortEnable = false;
+                config_.switchPortInterval = 0;
             }
 
             if (port == config_.localPort) {
@@ -202,14 +202,14 @@ void TapLan::recvSockData()
     dstAddr.sin6_family = AF_INET6;
 
     TapLanPollFd pfds[4];
-    if (config_.isMultiPortEnable) {
+    if (config_.switchPortInterval) {
         for (int i = 0; i < 4; ++i) {
             pfds[i] = { static_cast<TapLanSocket>(*udpSockPtrArr_[i]), POLLIN, 0 };
         }
     }
 
     while (config_.isRunning) {
-        if (!config_.isMultiPortEnable) {
+        if (!config_.switchPortInterval) {
             ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
             if (recvBytes <= ETHERNET_HEADER_LEN) {
                 continue;
@@ -288,7 +288,7 @@ void TapLan::showNodeStatus()
 void TapLan::showStats()
 {
     uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
-    if (config_.isMultiPortEnable) {
+    if (config_.switchPortInterval) {
         LOGR("Each UDP:\n");
         for (int i = 0; i < 4; ++i) {
             uint64_t sendBytes = udpSockPtrArr_[i]->getSendBytes(),
@@ -365,8 +365,10 @@ bool TapLan::run()
     pthread_setname_np(sendThread_.native_handle(), sendThreadName_);
     pthread_setname_np(recvThread_.native_handle(), recvThreadName_);
 
-    syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
-    pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
+    if (!config_.noServerMode) {
+        syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
+        pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
+    }
 
     return true;
 }

@@ -27,16 +27,17 @@ struct ConfigDataT {
     uint8_t     netNumLen;
     in6_addr    remoteAddr;
     uint16_t    remotePort;
-    bool        isMultiPortEnable;
+    uint16_t    switchPortInterval;
     bool        isIoUringEnable;
+    bool        noServerMode;
     bool        isRunning;
     Mac         mac;
 
     ConfigDataT(): runMode(RunMode_Server), localPort(3460),
                     netNum((192 << 24) + (168 << 16) + (208 << 8)),
                     netNumLen(24), remoteAddr{}, remotePort(0),
-                    isMultiPortEnable(false), isIoUringEnable(false),
-                    isRunning(false),
+                    switchPortInterval(0), isIoUringEnable(false),
+                    noServerMode(false), isRunning(false),
                     mac{} {
         // nothing to do
     }

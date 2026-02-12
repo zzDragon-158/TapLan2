@@ -42,9 +42,17 @@ int main(int argc, char* argv[])
 
 void parseParams(int argc, char* argv[])
 {
+    static option longOpts[] = {
+        {"help",        no_argument,            0,      'h'},
+        {"loglevel",    required_argument,      0,      256},
+        {"noserver",    no_argument,            0,      257},
+        {"iouring",     no_argument,            0,      258},
+        {0, 0, 0, 0}
+    };
     int opt;
+    int optIdx = 0;
 
-    while ((opt = getopt(argc, argv, "s:c:p:muh")) != -1) {
+    while ((opt = getopt_long(argc, argv, "s:c:p:m:h", longOpts, &optIdx)) != -1) {
         switch (opt) {
             case 's': {
                 cfgData.runMode = RunMode_Server;
@@ -124,9 +132,57 @@ void parseParams(int argc, char* argv[])
                 break;
             }
             case 'm':
-                cfgData.isMultiPortEnable = true;
+                try {
+                    cfgData.switchPortInterval = std::stoi(optarg);
+                } catch (const std::exception& e) {
+                    LOGR("parse [%s] to switch-port-interval failed, reason: %s\n", optarg, e.what());
+                    delayExit(-1);
+                }
                 break;
-            case 'u':
+            case 256: {
+                LogLevel level = LOG_INFO;
+                switch (optarg[0])
+                {
+                case 'f':
+                case 'F':
+                    level = LOG_FATAL;
+                    break;
+
+                case 'e':
+                case 'E':
+                    level = LOG_ERROR;
+                    break;
+
+                case 'w':
+                case 'W':
+                    level = LOG_WARN;
+                    break;
+
+                case 'i':
+                case 'I':
+                    level = LOG_INFO;
+                    break;
+
+                case 'd':
+                case 'D':
+                    level = LOG_DEBUG;
+                    break;
+
+                case 't':
+                case 'T':
+                    level = LOG_TRACE;
+                    break;
+
+                default:
+                    LOGR("log level must a char in [fewidtFEWIDT].\n");
+                    break;
+                }
+                LogMgrPtr->setLogLevel(level);
+            }   break;
+            case 257:
+                cfgData.noServerMode = true;
+                break;
+            case 258:
                 cfgData.isIoUringEnable = true;
                 break;
             case '?':
@@ -142,18 +198,21 @@ void parseParams(int argc, char* argv[])
 
 void printHelpInfo(const char* name)
 {
-    LOGR("Usage as server: %s [-s <CIDR>] [-p <server port>] [-k <aes key>]\n", name);
-    LOGR("Usage as client: %s [-c <server address>] [-p <server port>] [-k <aes key>]\n", name);
+    LOGR("Usage as server: %s [-s <CIDR>] [-p <server port>]\n", name);
+    LOGR("Usage as client: %s -c <host:port>\n", name);
     LOGR("Server or Client:\n");
-    LOGR("  -p  <port>              local port\n");
-    LOGR("  -m                      enable multi-port transport mode\n");
+    LOGR("  -p              <port>          local port\n");
+    LOGR("  -m              <minutes>       cycle switching source ports with a switching interval of <minutes>\n");
+    LOGR("  --loglevel      [fewidtFEWIDT]  set log level\n");
+    LOGR("  --noserver                      peer-to-peer mode without server\n");
+    LOGR("  --iouring                       requires linux kernel version 6.1 or later\n");
     // TODO: support encrypt data
-    LOGR("  -k  <key>               use <key>(ASE-128) to encrypto data\n");
-    LOGR("  -h                      print the messages you see\n");
+ // LOGR("  -k  <key>               use <key>(ASE-128) to encrypto data\n");
+    LOGR("  -h,--help                       print the messages you see\n");
     LOGR("Server specific:\n");
-    LOGR("  -s  <CIDR>              run in server mode, allocate ipv4 address within <CIDR>(e.g. 192.168.208.0/24)\n");
+    LOGR("  -s  <CIDR>                      run in server mode, allocate ipv4 address within <CIDR>(e.g. 192.168.208.0/24)\n");
     LOGR("Client specific:\n");
-    LOGR("  -c  <Host:Port>         run in client mode, connect to <Host:Port>(e.g. 192.168.208.1:3460, [::ffff:192.168.208.1]:3460)\n");
+    LOGR("  -c  <host:port>                 run in client mode, connect to <host:port>(e.g. 192.168.208.1:3460, [::ffff:192.168.208.1]:3460)\n");
  // LOGR("  -d                      all data will be sent directly to the destination instead of the server\n");
 }
 
