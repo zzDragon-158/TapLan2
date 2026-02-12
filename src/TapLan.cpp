@@ -93,12 +93,11 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
 
     UdpSocket* udpSockPtr = getUdpSockPtr();
 
+    EtherHeader& eh = reinterpret_cast<EtherHeader&>(*buf);
+    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+    bool needBroadcast = eh.dst[0] & 0x01;
     if (config_.runMode == RunMode_Server) {
-        EtherHeader& eh = reinterpret_cast<EtherHeader&>(*buf);
-        Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-        Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-
-        bool needBroadcast = eh.dst[0] & 0x01;
         if (!needBroadcast) {
             std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
@@ -125,7 +124,8 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
         }
     }
     else if (config_.runMode == RunMode_Client) {
-        udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
+        if (!config_.noServerMode || nodeMgrPtr_->findNode(dstMac) || needBroadcast)
+            udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
     } else {
         // RunMode_None
     }
@@ -151,14 +151,14 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
 {
     UdpSocket* udpSockPtr = getUdpSockPtr();
 
+    EtherHeader eh = reinterpret_cast<EtherHeader&>(*buf);
+    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+    bool needBroadcast = eh.dst[0] & 0x01;
+    bool isSendToMe = needBroadcast || (dstMac == config_.mac);
     if (config_.runMode == RunMode_Server) {
         sockaddr_in6 dstAddr{};
         dstAddr.sin6_family = AF_INET6;
-        EtherHeader eh = reinterpret_cast<EtherHeader&>(*buf);
-        Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-        Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-        bool needBroadcast = eh.dst[0] & 0x01;
-        bool isSendToMe = needBroadcast || (dstMac == config_.mac);
 
         if (needBroadcast) {        // broadcast
             auto broadcast = [&](uint64_t m, std::shared_ptr<Node> n) {
@@ -184,6 +184,9 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
             TapDevPtr->write(buf, bufLen);
         }
     } else if (config_.runMode == RunMode_Client) {
+        if (config_.noServerMode && !nodeMgrPtr_->findNode(srcMac)) {
+            nodeMgrPtr_->addNode(&serverAddr_, srcMac);
+        }
         TapDevPtr->write(buf, bufLen);
     } else {
         // RunMode_None
