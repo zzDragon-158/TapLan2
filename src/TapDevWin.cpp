@@ -123,6 +123,7 @@ static bool findExistedTap() {
 
         if (0 != strcmp(TAP_NAME, (const char*)adapterInfo.name))
             continue;
+        LOGT(TAG, "NetCfgInstanceId: [%s]", adapterInfo.netCfgInstId);
 
         memcpy(&tapInfo, &adapterInfo, sizeof(WinAdapterInfo));
         ret = true;
@@ -142,11 +143,13 @@ static bool createNewTap(Mac mac) {
         GetSystemTimeAsFileTime(&ft);
         memcpy(&startTimestamp, &ft, 8);
     }
+    char cmd[BUFFER_SIZE];
 
     DWORD attributes = GetFileAttributesA(TAP_INSTALL);
     if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        snprintf(cmd, BUFFER_SIZE, "%s install OemVista.inf TAP0901", TAP_INSTALL);
         if (system(TAP_INSTALL " install OemVista.inf TAP0901")) {
-            LOGE(TAG, "Failed to install TAP device.");
+            LOGE(TAG, "Failed to exec [%s].", cmd);
             return ret;
         }
     } else {
@@ -154,7 +157,7 @@ static bool createNewTap(Mac mac) {
         return ret;
     }
 
-    HKEY openKey0;
+    HKEY openKey0, openKey1;
     err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, ADAPTER_KEY, 0, KEY_READ, &openKey0);
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
@@ -196,20 +199,7 @@ static bool createNewTap(Mac mac) {
         } else if (strcmp("TAP-Windows Provider V9", (const char*)providerName) != 0) {
             continue;
         }
-
-        uint64_t macNum = static_cast<uint64_t>(mac);
-        macNum = _byteswap_uint64(macNum);
-        macNum >>= 16;
-        std::stringstream macSs;
-        macSs << std::hex << std::uppercase << std::setfill('0') << std::setw(12) << macNum;
-        err = RegSetKeyValueA(openKey0, driverId, "NetworkAddress", REG_SZ, macSs.str().c_str(), macSs.str().length() + 1);
-        if (err != ERROR_SUCCESS) {
-            errMsg = getErrMsg(err);
-            LOGF(TAG, "Failed to set NetworkAddress to %s.[%s]", macSs.str().c_str(), errMsg.c_str());
-        }
-        if (system(TAP_INSTALL " restart TAP0901")) {
-            LOGE(TAG, "Failed to restart TAP device.");
-        }
+        LOGT(TAG, "DriverId: [%s]", driverId);
 
         err = RegGetValueA(openKey0, driverId, "DeviceInstanceID", RRF_RT_REG_SZ, nullptr, adapterInfo.devInstId, &adapterInfo.devInstIdLen);
         if (err != ERROR_SUCCESS) {
@@ -225,17 +215,48 @@ static bool createNewTap(Mac mac) {
             break;
         }
 
-        std::stringstream regPath;
-        regPath << NETWORK_CONNECTIONS_KEY << "\\" << adapterInfo.netCfgInstId << "\\Connection";
-
-        HKEY openKey1;
-        err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, regPath.str().c_str(), 0, KEY_READ, &openKey1);
+        uint64_t macNum = static_cast<uint64_t>(mac);
+        macNum = _byteswap_uint64(macNum);
+        macNum >>= 16;
+        std::stringstream macSs;
+        macSs << std::hex << std::uppercase << std::setfill('0') << std::setw(12) << macNum;
+        err = RegSetKeyValueA(openKey0, driverId, "NetworkAddress", REG_SZ, macSs.str().c_str(), macSs.str().length() + 1);
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to open %s.[%s]", regPath.str().c_str(), errMsg);
+            LOGE(TAG, "Failed to set NetworkAddress to %s.[%s]", macSs.str().c_str(), errMsg.c_str());
+        }
+
+        std::string mtu_size = std::to_string(1418);
+        err = RegSetKeyValueA(openKey0, driverId, "MTU", REG_SZ, mtu_size.c_str(), mtu_size.length() + 1);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGE(TAG, "Failed to set MTU to %s.[%s]", mtu_size.c_str(), errMsg.c_str());
+        }
+
+        std::string myProgName = TAP_NAME;
+        err = RegSetKeyValueA(openKey0, driverId, "MyProgramName", REG_SZ, myProgName.c_str(), myProgName.length() + 1);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGE(TAG, "Failed to set MyProgramName to %s.[%s]", myProgName.c_str(), errMsg.c_str());
+        }
+
+        snprintf(cmd, BUFFER_SIZE, "%s restart @%s", TAP_INSTALL, adapterInfo.devInstId);
+        if (system(cmd)) {
+            LOGF(TAG, "Failed to exec [%s].", cmd);
             break;
         }
 
+        std::stringstream regPath;
+        regPath << NETWORK_CONNECTIONS_KEY << "\\" << adapterInfo.netCfgInstId << "\\Connection";
+        LOGT(TAG, "NetCfgInstanceId: [%s]", adapterInfo.netCfgInstId);
+
+        err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, regPath.str().c_str(), 0, KEY_READ | KEY_SET_VALUE, &openKey1);
+        if (err != ERROR_SUCCESS) {
+            errMsg = getErrMsg(err);
+            LOGF(TAG, "Failed to open %s.[%s]", regPath.str().c_str(), errMsg);
+            RegCloseKey(openKey0);
+            return false;
+        }
         err = RegGetValueA(openKey1, nullptr, "Name", RRF_RT_REG_SZ, nullptr, adapterInfo.name, &adapterInfo.nameLen);
         RegCloseKey(openKey1);
         if (err) {
@@ -243,27 +264,20 @@ static bool createNewTap(Mac mac) {
             LOGE(TAG, "Failed to get Name from %s.[%s]", regPath.str().c_str(), errMsg.c_str());
             break;
         }
-
-        std::stringstream cmd;
-        cmd << "netsh interface set interface name=\"" << adapterInfo.name << "\" newname=\"" << TAP_NAME << "\"";
-        if (system(cmd.str().c_str())) {
-            LOGE(TAG, "Failed to rename TAP device.");
+        snprintf(cmd, BUFFER_SIZE, "netsh interface set interface name=\"%s\" newname=\"%s\"", adapterInfo.name, TAP_NAME);
+        if (system(cmd)) {
+            LOGE(TAG, "Failed to exec [%s].", cmd);
             break;
         }
-        cmd.str("");
-        cmd << "netsh interface ipv4 set subinterface \"" << TAP_NAME << "\" mtu=1418 store=persistent";
-        if (system(cmd.str().c_str())) {
-            LOGE(TAG, "Failed to set TAP device mtu to 1418.");
-            break;
-        }
-
         strcpy((char*)adapterInfo.name, TAP_NAME);
         adapterInfo.nameLen = strlen(TAP_NAME) + 1;
+
         memcpy(&tapInfo, &adapterInfo, sizeof(WinAdapterInfo));
         ret = true;
         break;
     }
 
+    RegCloseKey(openKey1);
     RegCloseKey(openKey0);
     return ret;
 }
@@ -352,7 +366,7 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
     std::stringstream cmd;
     cmd << "netsh interface ip set address \"" << TAP_NAME << "\" static " << cidr.str();
     if (system(cmd.str().c_str())) {
-        LOGE(TAG, "Setting %s IP address to %s failed.", TAP_NAME, cidr.str().c_str());
+        LOGE(TAG, "Failed to exec [%s].", cmd.str().c_str());
         return false;
     }
     LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
