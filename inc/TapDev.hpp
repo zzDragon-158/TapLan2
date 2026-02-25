@@ -7,8 +7,85 @@
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
 #include    <string>
+#include    <stack>
+#include    <vector>
+#include    <mutex>
+#include    <thread>
 #include    <filesystem>
 #include    "WinHeaders.hpp"
+
+#define     BUFFER_SIZE                             1024
+
+struct WinAdapterInfo {
+    HANDLE handle;
+    CHAR netCfgInstId[BUFFER_SIZE];
+    DWORD netInstIdLen;
+    CHAR devInstId[BUFFER_SIZE];
+    DWORD devInstIdLen;
+    BYTE name[BUFFER_SIZE];
+    DWORD nameLen;
+    DWORD mediaStatus;
+    DWORD mediaStatusLen;
+    OVERLAPPED overlapRead, overlapWrite;
+
+    WinAdapterInfo():   handle(nullptr), netCfgInstId{}, netInstIdLen(BUFFER_SIZE),
+                        devInstId{}, devInstIdLen(BUFFER_SIZE),
+                        name{}, nameLen(BUFFER_SIZE),
+                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)),
+                        overlapRead{}, overlapWrite{} {
+        // nothing to do
+    }
+};
+
+struct IOContext {
+    OVERLAPPED overlapped;
+    char buf[2048];
+    DWORD bufLen;
+    bool isPending;
+    char token;
+
+    void reset() {
+        ZeroMemory(&overlapped, sizeof(OVERLAPPED));
+        bufLen = 0;
+        isPending = false;
+    }
+};
+
+class IOPool {
+private:
+    std::vector<IOContext*> allContexts;
+    std::stack<IOContext*> freeStack;
+    std::mutex mtx;
+
+public:
+    IOPool(size_t poolSize) {
+        for (size_t i = 0; i < poolSize; ++i) {
+            IOContext* ctx = new IOContext();
+            ctx->reset();
+            allContexts.push_back(ctx);
+            freeStack.push(ctx);
+        }
+    }
+
+    IOContext* acquire() {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (freeStack.empty()) return nullptr;
+        IOContext* ctx = freeStack.top();
+        freeStack.pop();
+        ctx->isPending = true;
+        return ctx;
+    }
+
+    void release(IOContext* ctx) {
+        ctx->reset();
+        std::lock_guard<std::mutex> lock(mtx);
+        freeStack.push(ctx);
+    }
+
+    ~IOPool() {
+        for (auto ctx : allContexts) delete ctx;
+    }
+};
 
 #elif       __linux__
 #include    <unistd.h>                              // for close
@@ -27,6 +104,7 @@
 
 #endif
 
+#include    <functional>
 #include    "Common.hpp"
 
 #define     TAP_NAME                                "TapLan"
@@ -44,6 +122,7 @@ struct EtherHeader {
 };
 #pragma pack(pop)
 extern int tap_fd;
+using DataHandler = std::function<void(uint8_t*, size_t)>;
 
 class TapDev {
 public:
@@ -61,10 +140,14 @@ public:
     void            incWriteErrs(uint64_t v) { writeErrs_ += v; };
     void            incReadBytes(uint64_t v) { readBytes_ += v; };
     void            incReadErrs(uint64_t v) { readErrs_ += v; };
+    void            setDataHandler(DataHandler handler) { handleTapData_ = std::move(handler); };
+    void            iocpReadTapWrk();
 
 private:
     bool            fdValid_;
     Mac             mac_;
+    IOPool*         readBufs_;
+    std::thread     iocpReadWrkThread_;
     uint64_t        writeBytes_;
     uint64_t        writeErrs_;
     uint64_t        readBytes_;
@@ -75,6 +158,13 @@ private:
     void            generateMac();
     bool            open();
     bool            close();
+
+    // windows iocp
+    const int TAP_BUF_NUM = 32;
+    const int TAP_BUF_SIZE = 2048;
+    DataHandler     handleTapData_;
+
+    void            reqReadTap(IOContext* ctx);
 };
 
 inline TapDev* TapDev::ptr()

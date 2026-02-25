@@ -7,17 +7,10 @@
 #include    "Socket.hpp"
 #include    "TapDev.hpp"
 
-enum RunModeT{
+enum RunModeT {
     RunMode_None = 0,
     RunMode_Server,
     RunMode_Client,
-};
-
-enum {
-    TOKEN_UDP_RECV  = 1,
-    TOKEN_TAP_READ  = 2,
-    TOKEN_TAP_WRITE = 3,
-    TOKEN_UDP_SEND  = 4,
 };
 
 struct ConfigDataT {
@@ -70,7 +63,9 @@ private:
     void readTapData();
     void syncNodeStatus();
 
-#ifdef      __linux__
+#ifdef      _WIN32
+
+#elif       __linux__
     // for io_uring
     union uring_userdata {
         // TODO: use this union to reinterprete [cqe->userdate]

@@ -1,6 +1,9 @@
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
+#include    "TapLan.hpp"
 
+#define     cfgData                                 TapLan::config_
+#define     IOCP_EXIT_MAGIC                         0xDEADBEEF
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles
 #define     ADAPTER_KEY                             "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
@@ -8,38 +11,14 @@
 #define     TAP_INSTALL                             ".\\tapinstall.exe"
 #define     USERMODEDEVICEDIR                       "\\\\.\\Global\\"
 #define     TAPSUFFIX                               ".tap"
-#define     BUFFER_SIZE                             1024
 #define     TAP_CONTROL_CODE(request, method)       CTL_CODE(FILE_DEVICE_UNKNOWN, request, method, FILE_ANY_ACCESS)
 #define     TAP_IOCTL_GET_MAC                       TAP_CONTROL_CODE(1, METHOD_BUFFERED)
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
-struct WinAdapterInfo {
-    HANDLE handle;
-    CHAR netCfgInstId[BUFFER_SIZE];
-    DWORD netInstIdLen;
-    CHAR devInstId[BUFFER_SIZE];
-    DWORD devInstIdLen;
-    BYTE name[BUFFER_SIZE];
-    DWORD nameLen;
-    DWORD mediaStatus;
-    DWORD mediaStatusLen;
-    OVERLAPPED overlapRead, overlapWrite;
-
-    WinAdapterInfo():   handle(nullptr), netCfgInstId{}, netInstIdLen(BUFFER_SIZE),
-                        devInstId{}, devInstIdLen(BUFFER_SIZE),
-                        name{}, nameLen(BUFFER_SIZE),
-                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)),
-                        overlapRead{}, overlapWrite{} {
-        // nothing to do
-    }
-};
-
-static WinAdapterInfo tapInfo;
+WinAdapterInfo tapInfo;
 static const char* TAG = "[TapDev]";
-
-#include <windows.h>
-#include <iostream>
-#include <string>
+static IOPool ioPool(1024);
+HANDLE hIOCP = nullptr;
 
 static std::string getErrMsg(DWORD errorCode) {
     if (errorCode == 0)
@@ -50,12 +29,12 @@ static std::string getErrMsg(DWORD errorCode) {
         FORMAT_MESSAGE_ALLOCATE_BUFFER |
         FORMAT_MESSAGE_FROM_SYSTEM |
         FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL, 
-        errorCode, 
+        NULL,
+        errorCode,
         // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),   // system language
         MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),   // english
-        (LPSTR)&msgBuf, 
-        0, 
+        (LPSTR)&msgBuf,
+        0,
         NULL
     );
     std::string msg(msgBuf, size);
@@ -114,6 +93,7 @@ static bool findExistedTap() {
             continue;
         }
 
+        // FIXME: use "MyProgramName" instead of "Name" to check will be better
         err = RegGetValueA(openKey1, nullptr, "Name", RRF_RT_REG_SZ, nullptr, adapterInfo.name, &adapterInfo.nameLen);
         RegCloseKey(openKey1);
         if (err) {
@@ -289,6 +269,11 @@ TapDev::TapDev(): fdValid_(false), mac_{},
 }
 
 TapDev::~TapDev() {
+    PostQueuedCompletionStatus(hIOCP, 0, (ULONG_PTR)IOCP_EXIT_MAGIC, NULL);
+    if (iocpReadWrkThread_.joinable()) {
+        iocpReadWrkThread_.join();
+        printf("Thread iocpWrkThread has exited.");
+    }
     close();
 }
 
@@ -342,6 +327,17 @@ bool TapDev::open() {
 
     tapInfo.overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     tapInfo.overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+    if (hIOCP == NULL) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to create IOCP.[%s]", errMsg.c_str());
+        return false;
+    }
+    if (!CreateIoCompletionPort(tapInfo.handle, hIOCP, (ULONG_PTR)this, 0)) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to bind IOCP.[%s]", errMsg.c_str());
+        return false;
+    }
 
     return true;
 }
@@ -375,6 +371,28 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 }
 
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
+    IOContext* ctx = ioPool.acquire(); 
+    if (!ctx) {
+        LOGE(TAG, "No free IO context available (Backpressure)");
+        return -1; 
+    }
+
+    memcpy(ctx->buf, buf, bufLen);
+    ctx->bufLen = bufLen;
+    ctx->token = TOKEN_TAP_WRITE;
+
+    BOOL ok = WriteFile(tapInfo.handle, ctx->buf, (DWORD)bufLen, NULL, &ctx->overlapped);
+    if (!ok) {
+        DWORD err = GetLastError();
+        if (err != ERROR_IO_PENDING) {
+            LOGE(TAG, "WriteFile failed immediately: %ld", err);
+            ioPool.release(ctx);
+            return -1;
+        }
+    }
+
+    return 0;
+
     static DWORD writeBytes;
     if (WriteFile(tapInfo.handle, buf, bufLen, &writeBytes, &tapInfo.overlapWrite)) {
         ResetEvent(tapInfo.overlapWrite.hEvent);
@@ -425,4 +443,70 @@ ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
     }
 
     return 0;
+}
+
+void TapDev::reqReadTap(IOContext* ctx)
+{
+    ctx->reset();
+    ctx->token = TOKEN_TAP_READ;
+
+    BOOL ok = ReadFile(tapInfo.handle, ctx->buf, TAP_BUF_SIZE, NULL, &ctx->overlapped);
+    if (!ok && GetLastError() != ERROR_IO_PENDING) {
+        // TODO: add log
+        readBufs_->release(ctx);
+    }
+}
+
+void TapDev::iocpReadTapWrk()
+{
+    readBufs_ = new IOPool(TAP_BUF_NUM);
+    for (size_t idx = 0; idx < TAP_BUF_NUM; ++idx) {
+        IOContext* ctx = readBufs_->acquire();
+        reqReadTap(ctx);
+    }
+
+    DWORD bytes;
+    ULONG_PTR key;
+    LPOVERLAPPED lpOverlapped;
+    while (cfgData.isRunning) {
+        BOOL res = GetQueuedCompletionStatus(
+            hIOCP,
+            &bytes,
+            &key,
+            &lpOverlapped,
+            INFINITE 
+        );
+        if (!lpOverlapped) {
+            if (key == (ULONG_PTR)IOCP_EXIT_MAGIC) {
+                break;
+            }
+            // TODO: add log
+            continue;
+        }
+
+        IOContext* ctx = CONTAINING_RECORD(lpOverlapped, IOContext, overlapped);
+        switch (ctx->token)
+        {
+        case TOKEN_TAP_READ:
+            handleTapData_? 
+                handleTapData_((uint8_t*)ctx->buf, (size_t)bytes): 
+                LOGW(TAG, "cant call DataHandler.");
+            reqReadTap(ctx);
+            break;
+
+        case TOKEN_TAP_WRITE:
+            incWriteBytes(bytes);
+            ioPool.release(ctx);
+            break;
+
+        case TOKEN_UDP_RECV:
+            break;
+
+        case TOKEN_UDP_SEND:
+            break;
+        
+        default:
+            break;
+        }
+    }
 }

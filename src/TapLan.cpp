@@ -7,6 +7,9 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrArr_{},
                 nodeMgrPtr_(nullptr), recvThreadName_("recvWorker"),
                 sendThreadName_("sendWorker"), syncThreadName_("syncWorker")
 {
+    TapDevPtr->setDataHandler([this](uint8_t* data, size_t len) {
+        this->handleTapData(data, len);
+    });
     if (config_.runMode == RunMode_Server) {
         LOGI(TAG, "We are running in server mode.");
 
@@ -354,7 +357,7 @@ bool TapLan::run()
 
     if (config_.isIoUringEnable) {
 #ifdef      _WIN32
-        sendThread_ = std::thread(&TapLan::readTapData, this);
+        sendThread_ = std::thread(&TapDev::iocpReadTapWrk, TapDevPtr);
         recvThread_ = std::thread(&TapLan::recvSockData, this);
 #else
         sendThread_ = std::thread(&TapLan::uring_read_tap_wrk, this);
@@ -392,7 +395,9 @@ bool TapLan::stop()
     return true;
 }
 
-#ifdef      __linux__
+#ifdef      _WIN32
+
+#elif       __linux__
 void TapLan::prep_tap_read(uint32_t buf_id) {
     uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
     io_uring_sqe* sqe = io_uring_get_sqe(&tap_uring);

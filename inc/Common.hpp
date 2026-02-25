@@ -18,3 +18,10 @@ struct Mac {
         return *this;
     }
 };
+
+enum {
+    TOKEN_UDP_RECV  = 1,
+    TOKEN_TAP_READ  = 2,
+    TOKEN_TAP_WRITE = 3,
+    TOKEN_UDP_SEND  = 4,
+};
