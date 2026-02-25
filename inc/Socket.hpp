@@ -4,7 +4,7 @@
 
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
-#include    "WinHeaders.hpp"
+#include    "Common.hpp"
 
 #define     TapLanPoll          WSAPoll
 
@@ -45,15 +45,15 @@ inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
     return std::string(ipv6str);
 }
 
-class UniversalSocket {
+class BsdSocket {
 public:
-    UniversalSocket();
-    UniversalSocket(UniversalSocket&& other) noexcept;
-    UniversalSocket(const UniversalSocket&) = delete;
-    UniversalSocket& operator=(const UniversalSocket&) = delete;
-    UniversalSocket& operator=(UniversalSocket&& other) noexcept;
+    BsdSocket();
+    BsdSocket(BsdSocket&& other) noexcept;
+    BsdSocket(const BsdSocket&) = delete;
+    BsdSocket& operator=(const BsdSocket&) = delete;
+    BsdSocket& operator=(BsdSocket&& other) noexcept;
     explicit operator TapLanSocket() { return fd_; };
-    ~UniversalSocket();
+    ~BsdSocket();
     bool isFdValid() { return fdValid_; };
     uint16_t getBindPort() { return bindPort_; };
     uint64_t getSendBytes() { return sendBytes_; };
@@ -87,7 +87,7 @@ protected:
     std::string getErrStr();
 };
 
-class TcpSocket: public UniversalSocket {
+class TcpSocket: public BsdSocket {
 public:
     // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, TapLanSocket sock, void* respBuf, size_t& respLen)> CbRecvFunc;
     TcpSocket(uint16_t localPort);                              // for listen
@@ -111,7 +111,7 @@ private:
     bool open();
 };
 
-class UdpSocket: public UniversalSocket {
+class UdpSocket: public BsdSocket {
 public:
     UdpSocket(uint16_t port);
     ~UdpSocket();

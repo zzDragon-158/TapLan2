@@ -4,7 +4,7 @@
 static const char* TAG = "[Socket]";
 const int udpBufferSize = 1024 * 1024 * 8;
 
-UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
+BsdSocket::BsdSocket(): fd_(INVALID_SOCKET), bindPort_(0),
                           sendBytes_(0), recvBytes_(0),
                           sendErrs_(0), recvErrs_(0),
                           dropped_(0)
@@ -12,7 +12,7 @@ UniversalSocket::UniversalSocket(): fd_(INVALID_SOCKET), bindPort_(0),
     // nothing to do
 }
 
-UniversalSocket::UniversalSocket(UniversalSocket&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
+BsdSocket::BsdSocket(BsdSocket&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
                                                                     sendBytes_(other.sendBytes_), recvBytes_(other.recvBytes_),
                                                                     sendErrs_(other.sendErrs_), recvErrs_(other.sendErrs_),
                                                                     dropped_(other.dropped_)
@@ -20,12 +20,12 @@ UniversalSocket::UniversalSocket(UniversalSocket&& other) noexcept: fd_(other.fd
     other.fd_ = INVALID_SOCKET;
 }
 
-UniversalSocket::~UniversalSocket()
+BsdSocket::~BsdSocket()
 {
     close();
 }
 
-bool UniversalSocket::open()
+bool BsdSocket::open()
 {
     // TODO: maybe for open raw socket?
     LOGT(TAG, "Why are we here?");
@@ -33,12 +33,12 @@ bool UniversalSocket::open()
     return true;
 }
 
-std::string UniversalSocket::getErrStr()
+std::string BsdSocket::getErrStr()
 {
     return "[Error " + std::to_string(errno) + "] " + strerror(errno);
 }
 
-bool UniversalSocket::close()
+bool BsdSocket::close()
 {
     if (fd_ != INVALID_SOCKET) {
         LOGT(TAG, "close fd_[%ld]", fd_);
@@ -49,7 +49,7 @@ bool UniversalSocket::close()
     return true;
 }
 
-UniversalSocket& UniversalSocket::operator=(UniversalSocket&& other) noexcept
+BsdSocket& BsdSocket::operator=(BsdSocket&& other) noexcept
 {
     if (this != &other) {
         close();
@@ -60,28 +60,28 @@ UniversalSocket& UniversalSocket::operator=(UniversalSocket&& other) noexcept
     return *this;
 }
 
-TcpSocket::TcpSocket(uint16_t localPort): UniversalSocket(), isPassive_(true)
+TcpSocket::TcpSocket(uint16_t localPort): BsdSocket(), isPassive_(true)
 {
     bindPort_ = localPort;
     memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr): UniversalSocket(), isPassive_(false)
+TcpSocket::TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr): BsdSocket(), isPassive_(false)
 {
     bindPort_ = localPort;
     memcpy(&remoteAddr_, &serverAddr, sizeof(sockaddr_in6));
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): UniversalSocket(), isPassive_(false)
+TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): BsdSocket(), isPassive_(false)
 {
     fd_ = fd;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
     fdValid_ = (fd != INVALID_SOCKET);
 }
 
-TcpSocket::TcpSocket(TcpSocket&& other) noexcept: UniversalSocket(std::move(other)), isPassive_(other.isPassive_)
+TcpSocket::TcpSocket(TcpSocket&& other) noexcept: BsdSocket(std::move(other)), isPassive_(other.isPassive_)
 {
     LOGT(TAG, "move construction fd_[%ld]", fd_);
     memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
@@ -95,7 +95,7 @@ TcpSocket::~TcpSocket()
 TcpSocket& TcpSocket::operator=(TcpSocket&& other) noexcept
 {
     if (this != &other) {
-        UniversalSocket::operator=(std::move(other));
+        BsdSocket::operator=(std::move(other));
         memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
         memset(&other.remoteAddr_, 0, sizeof(sockaddr_in6));
     }
@@ -220,7 +220,7 @@ void TcpSocket::getRemoteAddr(sockaddr_in6* addr)
     memcpy(addr, &remoteAddr_, sizeof(sockaddr_in6));
 }
 
-UdpSocket::UdpSocket(uint16_t port): UniversalSocket()
+UdpSocket::UdpSocket(uint16_t port): BsdSocket()
 {
     bindPort_ = port;
     fdValid_ = open();

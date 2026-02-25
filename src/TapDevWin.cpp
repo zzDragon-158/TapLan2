@@ -20,32 +20,6 @@ static const char* TAG = "[TapDev]";
 static IOPool ioPool(1024);
 HANDLE hIOCP = nullptr;
 
-static std::string getErrMsg(DWORD errorCode) {
-    if (errorCode == 0)
-        return "Success";
-
-    LPSTR msgBuf = nullptr;
-    size_t size = FormatMessageA(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        errorCode,
-        // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),   // system language
-        MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),   // english
-        (LPSTR)&msgBuf,
-        0,
-        NULL
-    );
-    std::string msg(msgBuf, size);
-    LocalFree(msgBuf);
-
-    if (!msg.empty() && msg.back() == '\n') msg.pop_back();
-    if (!msg.empty() && msg.back() == '\r') msg.pop_back();
-
-    return msg;
-}
-
 static std::string getCurrentWorkDir() {
     namespace fs = std::filesystem;
     try {
