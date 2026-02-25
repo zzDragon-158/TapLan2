@@ -3,6 +3,8 @@
 #include    <cstdint>
 #include    <cstring>
 #include    <sstream>
+#include    <functional>
+#include    "Common.hpp"
 
 #ifdef      _WIN32
 // #include    <WS2tcpip.h>
@@ -52,9 +54,6 @@ struct WinAdapterInfo {
 #error      "unsupported platform!"
 
 #endif
-
-#include    <functional>
-#include    "Common.hpp"
 
 #define     TAP_NAME                                "TapLan"
 #define     TAP_MTU_SIZE                            1418

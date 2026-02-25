@@ -59,7 +59,8 @@ public:
     }
 };
 
-std::string getErrMsg(DWORD errorCode) {
+static std::string getErrMsg(DWORD errorCode)
+{
     if (errorCode == 0)
         return "Success";
 
