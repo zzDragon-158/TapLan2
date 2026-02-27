@@ -15,8 +15,9 @@
 #include    <thread>
 #include    <filesystem>
 
-#define     BUFFER_SIZE                             1024
+#define     BUFFER_SIZE         1024
 
+typedef     HANDLE              TapFd;
 struct WinAdapterInfo {
     HANDLE handle;
     CHAR netCfgInstId[BUFFER_SIZE];
@@ -39,16 +40,18 @@ struct WinAdapterInfo {
 };
 
 #elif       __linux__
-#include    <unistd.h>                              // for close
-#include    <fcntl.h>                               // for open, O_RDWR
-#include    <cstring>                               // for memset, strncpy
-#include    <sys/ioctl.h>                           // for ioctl, TUNSETIFF
-#include    <net/if.h>                              // for struct ifreq, IFNAMSIZ
-#include    <net/if_arp.h>                          // for ARPHRD_ETHER
-#include    <linux/if_tun.h>                        // for IFF_TAP, IFF_NO_PI;
-#include    <arpa/inet.h>                           // for in_addr
-#include    <poll.h>                                // for poll, pollfd
-#include    <errno.h>                               // for errno
+#include    <unistd.h>          // for close
+#include    <fcntl.h>           // for open, O_RDWR
+#include    <cstring>           // for memset, strncpy
+#include    <sys/ioctl.h>       // for ioctl, TUNSETIFF
+#include    <net/if.h>          // for struct ifreq, IFNAMSIZ
+#include    <net/if_arp.h>      // for ARPHRD_ETHER
+#include    <linux/if_tun.h>    // for IFF_TAP, IFF_NO_PI;
+#include    <arpa/inet.h>       // for in_addr
+#include    <poll.h>            // for poll, pollfd
+#include    <errno.h>           // for errno
+
+typedef     int                 TapFd;
 
 #else
 #error      "unsupported platform!"
@@ -69,7 +72,7 @@ struct EtherHeader {
     uint16_t type;
 };
 #pragma pack(pop)
-extern int tap_fd;
+extern TapFd tapFd;
 using DataHandler = std::function<void(uint8_t*, size_t)>;
 
 class TapDev {
@@ -88,8 +91,6 @@ public:
     void            incWriteErrs(uint64_t v) { writeErrs_ += v; };
     void            incReadBytes(uint64_t v) { readBytes_ += v; };
     void            incReadErrs(uint64_t v) { readErrs_ += v; };
-    void            setDataHandler(DataHandler handler) { handleTapData_ = std::move(handler); };
-    void            iocpReadTapWrk();
 
 private:
     bool            fdValid_;
@@ -106,13 +107,6 @@ private:
     void            generateMac();
     bool            open();
     bool            close();
-
-    // windows iocp
-    const int TAP_BUF_NUM = 32;
-    const int TAP_BUF_SIZE = 2048;
-    DataHandler     handleTapData_;
-
-    void            reqReadTap(IOContext* ctx);
 };
 
 inline TapDev* TapDev::ptr()

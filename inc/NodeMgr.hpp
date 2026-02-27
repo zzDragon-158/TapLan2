@@ -112,7 +112,7 @@ private:
     TcpSocket* tcpSockPtr_;
     std::vector<TapLanPollFd> pfds_;
     std::vector<TcpSocket> clients_;
-    std::map<TapLanSocket, uint64_t> sockToMac_;
+    std::map<SocketFd, uint64_t> sockToMac_;
     std::unordered_map<uint64_t, std::shared_ptr<Node>> activeDeltaBuffer_;
     std::unordered_map<uint64_t, std::shared_ptr<Node>> processingBuffer_;
 

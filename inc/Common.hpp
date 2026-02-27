@@ -9,12 +9,14 @@
 #include    <ws2tcpip.h>
 #include    <windows.h>
 
+class IOPool;
 struct IOContext {
-    OVERLAPPED overlapped;
     char buf[2048];
     DWORD bufLen;
     bool isPending;
+    OVERLAPPED overlapped;
     char token;
+    IOPool* owner;
 
     void reset() {
         ZeroMemory(&overlapped, sizeof(OVERLAPPED));
@@ -22,7 +24,6 @@ struct IOContext {
         isPending = false;
     }
 };
-
 class IOPool {
 private:
     std::vector<IOContext*> allContexts;
@@ -45,6 +46,7 @@ public:
         IOContext* ctx = freeStack.top();
         freeStack.pop();
         ctx->isPending = true;
+        ctx->owner = this;
         return ctx;
     }
 

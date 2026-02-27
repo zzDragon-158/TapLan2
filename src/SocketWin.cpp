@@ -62,29 +62,10 @@ bool BsdSocket::close()
 
 std::string BsdSocket::getErrStr()
 {
-    int errorCode = WSAGetLastError();
-    LPTSTR errorBuffer = nullptr;
-    size_t size = FormatMessage(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        errorCode,
-        // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),   // local language chinese
-        MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),   // english
-        (LPTSTR)&errorBuffer,
-        0,
-        NULL
-    );
-    if (size == 0) {
-        return "Unknown error or FormatMessage failed (Code: " + std::to_string(errorCode) + ")";
-    }
+    int errCode = WSAGetLastError();
+    std::string errMsg = getErrMsg(errCode);
 
-    std::string errorString(errorBuffer);
-    LocalFree(errorBuffer);
-    while (!errorString.empty() && (errorString.back() == '\r' || errorString.back() == '\n')) {
-        errorString.pop_back();
-    }
-
-    return "[Error " + std::to_string(errorCode) + "] " + errorString;
+    return errMsg;
 }
 
 BsdSocket& BsdSocket::operator=(BsdSocket&& other) noexcept
@@ -112,7 +93,7 @@ TcpSocket::TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr): BsdSocket(), 
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): BsdSocket(), isPassive_(false)
+TcpSocket::TcpSocket(SocketFd fd, sockaddr_in6 sa): BsdSocket(), isPassive_(false)
 {
     fd_ = fd;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
@@ -213,7 +194,7 @@ bool TcpSocket::listen(int backlog)
     return true;
 }
 
-bool TcpSocket::accept(TapLanSocket& fd, sockaddr_in6& addr)
+bool TcpSocket::accept(SocketFd& fd, sockaddr_in6& addr)
 {
     socklen_t addrLen = sizeof(sockaddr_in6);
     fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);

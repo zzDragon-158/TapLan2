@@ -74,7 +74,7 @@ TcpSocket::TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr): BsdSocket(), 
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(TapLanSocket fd, sockaddr_in6 sa): BsdSocket(), isPassive_(false)
+TcpSocket::TcpSocket(SocketFd fd, sockaddr_in6 sa): BsdSocket(), isPassive_(false)
 {
     fd_ = fd;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
@@ -174,7 +174,7 @@ bool TcpSocket::listen(int backlog)
     return true;
 }
 
-bool TcpSocket::accept(TapLanSocket& fd, sockaddr_in6& addr)
+bool TcpSocket::accept(SocketFd& fd, sockaddr_in6& addr)
 {
     socklen_t addrLen = sizeof(sockaddr_in6);
     fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);

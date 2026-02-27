@@ -3,7 +3,6 @@
 #include    "TapLan.hpp"
 
 #define     cfgData                                 TapLan::config_
-#define     IOCP_EXIT_MAGIC                         0xDEADBEEF
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles
 #define     ADAPTER_KEY                             "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
@@ -16,9 +15,8 @@
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
 WinAdapterInfo tapInfo;
+TapFd tapFd = nullptr;
 static const char* TAG = "[TapDev]";
-static IOPool ioPool(1024);
-HANDLE hIOCP = nullptr;
 
 static std::string getCurrentWorkDir() {
     namespace fs = std::filesystem;
@@ -243,7 +241,6 @@ TapDev::TapDev(): fdValid_(false), mac_{},
 }
 
 TapDev::~TapDev() {
-    PostQueuedCompletionStatus(hIOCP, 0, (ULONG_PTR)IOCP_EXIT_MAGIC, NULL);
     if (iocpReadWrkThread_.joinable()) {
         iocpReadWrkThread_.join();
         printf("Thread iocpWrkThread has exited.");
@@ -272,14 +269,14 @@ bool TapDev::open() {
 
     std::stringstream tapName;
     tapName << USERMODEDEVICEDIR << tapInfo.netCfgInstId << TAPSUFFIX;
-    tapInfo.handle = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
-    if (tapInfo.handle == INVALID_HANDLE_VALUE) {
+    tapFd = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
+    if (tapFd == INVALID_HANDLE_VALUE) {
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to open TAP device.[%s]", errMsg.c_str());
         return false;
     }
 
-    if (!DeviceIoControl(tapInfo.handle, TAP_IOCTL_SET_MEDIA_STATUS,
+    if (!DeviceIoControl(tapFd, TAP_IOCTL_SET_MEDIA_STATUS,
                         &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
                         &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
                         &tapInfo.mediaStatusLen, nullptr)) {
@@ -290,7 +287,7 @@ bool TapDev::open() {
 
     memset(mac_.addr, 0, 6);
     DWORD macLen = sizeof(mac_);
-    if (!DeviceIoControl(tapInfo.handle, TAP_IOCTL_GET_MAC,
+    if (!DeviceIoControl(tapFd, TAP_IOCTL_GET_MAC,
                         mac_.addr, 6,
                         mac_.addr, 6,
                         &macLen, nullptr)) {
@@ -301,23 +298,12 @@ bool TapDev::open() {
 
     tapInfo.overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     tapInfo.overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
-    if (hIOCP == NULL) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to create IOCP.[%s]", errMsg.c_str());
-        return false;
-    }
-    if (!CreateIoCompletionPort(tapInfo.handle, hIOCP, (ULONG_PTR)this, 0)) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to bind IOCP.[%s]", errMsg.c_str());
-        return false;
-    }
 
     return true;
 }
 
 bool TapDev::close() {
-    CloseHandle(tapInfo.handle);
+    CloseHandle(tapFd);
     // if (system(TAP_INSTALL " remove TAP0901"))
     //     LOGE(TAG, "Removing tap device failed.");
 
@@ -345,37 +331,15 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 }
 
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
-    IOContext* ctx = ioPool.acquire(); 
-    if (!ctx) {
-        LOGE(TAG, "No free IO context available (Backpressure)");
-        return -1; 
-    }
-
-    memcpy(ctx->buf, buf, bufLen);
-    ctx->bufLen = bufLen;
-    ctx->token = TOKEN_TAP_WRITE;
-
-    BOOL ok = WriteFile(tapInfo.handle, ctx->buf, (DWORD)bufLen, NULL, &ctx->overlapped);
-    if (!ok) {
-        DWORD err = GetLastError();
-        if (err != ERROR_IO_PENDING) {
-            LOGE(TAG, "WriteFile failed immediately: %ld", err);
-            ioPool.release(ctx);
-            return -1;
-        }
-    }
-
-    return 0;
-
     static DWORD writeBytes;
-    if (WriteFile(tapInfo.handle, buf, bufLen, &writeBytes, &tapInfo.overlapWrite)) {
+    if (WriteFile(tapFd, buf, bufLen, &writeBytes, &tapInfo.overlapWrite)) {
         ResetEvent(tapInfo.overlapWrite.hEvent);
         return writeBytes;
     }
 
     DWORD lastError = GetLastError();
     if (lastError == ERROR_IO_PENDING) {
-        GetOverlappedResult(tapInfo.handle, &tapInfo.overlapWrite, &writeBytes, TRUE);
+        GetOverlappedResult(tapFd, &tapInfo.overlapWrite, &writeBytes, TRUE);
         ResetEvent(tapInfo.overlapWrite.hEvent);
         if (writeBytes < bufLen) {
             LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
@@ -393,7 +357,7 @@ ssize_t TapDev::write(const void* buf, size_t bufLen) {
 ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
     static DWORD readBytes;
     static bool waitFlag = false;
-    if (!waitFlag && ReadFile(tapInfo.handle, buf, bufLen, &readBytes, &tapInfo.overlapRead)) {
+    if (!waitFlag && ReadFile(tapFd, buf, bufLen, &readBytes, &tapInfo.overlapRead)) {
         ResetEvent(tapInfo.overlapRead.hEvent);
         return readBytes;
     }
@@ -411,76 +375,10 @@ ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
 
     if (WAIT_OBJECT_0 == WaitForSingleObject(tapInfo.overlapRead.hEvent, timeout)) {
         waitFlag = 0;
-        GetOverlappedResult(tapInfo.handle, &tapInfo.overlapRead, &readBytes, FALSE);
+        GetOverlappedResult(tapFd, &tapInfo.overlapRead, &readBytes, FALSE);
         ResetEvent(tapInfo.overlapRead.hEvent);
         return readBytes;
     }
 
     return 0;
-}
-
-void TapDev::reqReadTap(IOContext* ctx)
-{
-    ctx->reset();
-    ctx->token = TOKEN_TAP_READ;
-
-    BOOL ok = ReadFile(tapInfo.handle, ctx->buf, TAP_BUF_SIZE, NULL, &ctx->overlapped);
-    if (!ok && GetLastError() != ERROR_IO_PENDING) {
-        // TODO: add log
-        readBufs_->release(ctx);
-    }
-}
-
-void TapDev::iocpReadTapWrk()
-{
-    readBufs_ = new IOPool(TAP_BUF_NUM);
-    for (size_t idx = 0; idx < TAP_BUF_NUM; ++idx) {
-        IOContext* ctx = readBufs_->acquire();
-        reqReadTap(ctx);
-    }
-
-    DWORD bytes;
-    ULONG_PTR key;
-    LPOVERLAPPED lpOverlapped;
-    while (cfgData.isRunning) {
-        BOOL res = GetQueuedCompletionStatus(
-            hIOCP,
-            &bytes,
-            &key,
-            &lpOverlapped,
-            INFINITE 
-        );
-        if (!lpOverlapped) {
-            if (key == (ULONG_PTR)IOCP_EXIT_MAGIC) {
-                break;
-            }
-            // TODO: add log
-            continue;
-        }
-
-        IOContext* ctx = CONTAINING_RECORD(lpOverlapped, IOContext, overlapped);
-        switch (ctx->token)
-        {
-        case TOKEN_TAP_READ:
-            handleTapData_? 
-                handleTapData_((uint8_t*)ctx->buf, (size_t)bytes): 
-                LOGW(TAG, "cant call DataHandler.");
-            reqReadTap(ctx);
-            break;
-
-        case TOKEN_TAP_WRITE:
-            incWriteBytes(bytes);
-            ioPool.release(ctx);
-            break;
-
-        case TOKEN_UDP_RECV:
-            break;
-
-        case TOKEN_UDP_SEND:
-            break;
-        
-        default:
-            break;
-        }
-    }
 }

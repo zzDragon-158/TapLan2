@@ -114,7 +114,7 @@ void NodeMgr::server()
         return ;
     }
 
-    pfds_.push_back({ static_cast<TapLanSocket>(*tcpSockPtr_), POLLIN, 0 });
+    pfds_.push_back({ static_cast<SocketFd>(*tcpSockPtr_), POLLIN, 0 });
     while (cfgData.isRunning) {
         int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), 3000);
         if (pollCnt < 0) {
@@ -125,7 +125,7 @@ void NodeMgr::server()
         size_t pfdsLen = pfds_.size();
         if (pfds_.begin()->revents != 0) {
             --pollCnt;
-            TapLanSocket tcpFd = INVALID_SOCKET;
+            SocketFd tcpFd = INVALID_SOCKET;
             sockaddr_in6 addr;
             if (tcpSockPtr_->accept(tcpFd, addr)) {
                 pfds_.push_back({ tcpFd, POLLIN, 0 });
@@ -142,7 +142,7 @@ void NodeMgr::server()
                 TcpSocket& client = clients_[i - 1];
                 ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
                 if (recvBytes == 0) {   // 对方关闭连接
-                    auto it = sockToMac_.find(static_cast<TapLanSocket>(client));
+                    auto it = sockToMac_.find(static_cast<SocketFd>(client));
                     if (it != sockToMac_.end()) {
                         if (!setNodeStatus(it->second, NODE_OFFLINE))
                             LOGW(TAG, "set node status failed.");
@@ -200,7 +200,7 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
             break;
         }
         case OP_REQ_SYNC_NODE: {
-            sockToMac_[static_cast<TapLanSocket>(client)] = rspMsgHdr.mac;
+            sockToMac_[static_cast<SocketFd>(client)] = rspMsgHdr.mac;
             rspMsgHdr.op = OP_RESP_SYNC_NODE;
 
             RespNodeStatusMessage& rspMsg = reinterpret_cast<RespNodeStatusMessage&>(*(sndBuf + sendBytes));
@@ -255,7 +255,7 @@ bool NodeMgr::syncNodeStatus()
     processingBuffer_.clear();
 
     for (auto& client: clients_) {
-        if (sockToMac_.find(static_cast<TapLanSocket>(client)) != sockToMac_.end())
+        if (sockToMac_.find(static_cast<SocketFd>(client)) != sockToMac_.end())
             client.send(sndBuf, sendBytes);
     }
 

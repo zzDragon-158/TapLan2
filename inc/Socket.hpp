@@ -8,7 +8,7 @@
 
 #define     TapLanPoll          WSAPoll
 
-typedef SOCKET TapLanSocket;
+typedef     SOCKET              SocketFd;
 
 #elif __linux__
 #include    <poll.h>            // for poll
@@ -24,7 +24,7 @@ typedef SOCKET TapLanSocket;
 #define     TapLanPoll          poll
 #define     INVALID_SOCKET      -1
 
-typedef int TapLanSocket;
+typedef     int                 SocketFd;
 
 #else
 #error      "unsupported platform!"
@@ -52,7 +52,7 @@ public:
     BsdSocket(const BsdSocket&) = delete;
     BsdSocket& operator=(const BsdSocket&) = delete;
     BsdSocket& operator=(BsdSocket&& other) noexcept;
-    explicit operator TapLanSocket() { return fd_; };
+    explicit operator SocketFd() { return fd_; };
     ~BsdSocket();
     bool isFdValid() { return fdValid_; };
     uint16_t getBindPort() { return bindPort_; };
@@ -68,7 +68,7 @@ public:
     void incDropped(uint64_t v) { dropped_ += v; };
 
 protected:
-    TapLanSocket fd_;
+    SocketFd fd_;
     bool fdValid_;
     uint16_t bindPort_;
     uint64_t sendBytes_;
@@ -89,16 +89,16 @@ protected:
 
 class TcpSocket: public BsdSocket {
 public:
-    // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, TapLanSocket sock, void* respBuf, size_t& respLen)> CbRecvFunc;
+    // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, SocketFd sock, void* respBuf, size_t& respLen)> CbRecvFunc;
     TcpSocket(uint16_t localPort);                              // for listen
     TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr);     // for connect
-    TcpSocket(TapLanSocket fd, sockaddr_in6 remoteAddr);        // for accept
+    TcpSocket(SocketFd fd, sockaddr_in6 remoteAddr);        // for accept
     TcpSocket(TcpSocket&& other) noexcept;
     ~TcpSocket();
     TcpSocket& operator=(TcpSocket&& other) noexcept;
     bool connect();
     bool listen(int backlog);
-    bool accept(TapLanSocket& fd, sockaddr_in6& addr);
+    bool accept(SocketFd& fd, sockaddr_in6& addr);
     ssize_t send(const void* buf, size_t bufLen);
     ssize_t recv(void* buf, size_t bufLen);
     // bool recv(CbRecvFunc& cbRecv);

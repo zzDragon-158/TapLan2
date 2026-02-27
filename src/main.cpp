@@ -46,7 +46,7 @@ void parseParams(int argc, char* argv[])
         {"help",        no_argument,            0,      'h'},
         {"loglevel",    required_argument,      0,      256},
         {"noserver",    no_argument,            0,      257},
-        {"iouring",     no_argument,            0,      258},
+        {"aio",         no_argument,            0,      258},
         {0, 0, 0, 0}
     };
     int opt;
@@ -183,7 +183,7 @@ void parseParams(int argc, char* argv[])
                 cfgData.noServerMode = true;
                 break;
             case 258:
-                cfgData.isIoUringEnable = true;
+                cfgData.isAioEnable = true;
                 break;
             case '?':
             case 'h': {
@@ -205,7 +205,7 @@ void printHelpInfo(const char* name)
     LOGR("  -m              <minutes>       cycle switching source ports with a switching interval of <minutes>\n");
     LOGR("  --loglevel      [fewidtFEWIDT]  set log level\n");
     LOGR("  --noserver                      peer-to-peer mode without server\n");
-    LOGR("  --iouring                       requires linux kernel version 6.1 or later\n");
+    LOGR("  --aio                           (IOCP/iouring) will be used, iouring requires Linux kernel version 6.1 or later\n");
     // TODO: support encrypt data
  // LOGR("  -k  <key>               use <key>(ASE-128) to encrypto data\n");
     LOGR("  -h,--help                       print the messages you see\n");

@@ -21,7 +21,7 @@ struct ConfigDataT {
     in6_addr    remoteAddr;
     uint16_t    remotePort;
     uint16_t    switchPortInterval;
-    bool        isIoUringEnable;
+    bool        isAioEnable;
     bool        noServerMode;
     bool        isRunning;
     Mac         mac;
@@ -29,7 +29,7 @@ struct ConfigDataT {
     ConfigDataT(): runMode(RunMode_Server), localPort(3460),
                     netNum((192 << 24) + (168 << 16) + (208 << 8)),
                     netNumLen(24), remoteAddr{}, remotePort(0),
-                    switchPortInterval(0), isIoUringEnable(false),
+                    switchPortInterval(0), isAioEnable(false),
                     noServerMode(false), isRunning(false),
                     mac{} {
         // nothing to do
@@ -64,6 +64,21 @@ private:
     void syncNodeStatus();
 
 #ifdef      _WIN32
+    HANDLE hIOCP_;
+    IOPool* readBufs_;
+    IOPool* recvBufs_;
+    IOPool* ioBufs_;
+    std::thread iocpWrkThread;
+
+    void reqTapRead(IOContext* ctx);
+    int reqTapWrite(IOContext* ctx);
+    void reqUdpRecv(IOContext* ctx);
+    int reqUdpSend(IOContext* ctx, sockaddr_in6* addr);
+    void handleTapRead(IOContext* ctx);
+    void handleTapWrite(IOContext* ctx);
+    void handleUdpRecv(IOContext* ctx);
+    void handleUdpSend(IOContext* ctx);
+    void iocpWrk();
 
 #elif       __linux__
     // for io_uring
