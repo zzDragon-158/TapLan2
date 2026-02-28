@@ -95,8 +95,6 @@ public:
 private:
     bool            fdValid_;
     Mac             mac_;
-    IOPool*         readBufs_;
-    std::thread     iocpReadWrkThread_;
     uint64_t        writeBytes_;
     uint64_t        writeErrs_;
     uint64_t        readBytes_;
