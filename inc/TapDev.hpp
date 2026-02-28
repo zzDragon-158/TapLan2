@@ -19,7 +19,6 @@
 
 typedef     HANDLE              TapFd;
 struct WinAdapterInfo {
-    HANDLE handle;
     CHAR netCfgInstId[BUFFER_SIZE];
     DWORD netInstIdLen;
     CHAR devInstId[BUFFER_SIZE];
@@ -28,13 +27,11 @@ struct WinAdapterInfo {
     DWORD nameLen;
     DWORD mediaStatus;
     DWORD mediaStatusLen;
-    OVERLAPPED overlapRead, overlapWrite;
 
-    WinAdapterInfo():   handle(nullptr), netCfgInstId{}, netInstIdLen(BUFFER_SIZE),
+    WinAdapterInfo():   netCfgInstId{}, netInstIdLen(BUFFER_SIZE),
                         devInstId{}, devInstIdLen(BUFFER_SIZE),
                         name{}, nameLen(BUFFER_SIZE),
-                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)),
-                        overlapRead{}, overlapWrite{} {
+                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)) {
         // nothing to do
     }
 };
@@ -58,22 +55,20 @@ typedef     int                 TapFd;
 
 #endif
 
-#define     TAP_NAME                                "TapLan"
-#define     TAP_MTU_SIZE                            1418
-#define     ETHERNET_HEADER_LEN                     14
-#define     ETHERTYPE_ARP                           0x0806
-#define     ETHERNET_MAC_LEN                        6
-#define     TapDevPtr                               TapDev::ptr()
+#define     TAP_NAME            "TapLan"
+#define     TAP_MTU_SIZE        1418
+#define     ETH_HDR_LEN         14
+#define     ETH_MAC_LEN         6
+#define     TapDevPtr           TapDev::ptr()
 
 #pragma pack(push, 1)
-struct EtherHeader {
-    uint8_t dst[ETHERNET_MAC_LEN];
-    uint8_t src[ETHERNET_MAC_LEN];
+struct EthHdr {
+    uint8_t dst[ETH_MAC_LEN];
+    uint8_t src[ETH_MAC_LEN];
     uint16_t type;
 };
 #pragma pack(pop)
 extern TapFd tapFd;
-using DataHandler = std::function<void(uint8_t*, size_t)>;
 
 class TapDev {
 public:

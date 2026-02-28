@@ -15,6 +15,7 @@
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
 WinAdapterInfo tapInfo;
+OVERLAPPED overlapRead{}, overlapWrite{};
 TapFd tapFd = nullptr;
 static const char* TAG = "[TapDev]";
 
@@ -238,13 +239,11 @@ TapDev::TapDev(): fdValid_(false), mac_{},
                     writeErrs_(0), readErrs_(0) {
     generateMac();
     fdValid_ = open();
+    overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 }
 
 TapDev::~TapDev() {
-    if (iocpReadWrkThread_.joinable()) {
-        iocpReadWrkThread_.join();
-        printf("Thread iocpWrkThread has exited.");
-    }
     close();
 }
 
@@ -296,14 +295,13 @@ bool TapDev::open() {
         return false;
     }
 
-    tapInfo.overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    tapInfo.overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
     return true;
 }
 
 bool TapDev::close() {
     CloseHandle(tapFd);
+    CloseHandle(overlapRead.hEvent);
+    CloseHandle(overlapWrite.hEvent);
     // if (system(TAP_INSTALL " remove TAP0901"))
     //     LOGE(TAG, "Removing tap device failed.");
 
@@ -332,21 +330,21 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
     static DWORD writeBytes;
-    if (WriteFile(tapFd, buf, bufLen, &writeBytes, &tapInfo.overlapWrite)) {
-        ResetEvent(tapInfo.overlapWrite.hEvent);
+    if (WriteFile(tapFd, buf, bufLen, &writeBytes, &overlapWrite)) {
+        ResetEvent(overlapWrite.hEvent);
         return writeBytes;
     }
 
-    DWORD lastError = GetLastError();
-    if (lastError == ERROR_IO_PENDING) {
-        GetOverlappedResult(tapFd, &tapInfo.overlapWrite, &writeBytes, TRUE);
-        ResetEvent(tapInfo.overlapWrite.hEvent);
+    DWORD err = GetLastError();
+    if (err == ERROR_IO_PENDING) {
+        GetOverlappedResult(tapFd, &overlapWrite, &writeBytes, TRUE);
+        ResetEvent(overlapWrite.hEvent);
         if (writeBytes < bufLen) {
             LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
             ++writeErrs_;
         }
     } else {
-        LOGE(TAG, "Failed to write to tap device.[%s]", getErrMsg(lastError).c_str());
+        LOGE(TAG, "Failed to write to tap device.[%s]", getErrMsg(err).c_str());
         ++writeErrs_;
         writeBytes = -1;
     }
@@ -357,26 +355,26 @@ ssize_t TapDev::write(const void* buf, size_t bufLen) {
 ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
     static DWORD readBytes;
     static bool waitFlag = false;
-    if (!waitFlag && ReadFile(tapFd, buf, bufLen, &readBytes, &tapInfo.overlapRead)) {
-        ResetEvent(tapInfo.overlapRead.hEvent);
+    if (!waitFlag && ReadFile(tapFd, buf, bufLen, &readBytes, &overlapRead)) {
+        ResetEvent(overlapRead.hEvent);
         return readBytes;
     }
 
     if (!waitFlag) {
         waitFlag = true;
-        DWORD lastError = GetLastError();
-        if (lastError != ERROR_IO_PENDING) {
-            waitFlag = 0;
-            LOGE(TAG, "Failed to read from tap device.[%s]", getErrMsg(lastError).c_str());
+        DWORD err = GetLastError();
+        if (err != ERROR_IO_PENDING) {
+            waitFlag = false;
+            LOGE(TAG, "Failed to read from tap device.[%s]", getErrMsg(err).c_str());
             ++readErrs_;
             return -1;
         }
     }
 
-    if (WAIT_OBJECT_0 == WaitForSingleObject(tapInfo.overlapRead.hEvent, timeout)) {
-        waitFlag = 0;
-        GetOverlappedResult(tapFd, &tapInfo.overlapRead, &readBytes, FALSE);
-        ResetEvent(tapInfo.overlapRead.hEvent);
+    if (WAIT_OBJECT_0 == WaitForSingleObject(overlapRead.hEvent, timeout)) {
+        waitFlag = false;
+        GetOverlappedResult(tapFd, &overlapRead, &readBytes, FALSE);
+        ResetEvent(overlapRead.hEvent);
         return readBytes;
     }
 

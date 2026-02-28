@@ -93,7 +93,7 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
 
     UdpSocket* udpSockPtr = getUdpSockPtr();
 
-    EtherHeader& eh = reinterpret_cast<EtherHeader&>(*buf);
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
@@ -137,7 +137,7 @@ void TapLan::readTapData()
 
     while (config_.isRunning) {
         ssize_t readBytes = TapDevPtr->read(tapRxBuf, sizeof(tapRxBuf), 3000);
-        if (readBytes < ETHERNET_HEADER_LEN) {
+        if (readBytes < ETH_HDR_LEN) {
             continue;
         }
 
@@ -151,7 +151,7 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
 {
     UdpSocket* udpSockPtr = getUdpSockPtr();
 
-    EtherHeader eh = reinterpret_cast<EtherHeader&>(*buf);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     bool needBroadcast = eh.dst[0] & 0x01;
@@ -214,7 +214,7 @@ void TapLan::recvSockData()
     while (config_.isRunning) {
         if (!config_.switchPortInterval) {
             ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
-            if (recvBytes <= ETHERNET_HEADER_LEN) {
+            if (recvBytes <= ETH_HDR_LEN) {
                 continue;
             }
 
@@ -231,7 +231,7 @@ void TapLan::recvSockData()
             for (int i = 0; i < 4; ++i) {
                 if (pfds[i].revents != 0) {
                     ssize_t recvBytes = udpSockPtrArr_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
-                    if (recvBytes <= ETHERNET_HEADER_LEN) {
+                    if (recvBytes <= ETH_HDR_LEN) {
                         continue;
                     }
 
@@ -499,7 +499,7 @@ void TapLan::handleTapRead(IOContext* ctx) {
 
     ctx->bufLen = ctx->overlapped.InternalHigh; // 获取实际读取字节数
 
-    EtherHeader& eh = reinterpret_cast<EtherHeader&>(*ctx->buf);
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
@@ -566,7 +566,7 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
 
     ctx->bufLen = ctx->overlapped.InternalHigh;
 
-    EtherHeader eh = reinterpret_cast<EtherHeader&>(*ctx->buf);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     bool needBroadcast = eh.dst[0] & 0x01;
@@ -750,7 +750,7 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
     SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr);
     uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
     if (config_.runMode == RunMode_Server) {
-        EtherHeader& eh = reinterpret_cast<EtherHeader&>(*msg->data);
+        EthHdr& eh = reinterpret_cast<EthHdr&>(*msg->data);
         Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
         Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
 
@@ -933,7 +933,7 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
 
     uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
     uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
-    EtherHeader eh = reinterpret_cast<EtherHeader&>(*msg->data);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*msg->data);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
