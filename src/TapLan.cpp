@@ -381,7 +381,6 @@ bool TapLan::stop()
         return false;
 
     config_.isRunning = false;
-    // FIXME: PostQueuedCompletionStatus(hIOCP_, 0, (ULONG_PTR)IOCP_EXIT_MAGIC, NULL);
     if (sendThread_.joinable())
         sendThread_.join();
     if (recvThread_.joinable())
@@ -491,14 +490,6 @@ int TapLan::reqUdpSend(IOContext* ctx, sockaddr_in6* addr)
 }
 
 void TapLan::handleTapRead(IOContext* ctx) {
-    // 1. 检查读取是否成功
-    if (ctx->overlapped.Internal != 0) { // 检查错误码
-        reqTapRead(ctx); // 重新挂起读取
-        return;
-    }
-
-    ctx->bufLen = ctx->overlapped.InternalHigh; // 获取实际读取字节数
-
     EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
@@ -548,24 +539,12 @@ void TapLan::handleTapRead(IOContext* ctx) {
 }
 
 void TapLan::handleTapWrite(IOContext* ctx) {
-    // 写入虚拟网卡完成，归还到 UDP 的接收池
-    ctx->owner->release(ctx);
-
-    // 如果它是 UDP 接收池的常驻 ctx，重新发起接收
     if (ctx->owner == recvBufs_) {
         reqUdpRecv(ctx);
     }
 }
 
 void TapLan::handleUdpRecv(IOContext* ctx) {
-    // 1. 检查异步读取状态
-    if (ctx->overlapped.Internal != 0) {
-        reqUdpRecv(ctx); // 失败则重新挂起接收
-        return;
-    }
-
-    ctx->bufLen = ctx->overlapped.InternalHigh;
-
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
@@ -633,16 +612,12 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
 }
 
 void TapLan::handleUdpSend(IOContext* ctx) {
-    // 无论发送成功失败，这个请求都已经结束了
-    // 直接利用你之前设计的地址归还机制
-    ctx->owner->release(ctx);
-
-    // 如果这个 ctx 是从 TAP 读池过来的（单播零拷贝场景）
-    // 且它是 TAP 的常驻读取 ctx，则需要重新发起 Read
     if (ctx->owner == readBufs_) {
         reqTapRead(ctx);
     } else if (ctx->owner == recvBufs_) {
         reqUdpRecv(ctx);
+    } else {
+        ctx->owner->release(ctx);
     }
 }
 
@@ -684,27 +659,31 @@ void TapLan::iocpWrk()
     ULONG_PTR key;
     LPOVERLAPPED lpOverlapped;
     while (config_.isRunning) {
-        BOOL res = GetQueuedCompletionStatus(
+        BOOL ok = GetQueuedCompletionStatus(
             hIOCP_,
             &bytes,
             &key,
             &lpOverlapped,
-            INFINITE 
+            3000
         );
-        if (!lpOverlapped) {
-            if (key == (ULONG_PTR)IOCP_EXIT_MAGIC) {
-                config_.isRunning = false;
-                break;
-            }
-            // TODO: add log
-            continue;
+
+        if (!ok) {
+            DWORD err = GetLastError();
+            if (err == WAIT_TIMEOUT)
+                continue;
+
+            errMsg = getErrMsg(err);
+            LOGE(TAG, "Failed to GQCS.[%s]", errMsg.c_str());
         }
+        if (!lpOverlapped)
+            continue;
 
         IOContext* ctx = CONTAINING_RECORD(lpOverlapped, IOContext, overlapped);
+        ctx->bufLen = bytes;
         switch (ctx->token)
         {
         case TOKEN_TAP_READ:
-            handleTapRead(ctx);
+            ok? handleTapRead(ctx): reqTapRead(ctx);
             break;
 
         case TOKEN_TAP_WRITE:
@@ -712,7 +691,7 @@ void TapLan::iocpWrk()
             break;
 
         case TOKEN_UDP_RECV:
-            handleUdpRecv(ctx);
+            ok? handleUdpRecv(ctx): reqUdpRecv(ctx);
             break;
 
         case TOKEN_UDP_SEND:
