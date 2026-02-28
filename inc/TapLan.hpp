@@ -70,10 +70,10 @@ private:
     IOPool* ioBufs_;
     std::thread iocpWrkThread;
 
-    void reqTapRead(IOContext* ctx);
+    int reqTapRead(IOContext* ctx);
     int reqTapWrite(IOContext* ctx);
-    void reqUdpRecv(IOContext* ctx);
-    int reqUdpSend(IOContext* ctx, sockaddr_in6* addr);
+    int reqUdpRecv(IOContext* ctx);
+    int reqUdpSendTo(IOContext* ctx, sockaddr_in6* addr);
     void handleTapRead(IOContext* ctx);
     void handleTapWrite(IOContext* ctx);
     void handleUdpRecv(IOContext* ctx);

@@ -44,8 +44,8 @@ void parseParams(int argc, char* argv[])
 {
     static option longOpts[] = {
         {"help",        no_argument,            0,      'h'},
-        {"loglevel",    required_argument,      0,      256},
-        {"noserver",    no_argument,            0,      257},
+        {"ll",          required_argument,      0,      256},
+        {"noser",       no_argument,            0,      257},
         {"aio",         no_argument,            0,      258},
         {0, 0, 0, 0}
     };
@@ -203,8 +203,7 @@ void printHelpInfo(const char* name)
     LOGR("Server or Client:\n");
     LOGR("  -p              <port>          local port\n");
     LOGR("  -m              <minutes>       cycle switching source ports with a switching interval of <minutes>\n");
-    LOGR("  --loglevel      [fewidtFEWIDT]  set log level\n");
-    LOGR("  --noserver                      peer-to-peer mode without server\n");
+    LOGR("  --ll            [fewidtFEWIDT]  set log level\n");
     LOGR("  --aio                           (IOCP/iouring) will be used, iouring requires Linux kernel version 6.1 or later\n");
     // TODO: support encrypt data
  // LOGR("  -k  <key>               use <key>(ASE-128) to encrypto data\n");
@@ -213,6 +212,7 @@ void printHelpInfo(const char* name)
     LOGR("  -s  <CIDR>                      run in server mode, allocate ipv4 address within <CIDR>(e.g. 192.168.208.0/24)\n");
     LOGR("Client specific:\n");
     LOGR("  -c  <host:port>                 run in client mode, connect to <host:port>(e.g. 192.168.208.1:3460, [::ffff:192.168.208.1]:3460)\n");
+    LOGR("  --noser                         peer-to-peer mode without server\n");
  // LOGR("  -d                      all data will be sent directly to the destination instead of the server\n");
 }
 

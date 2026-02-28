@@ -13,7 +13,6 @@ class IOPool;
 struct IOContext {
     char buf[2048];
     DWORD bufLen;
-    bool isPending;
     OVERLAPPED overlapped;
     char token;
     IOPool* owner;
@@ -21,7 +20,6 @@ struct IOContext {
     void reset() {
         ZeroMemory(&overlapped, sizeof(OVERLAPPED));
         bufLen = 0;
-        isPending = false;
     }
 };
 class IOPool {
@@ -45,7 +43,6 @@ public:
         if (freeStack.empty()) return nullptr;
         IOContext* ctx = freeStack.top();
         freeStack.pop();
-        ctx->isPending = true;
         ctx->owner = this;
         return ctx;
     }

@@ -394,7 +394,7 @@ bool TapLan::stop()
 #ifdef      _WIN32
 #define     IOCP_EXIT_MAGIC                         0xDEADBEEF
 #define     AIO_BUF_SIZE        2048
-void TapLan::reqTapRead(IOContext* ctx)
+int TapLan::reqTapRead(IOContext* ctx)
 {
     ctx->token = TOKEN_TAP_READ;
 
@@ -405,7 +405,11 @@ void TapLan::reqTapRead(IOContext* ctx)
             ctx->owner->release(ctx);
             LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
         }
+
+        return -1;
     }
+
+    return 0;
 }
 
 int TapLan::reqTapWrite(IOContext* ctx)
@@ -425,7 +429,7 @@ int TapLan::reqTapWrite(IOContext* ctx)
     return 0;
 }
 
-void TapLan::reqUdpRecv(IOContext* ctx)
+int TapLan::reqUdpRecv(IOContext* ctx)
 {
     ctx->token = TOKEN_UDP_RECV;
 
@@ -434,7 +438,7 @@ void TapLan::reqUdpRecv(IOContext* ctx)
     wsaBuf.len = AIO_BUF_SIZE;
 
     DWORD flags = 0;
-    int result = WSARecv(
+    int ret = WSARecv(
         static_cast<SocketFd>(*udpSockPtr_),
         &wsaBuf,
         1,
@@ -443,29 +447,28 @@ void TapLan::reqUdpRecv(IOContext* ctx)
         &ctx->overlapped, 
         NULL
     );
-    if (result == SOCKET_ERROR) {
+    if (ret == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
             ctx->owner->release(ctx);
             LOGE(TAG, "Failed to recv udp.[%s]", getErrMsg(err).c_str());
         }
     }
+
+    return ret;
 }
 
-int TapLan::reqUdpSend(IOContext* ctx, sockaddr_in6* addr)
+int TapLan::reqUdpSendTo(IOContext* ctx, sockaddr_in6* addr)
 {
-    // 1. 设置标识，确保发送完成后能正确回到写池
     ctx->token = TOKEN_UDP_SEND;
 
-    // 2. 准备 WSABUF
     WSABUF wsaBuf;
     wsaBuf.buf = (char*)ctx->buf;
-    wsaBuf.len = (ULONG)ctx->bufLen; // 注意：这里应该是实际要发送的字节数，而不是 Buffer 最大长度
+    wsaBuf.len = (ULONG)ctx->bufLen;
 
-    // 3. 发起异步发送
-    // WSASendTo 即使对于 IPv4 也可以接受 sockaddr_in6 结构的指针（只要族属性正确）
-    int result = WSASendTo(
-        static_cast<SocketFd>(*udpSockPtr_),
+    UdpSocket* udpSockPtr = getUdpSockPtr();
+    int ret = WSASendTo(
+        static_cast<SocketFd>(*udpSockPtr),
         &wsaBuf, 
         1, 
         NULL, 
@@ -476,17 +479,15 @@ int TapLan::reqUdpSend(IOContext* ctx, sockaddr_in6* addr)
         NULL
     );
 
-    if (result == SOCKET_ERROR) {
+    if (ret == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            // 发送失败，立即归还 Context 到写池
             ctx->owner->release(ctx);
             LOGE(TAG, "Failed to send udp.[%s]", getErrMsg(err).c_str());
-            return -1;
         }
     }
 
-    return 0;
+    return ret;
 }
 
 void TapLan::handleTapRead(IOContext* ctx) {
@@ -499,22 +500,19 @@ void TapLan::handleTapRead(IOContext* ctx) {
         if (!needBroadcast) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                // 单播：直接原地转换 ctx，零拷贝发送
                 sockaddr_in6 dstAddr{};
                 dstAddr.sin6_family = AF_INET6;
                 memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 dstAddr.sin6_port = n->ipv6Port;
-                
-                reqUdpSend(ctx, &dstAddr); 
-                // 注意：此时不能调 reqTapRead，ctx 已经流转到 UDP 发送了
+
+                reqUdpSendTo(ctx, &dstAddr);
                 return; 
             }
         } else {
-            // 广播：不能零拷贝，因为需要同时发送给多个目标
             nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
-                if (n->status == NODE_OFFLINE || n->mac == srcMac) return;
+                if (n->status == NODE_OFFLINE || n->mac == srcMac)
+                    return;
 
-                // 从写池申请新的 ctx，拷贝数据后发送
                 IOContext* sendCtx = ioBufs_->acquire();
                 if (sendCtx) {
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
@@ -523,18 +521,17 @@ void TapLan::handleTapRead(IOContext* ctx) {
                     dstAddr.sin6_family = AF_INET6;
                     memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                     dstAddr.sin6_port = n->ipv6Port;
-                    reqUdpSend(sendCtx, &dstAddr);
+                    reqUdpSendTo(sendCtx, &dstAddr);
                 }
             }, false);
         }
     } else if (config_.runMode == RunMode_Client) {
         if (!config_.noServerMode || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
-            reqUdpSend(ctx, &serverAddr_);
+            reqUdpSendTo(ctx, &serverAddr_);
             return;
         }
     }
 
-    // 如果没有走 reqUdpSend (比如没找到节点或丢包)，则回收并重新读取
     reqTapRead(ctx);
 }
 
@@ -553,8 +550,6 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
 
     if (config_.runMode == RunMode_Server) {
         if (needBroadcast) {
-            // --- 广播逻辑 ---
-            // 1. 发给其他节点 (从写池申请新 ctx 进行拷贝发送)
             nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == config_.mac)
                     return;
@@ -569,45 +564,36 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
                     dstAddr.sin6_family = AF_INET6;
                     memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                     dstAddr.sin6_port = n->ipv6Port;
-                    reqUdpSend(sendCtx, &dstAddr);
+                    reqUdpSendTo(sendCtx, &dstAddr);
                 }
             }, false);
 
-            // 2. 发给本地 (直接用当前的 ctx 写入 TAP)
             reqTapWrite(ctx);
-            return; // ctx 已流转到 TOKEN_TAP_WRITE
+            return;
 
         } else if (!isSendToMe) {
-            // --- 转发逻辑 (Client A -> Server -> Client B) ---
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
                 sockaddr_in6 dstAddr{};
                 dstAddr.sin6_family = AF_INET6;
                 memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 dstAddr.sin6_port = n->ipv6Port;
-                
-                // 零拷贝转发：直接将 Recv 的 ctx 变成 Send 的 ctx
-                reqUdpSend(ctx, &dstAddr);
-                return; // ctx 已流转到 TOKEN_UDP_SEND
+
+                reqUdpSendTo(ctx, &dstAddr);
+                return;
             }
         } else {
-            // --- 发给本地单播 ---
             reqTapWrite(ctx);
             return;
         }
     } else if (config_.runMode == RunMode_Client) {
-        // --- 客户端模式 ---
         if (config_.noServerMode && !nodeMgrPtr_->findNode(srcMac)) {
-            // 注意：这里需要从异步结果中获取 srcAddr，
-            // 如果你使用了 WSARecv，你可能需要改回 WSARecvFrom 来记录谁发的。
-            // 假设你已经有了 srcAddr：
-            // nodeMgrPtr_->addNode(&srcAddr, srcMac); 
+            nodeMgrPtr_->addNode(&serverAddr_, srcMac);
         }
         reqTapWrite(ctx);
         return;
     }
 
-    // 如果没有任何转发或写入动作，回收并继续接收
     reqUdpRecv(ctx);
 }
 
@@ -641,10 +627,21 @@ void TapLan::iocpWrk()
         LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
         config_.isRunning = false;
     }
-    if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
-        config_.isRunning = false;
+    if (config_.switchPortInterval) {
+        for (int i = 0; i < 4; ++i) {
+            udpFd = static_cast<SocketFd>(*udpSockPtrArr_[i]);
+            if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
+                errMsg = getErrMsg(GetLastError());
+                LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
+                config_.isRunning = false;
+            }
+        }
+    } else {
+        if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
+            errMsg = getErrMsg(GetLastError());
+            LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
+            config_.isRunning = false;
+        }
     }
 
     for (int i = 0; i < AIO_BUF_NUM; ++i) {
@@ -683,7 +680,10 @@ void TapLan::iocpWrk()
         switch (ctx->token)
         {
         case TOKEN_TAP_READ:
-            ok? handleTapRead(ctx): reqTapRead(ctx);
+            if (ok)
+                handleTapRead(ctx);
+            else
+                reqTapRead(ctx);
             break;
 
         case TOKEN_TAP_WRITE:
@@ -691,7 +691,10 @@ void TapLan::iocpWrk()
             break;
 
         case TOKEN_UDP_RECV:
-            ok? handleUdpRecv(ctx): reqUdpRecv(ctx);
+            if (ok)
+                handleUdpRecv(ctx);
+            else
+                reqUdpRecv(ctx);
             break;
 
         case TOKEN_UDP_SEND:
