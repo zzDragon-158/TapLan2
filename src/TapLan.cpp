@@ -157,6 +157,10 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == config_.mac);
 
+    if (config_.noSync) {
+        nodeMgrPtr_->addNode(&srcAddr, srcMac);
+    }
+
     if (config_.runMode == RunMode_Server) {
         sockaddr_in6 dstAddr{};
         dstAddr.sin6_family = AF_INET6;
