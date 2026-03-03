@@ -88,15 +88,15 @@ void TapLan::initUdpSockPtr()
 
 void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
 {
+    UdpSocket* udpSockPtr = getUdpSockPtr();
     sockaddr_in6 dstAddr{};
     dstAddr.sin6_family = AF_INET6;
-
-    UdpSocket* udpSockPtr = getUdpSockPtr();
 
     EthHdr& eh = reinterpret_cast<EthHdr&>(*buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
+
     if (config_.runMode == RunMode_Server) {
         if (!needBroadcast) {
             std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
@@ -124,7 +124,7 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
         }
     }
     else if (config_.runMode == RunMode_Client) {
-        if (!config_.noServerMode || nodeMgrPtr_->findNode(dstMac) || needBroadcast)
+        if (!config_.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast)
             udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
     } else {
         // RunMode_None
@@ -156,6 +156,7 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == config_.mac);
+
     if (config_.runMode == RunMode_Server) {
         sockaddr_in6 dstAddr{};
         dstAddr.sin6_family = AF_INET6;
@@ -184,9 +185,6 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
             TapDevPtr->write(buf, bufLen);
         }
     } else if (config_.runMode == RunMode_Client) {
-        if (config_.noServerMode && !nodeMgrPtr_->findNode(srcMac)) {
-            nodeMgrPtr_->addNode(&serverAddr_, srcMac);
-        }
         TapDevPtr->write(buf, bufLen);
     } else {
         // RunMode_None
@@ -367,7 +365,7 @@ bool TapLan::run()
     pthread_setname_np(sendThread_.native_handle(), sendThreadName_);
     pthread_setname_np(recvThread_.native_handle(), recvThreadName_);
 
-    if (!config_.noServerMode) {
+    if (!config_.noSync) {
         syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
         pthread_setname_np(syncThread_.native_handle(), syncThreadName_);
     }
@@ -526,7 +524,7 @@ void TapLan::handleTapRead(IOContext* ctx) {
             }, false);
         }
     } else if (config_.runMode == RunMode_Client) {
-        if (!config_.noServerMode || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+        if (!config_.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
             reqUdpSendTo(ctx, &serverAddr_);
             return;
         }
@@ -587,9 +585,6 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
             return;
         }
     } else if (config_.runMode == RunMode_Client) {
-        if (config_.noServerMode && !nodeMgrPtr_->findNode(srcMac)) {
-            nodeMgrPtr_->addNode(&serverAddr_, srcMac);
-        }
         reqTapWrite(ctx);
         return;
     }
@@ -776,13 +771,15 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
             }
         }
     } else if (config_.runMode == RunMode_Client) {
-        msg->nums_of_addr = 1;
-        sockaddr_in6& addr = msg->addrs[0];
-        memcpy(&addr, &serverAddr_, sizeof(sockaddr_in6));
+        if (!config_.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+            msg->nums_of_addr = 1;
+            sockaddr_in6& addr = msg->addrs[0];
+            memcpy(&addr, &serverAddr_, sizeof(sockaddr_in6));
 
-        io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
-        io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&serverAddr_, sizeof(sockaddr_in6));
-        sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+            io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
+            io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&serverAddr_, sizeof(sockaddr_in6));
+            sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
+        }
     } else {
         // RunMode_None
     }
@@ -965,15 +962,10 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
             sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
         }
     } else if (config_.runMode == RunMode_Client) {
-        if (isSendToMe) {
-            msg->nums_of_addr = 1;
-            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-            io_uring_prep_write_fixed(sqe, tapFd, msg->data, cqe->res, 0, buf_id);
-            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
-        } else {
-            udpSockPtr->incDropped(1);
-            return 1;
-        }
+        msg->nums_of_addr = 1;
+        io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
+        io_uring_prep_write_fixed(sqe, tapFd, msg->data, cqe->res, 0, buf_id);
+        sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
     } else {
         // RunMode_None
     }

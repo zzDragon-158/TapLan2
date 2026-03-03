@@ -5,28 +5,27 @@
 #include    <mutex>
 
 #ifdef      _WIN32
+#include    <malloc.h>
 #include    <winsock2.h>
 #include    <ws2tcpip.h>
 #include    <windows.h>
 
 class IOPool;
 struct IOContext {
-    char buf[2048];
-    DWORD bufLen;
-    OVERLAPPED overlapped;
-    char token;
     IOPool* owner;
+    OVERLAPPED overlapped;
+    uint8_t* buf;
+    DWORD bufLen;
+    uint8_t token;
 
     void reset() {
         ZeroMemory(&overlapped, sizeof(OVERLAPPED));
-        bufLen = 0;
     }
 };
 class IOPool {
 private:
     std::vector<IOContext*> allContexts;
     std::stack<IOContext*> freeStack;
-    std::mutex mtx;
 
 public:
     IOPool(size_t poolSize) {
@@ -39,7 +38,6 @@ public:
     }
 
     IOContext* acquire() {
-        std::lock_guard<std::mutex> lock(mtx);
         if (freeStack.empty()) return nullptr;
         IOContext* ctx = freeStack.top();
         freeStack.pop();
@@ -49,7 +47,6 @@ public:
 
     void release(IOContext* ctx) {
         ctx->reset();
-        std::lock_guard<std::mutex> lock(mtx);
         freeStack.push(ctx);
     }
 
@@ -112,4 +109,33 @@ enum {
     TOKEN_TAP_READ  = 2,
     TOKEN_TAP_WRITE = 3,
     TOKEN_UDP_SEND  = 4,
+};
+
+enum RunModeT {
+    RunMode_None = 0,
+    RunMode_Server,
+    RunMode_Client,
+};
+
+struct ConfigDataT {
+    uint8_t     runMode;
+    uint16_t    localPort;
+    uint32_t    netNum;
+    uint8_t     netNumLen;
+    in6_addr    remoteAddr;
+    uint16_t    remotePort;
+    uint16_t    switchPortInterval;
+    bool        isAioEnable;
+    bool        noSync;
+    bool        isRunning;
+    Mac         mac;
+
+    ConfigDataT(): runMode(RunMode_Server), localPort(3460),
+                    netNum((192 << 24) + (168 << 16) + (208 << 8)),
+                    netNumLen(24), remoteAddr{}, remotePort(0),
+                    switchPortInterval(0), isAioEnable(false),
+                    noSync(false), isRunning(false),
+                    mac{} {
+        // nothing to do
+    }
 };

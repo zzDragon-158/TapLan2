@@ -7,35 +7,6 @@
 #include    "Socket.hpp"
 #include    "TapDev.hpp"
 
-enum RunModeT {
-    RunMode_None = 0,
-    RunMode_Server,
-    RunMode_Client,
-};
-
-struct ConfigDataT {
-    uint8_t     runMode;
-    uint16_t    localPort;
-    uint32_t    netNum;
-    uint8_t     netNumLen;
-    in6_addr    remoteAddr;
-    uint16_t    remotePort;
-    uint16_t    switchPortInterval;
-    bool        isAioEnable;
-    bool        noServerMode;
-    bool        isRunning;
-    Mac         mac;
-
-    ConfigDataT(): runMode(RunMode_Server), localPort(3460),
-                    netNum((192 << 24) + (168 << 16) + (208 << 8)),
-                    netNumLen(24), remoteAddr{}, remotePort(0),
-                    switchPortInterval(0), isAioEnable(false),
-                    noServerMode(false), isRunning(false),
-                    mac{} {
-        // nothing to do
-    }
-};
-
 class TapLan {
 public:
     static ConfigDataT config_;

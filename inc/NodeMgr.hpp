@@ -66,11 +66,13 @@ struct Node {
     time_t      lastSeen;
     Mac         mac;
     uint8_t     reserved[2];
+    // 16 bytes    
     in6_addr    ipv6Addr;
     in_addr     ipv4Addr;
     uint16_t    ipv6Port;
     uint8_t     status;
     uint8_t     reserved1[1];
+    // 24 bytes
 };
 #pragma pack(pop)
 
