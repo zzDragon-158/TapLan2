@@ -14,9 +14,21 @@ class IOPool;
 struct IOContext {
     IOPool* owner;
     OVERLAPPED overlapped;
+    sockaddr_in6 addr;
+    INT addrLen;
     uint8_t* buf;
     DWORD bufLen;
     uint8_t token;
+
+    IOContext(): owner(nullptr), overlapped{},
+                 addr{}, addrLen(sizeof(sockaddr_in6)),
+                 buf(nullptr), bufLen(0), token(0) {
+        buf = new uint8_t [2048] ;
+    }
+
+    ~IOContext() {
+        delete [] buf;
+    }
 
     void reset() {
         ZeroMemory(&overlapped, sizeof(OVERLAPPED));
@@ -31,7 +43,6 @@ public:
     IOPool(size_t poolSize) {
         for (size_t i = 0; i < poolSize; ++i) {
             IOContext* ctx = new IOContext();
-            ctx->reset();
             allContexts.push_back(ctx);
             freeStack.push(ctx);
         }

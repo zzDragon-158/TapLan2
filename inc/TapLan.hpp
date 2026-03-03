@@ -44,7 +44,7 @@ private:
     int reqTapRead(IOContext* ctx);
     int reqTapWrite(IOContext* ctx);
     int reqUdpRecv(IOContext* ctx);
-    int reqUdpSendTo(IOContext* ctx, sockaddr_in6* addr);
+    int reqUdpSend(IOContext* ctx);
     void handleTapRead(IOContext* ctx);
     void handleTapWrite(IOContext* ctx);
     void handleUdpRecv(IOContext* ctx);

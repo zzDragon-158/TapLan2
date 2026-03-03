@@ -440,13 +440,15 @@ int TapLan::reqUdpRecv(IOContext* ctx)
     wsaBuf.len = AIO_BUF_SIZE;
 
     DWORD flags = 0;
-    int ret = WSARecv(
+    int ret = WSARecvFrom(
         static_cast<SocketFd>(*udpSockPtr_),
         &wsaBuf,
         1,
         NULL,
         &flags,
-        &ctx->overlapped, 
+        reinterpret_cast<sockaddr *>(&ctx->addr),
+        &ctx->addrLen,
+        &ctx->overlapped,
         NULL
     );
     if (ret == SOCKET_ERROR) {
@@ -460,7 +462,7 @@ int TapLan::reqUdpRecv(IOContext* ctx)
     return ret;
 }
 
-int TapLan::reqUdpSendTo(IOContext* ctx, sockaddr_in6* addr)
+int TapLan::reqUdpSend(IOContext* ctx)
 {
     ctx->token = TOKEN_UDP_SEND;
 
@@ -475,7 +477,7 @@ int TapLan::reqUdpSendTo(IOContext* ctx, sockaddr_in6* addr)
         1, 
         NULL, 
         0, 
-        (const sockaddr*)addr, 
+        (const sockaddr*)&ctx->addr, 
         sizeof(sockaddr_in6), 
         &ctx->overlapped, 
         NULL
@@ -502,12 +504,12 @@ void TapLan::handleTapRead(IOContext* ctx) {
         if (!needBroadcast) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                sockaddr_in6 dstAddr{};
+                sockaddr_in6& dstAddr = ctx->addr;
                 dstAddr.sin6_family = AF_INET6;
                 memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 dstAddr.sin6_port = n->ipv6Port;
 
-                reqUdpSendTo(ctx, &dstAddr);
+                reqUdpSend(ctx);
                 return; 
             }
         } else {
@@ -519,17 +521,18 @@ void TapLan::handleTapRead(IOContext* ctx) {
                 if (sendCtx) {
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
                     
-                    sockaddr_in6 dstAddr{};
+                    sockaddr_in6& dstAddr = ctx->addr;
                     dstAddr.sin6_family = AF_INET6;
                     memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                     dstAddr.sin6_port = n->ipv6Port;
-                    reqUdpSendTo(sendCtx, &dstAddr);
+                    reqUdpSend(sendCtx);
                 }
             }, false);
         }
     } else if (config_.runMode == RunMode_Client) {
         if (!config_.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
-            reqUdpSendTo(ctx, &serverAddr_);
+            memcpy(&ctx->addr, &serverAddr_, sizeof(sockaddr_in6));
+            reqUdpSend(ctx);
             return;
         }
     }
@@ -550,6 +553,10 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == config_.mac);
 
+    if (config_.noSync) {
+        nodeMgrPtr_->addNode(&ctx->addr, srcMac);
+    }
+
     if (config_.runMode == RunMode_Server) {
         if (needBroadcast) {
             nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
@@ -562,11 +569,11 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
                     
-                    sockaddr_in6 dstAddr{};
+                    sockaddr_in6& dstAddr = ctx->addr;
                     dstAddr.sin6_family = AF_INET6;
                     memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                     dstAddr.sin6_port = n->ipv6Port;
-                    reqUdpSendTo(sendCtx, &dstAddr);
+                    reqUdpSend(sendCtx);
                 }
             }, false);
 
@@ -576,12 +583,12 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
         } else if (!isSendToMe) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                sockaddr_in6 dstAddr{};
+                sockaddr_in6& dstAddr = ctx->addr;
                 dstAddr.sin6_family = AF_INET6;
                 memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 dstAddr.sin6_port = n->ipv6Port;
 
-                reqUdpSendTo(ctx, &dstAddr);
+                reqUdpSend(ctx);
                 return;
             }
         } else {
