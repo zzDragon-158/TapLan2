@@ -737,12 +737,13 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
     UdpSocket* udpSockPtr = getUdpSockPtr();
     SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr);
     uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
-    if (config_.runMode == RunMode_Server) {
-        EthHdr& eh = reinterpret_cast<EthHdr&>(*msg->data);
-        Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-        Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
 
-        bool needBroadcast = eh.dst[0] & 0x01;
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*msg->data);
+    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+    bool needBroadcast = eh.dst[0] & 0x01;
+
+    if (config_.runMode == RunMode_Server) {
         if (!needBroadcast) {
             std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
@@ -923,11 +924,18 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
 
     uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
     uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
+
     EthHdr eh = reinterpret_cast<EthHdr&>(*msg->data);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == config_.mac);
+
+    // TODO: support recv srcaddr
+    // if (config_.noSync) {
+    //     nodeMgrPtr_->addNode(&ctx->addr, srcMac);
+    // }
+
     if (config_.runMode == RunMode_Server) {
         if (needBroadcast) {        // broadcast
             msg->nums_of_addr = 0;

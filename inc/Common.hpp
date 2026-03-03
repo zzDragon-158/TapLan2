@@ -94,6 +94,7 @@ static std::string getErrMsg(DWORD errorCode)
 }
 
 #elif       __linux__
+#include    <arpa/inet.h>
 
 #endif
 
