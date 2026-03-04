@@ -3,9 +3,12 @@
 #include    <vector>
 #include    <stack>
 #include    <mutex>
+#include    <LogMgr.hpp>
+
+const size_t DATA_BUF_SIZE = 4096;
+const size_t DATA_BUF_NUM = 256;
 
 #ifdef      _WIN32
-#include    <malloc.h>
 #include    <winsock2.h>
 #include    <ws2tcpip.h>
 #include    <windows.h>
@@ -32,37 +35,6 @@ struct IOContext {
 
     void reset() {
         ZeroMemory(&overlapped, sizeof(OVERLAPPED));
-    }
-};
-class IOPool {
-private:
-    std::vector<IOContext*> allContexts;
-    std::stack<IOContext*> freeStack;
-
-public:
-    IOPool(size_t poolSize) {
-        for (size_t i = 0; i < poolSize; ++i) {
-            IOContext* ctx = new IOContext();
-            allContexts.push_back(ctx);
-            freeStack.push(ctx);
-        }
-    }
-
-    IOContext* acquire() {
-        if (freeStack.empty()) return nullptr;
-        IOContext* ctx = freeStack.top();
-        freeStack.pop();
-        ctx->owner = this;
-        return ctx;
-    }
-
-    void release(IOContext* ctx) {
-        ctx->reset();
-        freeStack.push(ctx);
-    }
-
-    ~IOPool() {
-        for (auto ctx : allContexts) delete ctx;
     }
 };
 
@@ -95,6 +67,27 @@ static std::string getErrMsg(DWORD errorCode)
 
 #elif       __linux__
 #include    <arpa/inet.h>
+#include    <sys/socket.h>
+#include    <sys/uio.h>
+#include    <liburing.h>
+
+class IOPool;
+struct IOContext {
+    uint8_t token;
+    IOPool* owner;
+    io_uring* ring;
+    // int bufId;
+    uint8_t* buf;
+    int bufLen;    // for store cqe->res
+    msghdr msgHdr;
+    sockaddr_in6 addr;
+    iovec iov;
+
+    IOContext() {
+        memset(this, 0, sizeof(IOContext));
+        // bufId = -1;
+    };
+};
 
 #endif
 
@@ -151,3 +144,4 @@ struct ConfigDataT {
         // nothing to do
     }
 };
+extern ConfigDataT g_cfgData;

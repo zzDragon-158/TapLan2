@@ -30,7 +30,7 @@ void TapDev::generateMac() {
 }
 
 bool TapDev::open() {
-    tapFd = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
+    tapFd = ::open("/dev/net/tun", O_RDWR);
     if (tapFd == -1) {
         LOGF(TAG, "Failed to open [/dev/net/tun].[%s]", strerror(errno));
         return false;
