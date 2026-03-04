@@ -6,82 +6,7 @@
 #include    "NodeMgr.hpp"
 #include    "Socket.hpp"
 #include    "TapDev.hpp"
-
-class IOPool {
-private:
-    const size_t IOURING_SIZE = 512;
-    uint8_t* dataBufs_;
-    std::vector<IOContext*> ioCtxs_;
-    std::stack<IOContext*> freeStack_;
-
-public:
-    io_uring iouring_;
-    IOPool() {
-        int ret;
-
-        io_uring_params params{};
-        params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
-        ret = io_uring_queue_init_params(IOURING_SIZE, &iouring_, &params);
-        if (ret < 0) {
-            // LOGF(TAG, "Failed to init queue params.[%s]", strerror(-ret));
-            g_cfgData.isRunning = false;
-            return ;
-        }
-
-        dataBufs_ = (uint8_t*)mmap(NULL, DATA_BUF_NUM * DATA_BUF_SIZE,
-                                   PROT_READ | PROT_WRITE,
-                                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-        if (dataBufs_ == MAP_FAILED) {
-            // LOGD(TAG, "Cant allocate hugepage memory.");
-            posix_memalign((void **)&dataBufs_, 4096, DATA_BUF_NUM * DATA_BUF_SIZE);
-        }
-
-        // iovec iovs[DATA_BUF_NUM];
-        for (size_t i = 0; i < DATA_BUF_NUM; ++i) {
-            IOContext* ctx = new IOContext();
-
-            ctx->owner = this;
-            ctx->ring = &iouring_;
-            // ctx->bufId = i;
-            ctx->buf = dataBufs_ + i * DATA_BUF_SIZE;
-            ctx->msgHdr.msg_name = &ctx->addr;
-            ctx->msgHdr.msg_namelen = sizeof(ctx->addr);
-            ctx->msgHdr.msg_iov = &ctx->iov;
-            ctx->msgHdr.msg_iovlen = 1;
-            ctx->iov.iov_base = ctx->buf;
-            ctx->iov.iov_len = DATA_BUF_SIZE;
-
-            // iovs[i].iov_base = ctx->buf;
-            // iovs[i].iov_len = DATA_BUF_SIZE;
-
-            ioCtxs_.push_back(ctx);
-            freeStack_.push(ctx);
-        }
-        // ret = io_uring_register_buffers(&iouring_, iovs, DATA_BUF_NUM);
-        // if (ret < 0) {
-        //     LOGF(TAG, "Failed to register buffers.[%s]", strerror(-ret));
-        //     g_cfgData.isRunning = false;
-        // }
-        io_uring_submit(&iouring_);
-    }
-
-    IOContext* acquire() {
-        if (freeStack_.empty())
-            return nullptr;
-
-        IOContext* ctx = freeStack_.top();
-        freeStack_.pop();
-        return ctx;
-    }
-
-    void release(IOContext* ctx) {
-        freeStack_.push(ctx);
-    }
-
-    ~IOPool() {
-        for (auto ctx: ioCtxs_) delete ctx;
-    }
-};
+#include    "AioIntf.hpp"
 
 class TapLan {
 public:
@@ -169,16 +94,10 @@ private:
     void uring_recv_udp_wrk();
 #endif
     // refactor
-    IOPool* ioPool_;
-
-    int reqTapRead();
-    int reqTapWrite(IOContext* ctx);
-    int reqUdpRecv();
-    int reqUdpSend(IOContext* ctx);
-    void handleTapRead(IOContext* ctx);
-    void handleTapWrite(IOContext* ctx);
-    void handleUdpRecv(IOContext* ctx);
-    void handleUdpSend(IOContext* ctx);
-    void iouringWrk();
+    void handleTapRead(AioIntf::Ctx* ctx);
+    void handleTapWrite(AioIntf::Ctx* ctx);
+    void handleUdpRecv(AioIntf::Ctx* ctx);
+    void handleUdpSend(AioIntf::Ctx* ctx);
+    void aioWrk();
 #endif
 };

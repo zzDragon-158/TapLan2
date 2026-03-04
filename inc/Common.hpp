@@ -71,24 +71,6 @@ static std::string getErrMsg(DWORD errorCode)
 #include    <sys/uio.h>
 #include    <liburing.h>
 
-class IOPool;
-struct IOContext {
-    uint8_t token;
-    IOPool* owner;
-    io_uring* ring;
-    // int bufId;
-    uint8_t* buf;
-    int bufLen;    // for store cqe->res
-    msghdr msgHdr;
-    sockaddr_in6 addr;
-    iovec iov;
-
-    IOContext() {
-        memset(this, 0, sizeof(IOContext));
-        // bufId = -1;
-    };
-};
-
 #endif
 
 struct Mac {
@@ -144,4 +126,6 @@ struct ConfigDataT {
         // nothing to do
     }
 };
+
+const int IO_WAIT_TIME = 3;
 extern ConfigDataT g_cfgData;

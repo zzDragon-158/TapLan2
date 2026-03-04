@@ -357,7 +357,7 @@ bool TapLan::run()
 #ifdef      _WIN32
         recvThread_ = std::thread(&TapLan::iocpWrk, this);
 #else
-        recvThread_ = std::thread(&TapLan::iouringWrk, this);
+        recvThread_ = std::thread(&TapLan::aioWrk, this);
 #endif
     } else {
         sendThread_ = std::thread(&TapLan::readTapData, this);
@@ -711,65 +711,13 @@ void TapLan::iocpWrk()
 }
 
 #elif       __linux__
-int TapLan::reqTapRead()
-{
-    IOContext* ctx = ioPool_->acquire();
-    ctx->token = TOKEN_TAP_READ;
-    ctx->iov.iov_len = DATA_BUF_SIZE;
-
-    io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
-    sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_read(sqe, tapFd, ctx->buf, DATA_BUF_SIZE, 0);
-
-    return 0;
-}
-
-int TapLan::reqTapWrite(IOContext* ctx)
-{
-    ctx->token = TOKEN_TAP_WRITE;
-
-    io_uring_sqe *sqe = io_uring_get_sqe(ctx->ring);
-    sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_write(sqe, tapFd, ctx->buf, ctx->bufLen, 0);
-
-    return 0;
-}
-
-int TapLan::reqUdpRecv()
-{
-    SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr_);
-    IOContext* ctx = ioPool_->acquire();
-    ctx->token = TOKEN_UDP_RECV;
-    ctx->msgHdr.msg_namelen = sizeof(ctx->addr);
-    ctx->iov.iov_len = DATA_BUF_SIZE;
-
-    io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
-    sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_recvmsg(sqe, udp_fd, &ctx->msgHdr, 0);
-
-    return 0;
-}
-
-int TapLan::reqUdpSend(IOContext* ctx)
-{
-    SocketFd udp_fd = static_cast<SocketFd>(*getUdpSockPtr());
-    ctx->token = TOKEN_UDP_SEND;
-    ctx->msgHdr.msg_namelen = sizeof(ctx->addr);
-    ctx->iov.iov_len = ctx->bufLen;
-
-    io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
-    sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_sendmsg(sqe, udp_fd, &ctx->msgHdr, 0);
-
-    return 0;
-}
-
-void TapLan::handleTapRead(IOContext* ctx) {
+void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
     if (ctx->bufLen <= 0) {
-        ctx->owner->release(ctx);
+        ctx->owner->releaseAioCtx(ctx);
         return ;
     }
 
+    SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
     EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
@@ -783,7 +731,7 @@ void TapLan::handleTapRead(IOContext* ctx) {
                 memcpy(&ctx->addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                 ctx->addr.sin6_port = n->ipv6Port;
 
-                reqUdpSend(ctx);
+                AioIntfPtr->reqUdpSend(udpSendFd, ctx);
                 return;
             }
         } else {
@@ -791,7 +739,7 @@ void TapLan::handleTapRead(IOContext* ctx) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return;
 
-                IOContext* sendCtx = ioPool_->acquire();
+                AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
                 if (sendCtx) {
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
@@ -801,7 +749,7 @@ void TapLan::handleTapRead(IOContext* ctx) {
                     sendCtx->addr.sin6_port = n->ipv6Port;
                     sendCtx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
 
-                    reqUdpSend(sendCtx);
+                    AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
             }, false);
         }
@@ -809,24 +757,25 @@ void TapLan::handleTapRead(IOContext* ctx) {
         if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
             memcpy(&ctx->addr, &serverAddr_, sizeof(sockaddr_in6));
 
-            reqUdpSend(ctx);
+            AioIntfPtr->reqUdpSend(udpSendFd, ctx);
             return;
         }
     }
 
-    ctx->owner->release(ctx);
+    ctx->owner->releaseAioCtx(ctx);
 }
 
-void TapLan::handleTapWrite(IOContext* ctx) {
-    ctx->owner->release(ctx);
+void TapLan::handleTapWrite(AioIntf::Ctx* ctx) {
+    ctx->owner->releaseAioCtx(ctx);
 }
 
-void TapLan::handleUdpRecv(IOContext* ctx) {
+void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
     if (ctx->bufLen <= 0) {
-        ctx->owner->release(ctx);
+        ctx->owner->releaseAioCtx(ctx);
         return ;
     }
 
+    SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
@@ -843,7 +792,7 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return;
 
-                IOContext* sendCtx = ioPool_->acquire();
+                AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
                 if (sendCtx) {
                     sendCtx->token = TOKEN_UDP_SEND;
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
@@ -854,11 +803,11 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
                     sendCtx->addr.sin6_port = n->ipv6Port;
                     sendCtx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
 
-                    reqUdpSend(sendCtx);
+                    AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
             }, false);
 
-            reqTapWrite(ctx);
+            AioIntfPtr->reqTapWrite(tapFd, ctx);
             return;
 
         } else if (!isSendToMe) {
@@ -869,41 +818,42 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
                 ctx->addr.sin6_port = n->ipv6Port;
                 ctx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
 
-                reqUdpSend(ctx);
+                AioIntfPtr->reqUdpSend(udpSendFd, ctx);
                 return;
             }
         } else {
-            reqTapWrite(ctx);
+            AioIntfPtr->reqTapWrite(tapFd, ctx);
             return;
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
-        reqTapWrite(ctx);
+        AioIntfPtr->reqTapWrite(tapFd, ctx);
         return;
     }
 
-    ctx->owner->release(ctx);
+    ctx->owner->releaseAioCtx(ctx);
 }
 
-void TapLan::handleUdpSend(IOContext* ctx) {
-    ctx->owner->release(ctx);
+void TapLan::handleUdpSend(AioIntf::Ctx* ctx) {
+    ctx->owner->releaseAioCtx(ctx);
 }
 
-void TapLan::iouringWrk()
+void TapLan::aioWrk()
 {
-    ioPool_ = new IOPool();
+    io_uring* ring = &AioIntfPtr->ring_;
+    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
 
     for (int i = 0; i < 32; ++i) {
-        reqTapRead();
+        AioIntfPtr->reqTapRead(tapFd);
     }
     for (int i = 0; i < 64; ++i) {
-        reqUdpRecv();
+        AioIntfPtr->reqUdpRecv(static_cast<SocketFd>(*udpSockPtr_));
     }
-    io_uring_submit(&ioPool_->iouring_);
+    io_uring_submit(ring);
 
     io_uring_cqe *cqe;
     __kernel_timespec timeout{3, 0};
     while (g_cfgData.isRunning) {
-        int ret = io_uring_wait_cqe_timeout(&ioPool_->iouring_, &cqe, &timeout);
+        int ret = io_uring_wait_cqe_timeout(ring, &cqe, &timeout);
         if (ret < 0 && ret != -ETIME) {
             LOGF(TAG, "Failed to wait cqe.[%s]", strerror(-ret));
             break;
@@ -911,10 +861,10 @@ void TapLan::iouringWrk()
 
         unsigned head;
         unsigned cqeCnt = 0;
-        io_uring_for_each_cqe(&ioPool_->iouring_, head, cqe) {
+        io_uring_for_each_cqe(ring, head, cqe) {
             ++cqeCnt;
 
-            IOContext* ctx = reinterpret_cast<IOContext*>(cqe->user_data);
+            AioIntf::Ctx* ctx = reinterpret_cast<AioIntf::Ctx*>(cqe->user_data);
             if (cqe->res < 0) {
                 LOGE(TAG, "Failed to do %u:%d.[%s]", ctx->token, ctx->bufLen, strerror(-cqe->res));
             }
@@ -924,12 +874,12 @@ void TapLan::iouringWrk()
             {
             case TOKEN_UDP_RECV:
                 handleUdpRecv(ctx);
-                reqUdpRecv();
+                AioIntfPtr->reqUdpRecv(udpRecvFd);
                 break;
 
             case TOKEN_TAP_READ:
                 handleTapRead(ctx);
-                reqTapRead();
+                AioIntfPtr->reqTapRead(tapFd);
                 break;
 
             case TOKEN_TAP_WRITE:
@@ -944,8 +894,8 @@ void TapLan::iouringWrk()
                 break;
             }
         }
-        io_uring_cq_advance(&ioPool_->iouring_, cqeCnt);
-        io_uring_submit(&ioPool_->iouring_);
+        io_uring_cq_advance(ring, cqeCnt);
+        io_uring_submit(ring);
     }
 }
 
