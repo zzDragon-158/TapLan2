@@ -521,7 +521,7 @@ void TapLan::handleTapRead(IOContext* ctx) {
                 if (sendCtx) {
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
                     
-                    sockaddr_in6& dstAddr = ctx->addr;
+                    sockaddr_in6& dstAddr = sendCtx->addr;
                     dstAddr.sin6_family = AF_INET6;
                     memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                     dstAddr.sin6_port = n->ipv6Port;
@@ -569,7 +569,7 @@ void TapLan::handleUdpRecv(IOContext* ctx) {
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
                     
-                    sockaddr_in6& dstAddr = ctx->addr;
+                    sockaddr_in6& dstAddr = sendCtx->addr;
                     dstAddr.sin6_family = AF_INET6;
                     memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
                     dstAddr.sin6_port = n->ipv6Port;
