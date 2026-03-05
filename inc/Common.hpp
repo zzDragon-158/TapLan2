@@ -5,38 +5,10 @@
 #include    <mutex>
 #include    <LogMgr.hpp>
 
-const size_t DATA_BUF_SIZE = 4096;
-const size_t DATA_BUF_NUM = 256;
-
 #ifdef      _WIN32
 #include    <winsock2.h>
 #include    <ws2tcpip.h>
 #include    <windows.h>
-
-class IOPool;
-struct IOContext {
-    IOPool* owner;
-    OVERLAPPED overlapped;
-    sockaddr_in6 addr;
-    INT addrLen;
-    uint8_t* buf;
-    DWORD bufLen;
-    uint8_t token;
-
-    IOContext(): owner(nullptr), overlapped{},
-                 addr{}, addrLen(sizeof(sockaddr_in6)),
-                 buf(nullptr), bufLen(0), token(0) {
-        buf = new uint8_t [2048] ;
-    }
-
-    ~IOContext() {
-        delete [] buf;
-    }
-
-    void reset() {
-        ZeroMemory(&overlapped, sizeof(OVERLAPPED));
-    }
-};
 
 static std::string getErrMsg(DWORD errorCode)
 {

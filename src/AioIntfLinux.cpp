@@ -15,12 +15,19 @@ AioIntf::AioIntf() {
         return ;
     }
 
-    dataBufs_ = (uint8_t*)mmap(NULL, DATA_BUF_NUM * DATA_BUF_SIZE,
-                                PROT_READ | PROT_WRITE,
-                                MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    size_t totalDatBufSize = DATA_BUF_NUM * DATA_BUF_SIZE;
+    dataBufs_ = (uint8_t*)mmap(NULL, totalDatBufSize,
+                               PROT_READ | PROT_WRITE,
+                               MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
+                               -1, 0);
     if (dataBufs_ == MAP_FAILED) {
-        LOGD(TAG, "Cant allocate hugepage memory.");
-        posix_memalign((void **)&dataBufs_, 4096, DATA_BUF_NUM * DATA_BUF_SIZE);
+        LOGD(TAG, "Cant allocate [%u] hugepage memory.", totalDatBufSize);
+        posix_memalign((void **)&dataBufs_, 4096, totalDatBufSize);
+        if (!dataBufs_) {
+            g_cfgData.isRunning = false;
+            LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
+            return;
+        }
     }
 
     // iovec iovs[DATA_BUF_NUM];
@@ -54,6 +61,8 @@ AioIntf::AioIntf() {
 
 AioIntf::~AioIntf() {
     for (auto ctx: ioCtxs_) delete ctx;
+    // FIXME: cant use "free" to release hugepage memory.
+    // free(dataBufs_);
 }
 
 AioIntf::Ctx* AioIntf::acquireAioCtx() {

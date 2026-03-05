@@ -17,6 +17,7 @@ add_library(LogMgr src/LogMgr.cpp)
 if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
     add_library(Socket src/SocketWin.cpp)
+    add_library(AioIntf src/AioIntfWin.cpp)
 
     target_link_libraries(Socket PUBLIC ws2_32)
 
