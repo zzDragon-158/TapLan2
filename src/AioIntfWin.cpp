@@ -7,7 +7,7 @@ AioIntf::AioIntf()
     std::string errMsg;
 
     size_t totalDatBufSize = DATA_BUF_NUM * DATA_BUF_SIZE;
-    dataBufs_ = (uint8_t*)_aligned_malloc(totalDatBufSize, 4096);
+    dataBufs_ = (uint8_t*)_aligned_malloc(totalDatBufSize, 64);
     if (dataBufs_ == nullptr) {
         g_cfgData.isRunning = false;
         LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
@@ -48,16 +48,18 @@ AioIntf::Ctx* AioIntf::acquireAioCtx() {
 }
 
 void AioIntf::releaseAioCtx(Ctx* ctx) {
-    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
     freeStack_.push(ctx);
 }
 
-int AioIntf::reqTapRead(TapFd fd)
+int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
 {
-    Ctx* ctx = acquireAioCtx();
-    ctx->token = TOKEN_TAP_READ;
+    if (!ctx)
+        ctx = acquireAioCtx();
 
-    BOOL ok = ReadFile(tapFd, ctx->buf, DATA_BUF_SIZE, NULL, &ctx->overlapped);
+    ctx->token = TOKEN_TAP_READ;
+    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
+
+    BOOL ok = ReadFile(fd, ctx->buf, DATA_BUF_SIZE, NULL, &ctx->overlapped);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
@@ -74,8 +76,9 @@ int AioIntf::reqTapRead(TapFd fd)
 int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
 {
     ctx->token = TOKEN_TAP_WRITE;
+    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
 
-    BOOL ok = WriteFile(tapFd, ctx->buf, DATA_BUF_SIZE, NULL, &ctx->overlapped);
+    BOOL ok = WriteFile(fd, ctx->buf, DATA_BUF_SIZE, NULL, &ctx->overlapped);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
@@ -88,11 +91,14 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
     return 0;
 }
 
-int AioIntf::reqUdpRecv(SocketFd fd)
+int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
 {
-    Ctx* ctx = acquireAioCtx();
+    if (!ctx)
+        ctx = acquireAioCtx();
+
     ctx->token = TOKEN_UDP_RECV;
     ctx->addrLen = sizeof(sockaddr_in6);
+    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
 
     WSABUF wsaBuf;
     wsaBuf.buf = (char*)ctx->buf;
@@ -124,6 +130,7 @@ int AioIntf::reqUdpRecv(SocketFd fd)
 int AioIntf::reqUdpSend(SocketFd fd, Ctx* ctx)
 {
     ctx->token = TOKEN_UDP_SEND;
+    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
 
     WSABUF wsaBuf;
     wsaBuf.buf = (char*)ctx->buf;

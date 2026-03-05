@@ -13,8 +13,8 @@
 
 const size_t DATA_BUF_SIZE = 2048;
 const size_t DATA_BUF_NUM = 1024;
-const int MAX_RECV_REQ = 32;
-const int MAX_READ_REQ = 32;
+const int MAX_RECV_REQ = 64;
+const int MAX_READ_REQ = 64;
 
 // for Linux
 const size_t IOURING_SIZE = 128;
@@ -43,9 +43,9 @@ public:
     ~AioIntf();
     Ctx* acquireAioCtx();
     void releaseAioCtx(Ctx* ctx);
-    int reqTapRead(TapFd fd);
+    int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
     int reqTapWrite(TapFd fd, Ctx* ctx);
-    int reqUdpRecv(SocketFd fd);
+    int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
     int reqUdpSend(SocketFd fd, Ctx* ctx);
 
 private:

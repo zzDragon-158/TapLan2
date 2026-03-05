@@ -382,11 +382,6 @@ bool TapLan::stop()
 }
 
 void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
-    if (ctx->bufLen <= 0) {
-        ctx->owner->releaseAioCtx(ctx);
-        return ;
-    }
-
     SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
     EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
@@ -439,11 +434,6 @@ void TapLan::handleTapWrite(AioIntf::Ctx* ctx) {
 }
 
 void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
-    if (ctx->bufLen <= 0) {
-        ctx->owner->releaseAioCtx(ctx);
-        return ;
-    }
-
     SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
@@ -463,7 +453,6 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
 
                 AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
                 if (sendCtx) {
-                    sendCtx->token = TOKEN_UDP_SEND;
                     memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
@@ -568,8 +557,11 @@ void TapLan::aioWrk()
         switch (ctx->token)
         {
         case TOKEN_TAP_READ:
-            handleTapRead(ctx);
-            AioIntfPtr->reqTapRead(tapFd);
+            if (ok) {
+                AioIntfPtr->reqTapRead(tapFd);
+                handleTapRead(ctx);
+            } else
+                AioIntfPtr->reqTapRead(tapFd, ctx);
             break;
 
         case TOKEN_TAP_WRITE:
@@ -577,8 +569,11 @@ void TapLan::aioWrk()
             break;
 
         case TOKEN_UDP_RECV:
-            handleUdpRecv(ctx);
-            AioIntfPtr->reqUdpRecv(udpRecvFd);
+            if (ok) {
+                AioIntfPtr->reqUdpRecv(udpRecvFd);
+                handleUdpRecv(ctx);
+            } else
+                AioIntfPtr->reqUdpRecv(udpRecvFd, ctx);
             break;
 
         case TOKEN_UDP_SEND:
