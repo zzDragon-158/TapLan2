@@ -11,10 +11,13 @@
 
 #define     AioIntfPtr      AioIntf::ptr()
 
-const size_t DATA_BUF_SIZE = 4096;
-const size_t DATA_BUF_NUM = 256;
-const int MAX_RECV_REQ = 16;
-const int MAX_READ_REQ = 16;
+const size_t DATA_BUF_SIZE = 2048;
+const size_t DATA_BUF_NUM = 1024;
+const int MAX_RECV_REQ = 32;
+const int MAX_READ_REQ = 32;
+
+// for Linux
+const size_t IOURING_SIZE = 128;
 
 #ifdef      _WIN32
 class AioIntf {

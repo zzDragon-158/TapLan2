@@ -348,10 +348,10 @@ bool TapLan::run()
 
     if (g_cfgData.isAioEnable) {
         aioWrkThread_ = std::thread(&TapLan::aioWrk, this);
-        pthread_setname_np(recvThread_.native_handle(), "aioWrk");
+        pthread_setname_np(aioWrkThread_.native_handle(), "aioWrk");
     } else {
         sendThread_ = std::thread(&TapLan::readTapData, this);
-        pthread_setname_np(recvThread_.native_handle(), "readWrk");
+        pthread_setname_np(sendThread_.native_handle(), "readWrk");
 
         recvThread_ = std::thread(&TapLan::recvSockData, this);
         pthread_setname_np(recvThread_.native_handle(), "recvWrk");

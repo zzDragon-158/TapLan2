@@ -1,6 +1,5 @@
 #include    "AioIntf.hpp"
 
-const size_t IOURING_SIZE = 512;
 static const char* TAG = "[AioIntf]";
 
 AioIntf::AioIntf() {
@@ -81,6 +80,11 @@ void AioIntf::releaseAioCtx(Ctx* ctx) {
 int AioIntf::reqTapRead(TapFd fd)
 {
     Ctx* ctx = acquireAioCtx();
+    if (!ctx) {
+        LOGW(TAG, "Failed to acquire aio ctx for reqTapRead.");
+        return -1;
+    }
+
     ctx->token = TOKEN_TAP_READ;
     ctx->iov.iov_len = DATA_BUF_SIZE;
 
@@ -105,6 +109,11 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
 int AioIntf::reqUdpRecv(SocketFd fd)
 {
     Ctx* ctx = acquireAioCtx();
+    if (!ctx) {
+        LOGW(TAG, "Failed to acquire aio ctx for reqUdpRecv.");
+        return -1;
+    }
+
     ctx->token = TOKEN_UDP_RECV;
     ctx->msgHdr.msg_namelen = sizeof(ctx->addr);
     ctx->iov.iov_len = DATA_BUF_SIZE;
