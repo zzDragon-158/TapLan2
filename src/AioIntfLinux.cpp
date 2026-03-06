@@ -29,13 +29,13 @@ AioIntf::AioIntf() {
         }
     }
 
-    // iovec iovs[DATA_BUF_NUM];
+    iovec iovs[DATA_BUF_NUM];
     for (size_t i = 0; i < DATA_BUF_NUM; ++i) {
         Ctx* ctx = new Ctx();
 
         ctx->owner = this;
         ctx->ring = &ring_;
-        // ctx->bufId = i;
+        ctx->bufId = i;
         ctx->buf = dataBufs_ + i * DATA_BUF_SIZE;
         ctx->msgHdr.msg_name = &ctx->addr;
         ctx->msgHdr.msg_namelen = sizeof(ctx->addr);
@@ -44,17 +44,18 @@ AioIntf::AioIntf() {
         ctx->iov.iov_base = ctx->buf;
         ctx->iov.iov_len = DATA_BUF_SIZE;
 
-        // iovs[i].iov_base = ctx->buf;
-        // iovs[i].iov_len = DATA_BUF_SIZE;
+        iovs[i].iov_base = ctx->buf;
+        iovs[i].iov_len = DATA_BUF_SIZE;
 
         ioCtxs_.push_back(ctx);
         freeStack_.push(ctx);
     }
-    // ret = io_uring_register_buffers(&ring_, iovs, DATA_BUF_NUM);
-    // if (ret < 0) {
-    //     LOGF(TAG, "Failed to register buffers.[%s]", strerror(-ret));
-    //     g_cfgData.isRunning = false;
-    // }
+    ret = io_uring_register_buffers(&ring_, iovs, DATA_BUF_NUM);
+    if (ret < 0) {
+        g_cfgData.isRunning = false;
+        LOGF(TAG, "Failed to register buffers.[%s]", strerror(-ret));
+        return ;
+    }
     io_uring_submit(&ring_);
 }
 
@@ -77,9 +78,11 @@ void AioIntf::releaseAioCtx(Ctx* ctx) {
     freeStack_.push(ctx);
 }
 
-int AioIntf::reqTapRead(TapFd fd)
+int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
 {
-    Ctx* ctx = acquireAioCtx();
+    if (!ctx)
+        ctx = acquireAioCtx();
+
     if (!ctx) {
         LOGW(TAG, "Failed to acquire aio ctx for reqTapRead.");
         return -1;
@@ -90,7 +93,7 @@ int AioIntf::reqTapRead(TapFd fd)
 
     io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_read(sqe, tapFd, ctx->buf, DATA_BUF_SIZE, 0);
+    io_uring_prep_read_fixed(sqe, tapFd, ctx->buf, DATA_BUF_SIZE, 0, ctx->bufId);
 
     return 0;
 }
@@ -101,14 +104,16 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
 
     io_uring_sqe *sqe = io_uring_get_sqe(ctx->ring);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_write(sqe, tapFd, ctx->buf, ctx->bufLen, 0);
+    io_uring_prep_write_fixed(sqe, tapFd, ctx->buf, ctx->bufLen, 0, ctx->bufId);
 
     return 0;
 }
 
-int AioIntf::reqUdpRecv(SocketFd fd)
+int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
 {
-    Ctx* ctx = acquireAioCtx();
+    if (!ctx)
+        ctx = acquireAioCtx();
+
     if (!ctx) {
         LOGW(TAG, "Failed to acquire aio ctx for reqUdpRecv.");
         return -1;

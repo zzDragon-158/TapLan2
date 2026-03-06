@@ -556,6 +556,14 @@ void TapLan::aioWrk()
         ctx->bufLen = bytes;
         switch (ctx->token)
         {
+        case TOKEN_UDP_RECV:
+            if (ok) {
+                AioIntfPtr->reqUdpRecv(udpRecvFd);
+                handleUdpRecv(ctx);
+            } else
+                AioIntfPtr->reqUdpRecv(udpRecvFd, ctx);
+            break;
+
         case TOKEN_TAP_READ:
             if (ok) {
                 AioIntfPtr->reqTapRead(tapFd);
@@ -566,14 +574,6 @@ void TapLan::aioWrk()
 
         case TOKEN_TAP_WRITE:
             handleTapWrite(ctx);
-            break;
-
-        case TOKEN_UDP_RECV:
-            if (ok) {
-                AioIntfPtr->reqUdpRecv(udpRecvFd);
-                handleUdpRecv(ctx);
-            } else
-                AioIntfPtr->reqUdpRecv(udpRecvFd, ctx);
             break;
 
         case TOKEN_UDP_SEND:
@@ -610,26 +610,31 @@ void TapLan::aioWrk()
         }
 
         unsigned head;
-        unsigned cqeCnt = 0;
+        unsigned cqeCnt = 0, reqCnt = 0;
         io_uring_for_each_cqe(ring, head, cqe) {
             ++cqeCnt;
 
             AioIntf::Ctx* ctx = reinterpret_cast<AioIntf::Ctx*>(cqe->user_data);
-            if (cqe->res < 0) {
-                LOGE(TAG, "Failed to do %u:%d.[%s]", ctx->token, ctx->bufLen, strerror(-cqe->res));
-            }
             ctx->bufLen = cqe->res;
 
             switch (ctx->token)
             {
             case TOKEN_UDP_RECV:
-                handleUdpRecv(ctx);
-                AioIntfPtr->reqUdpRecv(udpRecvFd);
+                ++reqCnt;
+                if (ctx->bufLen >= 0) {
+                    AioIntfPtr->reqUdpRecv(udpRecvFd);
+                    handleUdpRecv(ctx);
+                } else
+                    AioIntfPtr->reqUdpRecv(udpRecvFd, ctx);
                 break;
 
             case TOKEN_TAP_READ:
-                handleTapRead(ctx);
-                AioIntfPtr->reqTapRead(tapFd);
+                ++reqCnt;
+                if (ctx->bufLen > 0) {
+                    AioIntfPtr->reqTapRead(tapFd);
+                    handleTapRead(ctx);
+                } else
+                    AioIntfPtr->reqTapRead(tapFd, ctx);
                 break;
 
             case TOKEN_TAP_WRITE:
@@ -637,11 +642,20 @@ void TapLan::aioWrk()
                 break;
 
             case TOKEN_UDP_SEND:
+                // if ((cqe->flags & IORING_CQE_F_NOTIF)
+                //     || !(cqe->flags & IORING_CQE_F_MORE))
                 handleUdpSend(ctx);
                 break;
 
             default:
                 break;
+            }
+
+            if (reqCnt >= ((MAX_READ_REQ + MAX_RECV_REQ) / 2)) {
+                io_uring_cq_advance(ring, cqeCnt);
+                io_uring_submit(ring);
+                cqeCnt = 0;
+                reqCnt = 0;
             }
         }
         io_uring_cq_advance(ring, cqeCnt);

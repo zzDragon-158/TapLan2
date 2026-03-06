@@ -13,11 +13,11 @@
 
 const size_t DATA_BUF_SIZE = 2048;
 const size_t DATA_BUF_NUM = 1024;
-const int MAX_RECV_REQ = 64;
-const int MAX_READ_REQ = 64;
+const int MAX_RECV_REQ = 256;
+const int MAX_READ_REQ = 256;
 
 // for Linux
-const size_t IOURING_SIZE = 128;
+const size_t IOURING_SIZE = 1024;
 
 #ifdef      _WIN32
 class AioIntf {
@@ -61,7 +61,7 @@ public:
         uint8_t token;
         AioIntf* owner;
         io_uring* ring;
-        // int bufId;
+        int bufId;
         uint8_t* buf;
         int bufLen;    // for store cqe->res
         msghdr msgHdr;
@@ -81,9 +81,9 @@ public:
     ~AioIntf();
     Ctx* acquireAioCtx();
     void releaseAioCtx(Ctx* ctx);
-    int reqTapRead(TapFd fd);
+    int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
     int reqTapWrite(TapFd fd, Ctx* ctx);
-    int reqUdpRecv(SocketFd fd);
+    int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
     int reqUdpSend(SocketFd fd, Ctx* ctx);
     void submitAioReq() { io_uring_submit(&ring_); };
 
