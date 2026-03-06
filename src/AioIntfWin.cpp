@@ -24,8 +24,8 @@ AioIntf::AioIntf()
         freeStack_.push(ctx);
     }
 
-    hIOCP_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
-    if (hIOCP_ == NULL) {
+    hIOCP_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
+    if (hIOCP_ == nullptr) {
         g_cfgData.isRunning = false;
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to create IOCP.[%s]", errMsg.c_str());
@@ -59,7 +59,7 @@ int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
     ctx->token = TOKEN_TAP_READ;
     ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
 
-    BOOL ok = ReadFile(fd, ctx->buf, DATA_BUF_SIZE, NULL, &ctx->overlapped);
+    BOOL ok = ReadFile(fd, ctx->buf, DATA_BUF_SIZE, nullptr, &ctx->overlapped);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
@@ -78,7 +78,7 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
     ctx->token = TOKEN_TAP_WRITE;
     ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
 
-    BOOL ok = WriteFile(fd, ctx->buf, DATA_BUF_SIZE, NULL, &ctx->overlapped);
+    BOOL ok = WriteFile(fd, ctx->buf, DATA_BUF_SIZE, nullptr, &ctx->overlapped);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
@@ -109,12 +109,12 @@ int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
         fd,
         &wsaBuf,
         1,
-        NULL,
+        nullptr,
         &flags,
         reinterpret_cast<sockaddr *>(&ctx->addr),
         &ctx->addrLen,
         &ctx->overlapped,
-        NULL
+        nullptr
     );
     if (ret == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
@@ -140,12 +140,12 @@ int AioIntf::reqUdpSend(SocketFd fd, Ctx* ctx)
         fd,
         &wsaBuf, 
         1, 
-        NULL, 
+        nullptr, 
         0, 
         (const sockaddr*)&ctx->addr, 
         sizeof(sockaddr_in6), 
         &ctx->overlapped, 
-        NULL
+        nullptr
     );
 
     if (ret == SOCKET_ERROR) {
