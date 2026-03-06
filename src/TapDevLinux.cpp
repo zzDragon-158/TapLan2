@@ -62,6 +62,12 @@ bool TapDev::open() {
         return false;
     }
 
+    ifr.ifr_qlen = TAP_QLEN;
+    if (ioctl(tap_sock, SIOCSIFTXQLEN, &ifr)) {
+        LOGF(TAG, "Failed to set qlen to [%u].[%s]", TAP_QLEN, strerror(errno));
+        return false;
+    }
+
     if (ioctl(tap_sock, SIOCGIFFLAGS, &ifr)) {
         LOGF(TAG, "Failed to get flags.[%s]", strerror(errno));
         return false;
