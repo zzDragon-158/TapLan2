@@ -57,15 +57,19 @@ private:
 #elif       __linux__
 class AioIntf {
 public:
+    struct Buf {
+        io_uring_recvmsg_out ro;
+        sockaddr_storage addr;
+        char payload[];
+    };
     struct Ctx {
-        uint8_t token;
+        char token;
         AioIntf* owner;
         io_uring* ring;
-        int bufId;
-        uint8_t* buf;
-        int bufLen;    // for store cqe->res
+        unsigned short bufId;
+        Buf *buf;
+        int bufLen;
         msghdr msgHdr;
-        sockaddr_in6 addr;
         iovec iov;
 
         Ctx() {
@@ -75,15 +79,20 @@ public:
     };
 
     io_uring ring_;
+    io_uring_buf_ring* bufRing_;
+    int bufRingMask_;
 
     static AioIntf* ptr();
     AioIntf();
     ~AioIntf();
     Ctx* acquireAioCtx();
+    Ctx* acquireAioCtx(size_t idx);
     void releaseAioCtx(Ctx* ctx);
     int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
+    int reqTapReadMultishot(SocketFd fd);
     int reqTapWrite(TapFd fd, Ctx* ctx);
     int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
+    int reqUdpRecvMultishot(SocketFd fd);
     int reqUdpSend(SocketFd fd, Ctx* ctx);
     void submitAioReq() { io_uring_submit(&ring_); };
 

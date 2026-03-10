@@ -64,10 +64,11 @@ struct Mac {
 };
 
 enum {
-    TOKEN_UDP_RECV  = 1,
-    TOKEN_TAP_READ  = 2,
-    TOKEN_TAP_WRITE = 3,
-    TOKEN_UDP_SEND  = 4,
+    TOKEN_UDP_RECV_MULTISHOT = 0,
+    TOKEN_UDP_RECV,
+    TOKEN_UDP_SEND,
+    TOKEN_TAP_READ,
+    TOKEN_TAP_WRITE,
 };
 
 enum RunModeT {

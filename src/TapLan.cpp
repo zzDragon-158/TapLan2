@@ -382,8 +382,16 @@ bool TapLan::stop()
 }
 
 void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
+    if (ctx->bufLen <= 0) {
+        ctx->owner->releaseAioCtx(ctx);
+        LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->bufLen));
+    }
+
     SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
+    sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    char* payload = ctx->buf->payload;
+
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*payload);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
@@ -392,9 +400,9 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
         if (!needBroadcast) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                ctx->addr.sin6_family = AF_INET6;
-                memcpy(&ctx->addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                ctx->addr.sin6_port = n->ipv6Port;
+                dstAddr.sin6_family = AF_INET6;
+                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                dstAddr.sin6_port = n->ipv6Port;
 
                 AioIntfPtr->reqUdpSend(udpSendFd, ctx);
                 return;
@@ -406,12 +414,13 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
 
                 AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
                 if (sendCtx) {
-                    memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
+                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+                    memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
-                    sendCtx->addr.sin6_family = AF_INET6;
-                    memcpy(&sendCtx->addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                    sendCtx->addr.sin6_port = n->ipv6Port;
+                    sendAddr.sin6_family = AF_INET6;
+                    memcpy(&sendAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                    sendAddr.sin6_port = n->ipv6Port;
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
@@ -419,7 +428,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
         if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
-            memcpy(&ctx->addr, &serverAddr_, sizeof(sockaddr_in6));
+            memcpy(&dstAddr, &serverAddr_, sizeof(sockaddr_in6));
 
             AioIntfPtr->reqUdpSend(udpSendFd, ctx);
             return;
@@ -430,19 +439,32 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
 }
 
 void TapLan::handleTapWrite(AioIntf::Ctx* ctx) {
+    if (ctx->bufLen <= 0) {
+        ctx->owner->releaseAioCtx(ctx);
+        LOGE(TAG, "Failed to write tap.[%s]", strerror(-ctx->bufLen));
+    }
+
     ctx->owner->releaseAioCtx(ctx);
 }
 
 void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
+    if (ctx->bufLen < 0) {
+        ctx->owner->releaseAioCtx(ctx);
+        LOGE(TAG, "Failed to recv udp.[%s]", strerror(-ctx->bufLen));
+    }
+
     SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
-    EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
+    sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    char* payload = ctx->buf->payload;
+
+    EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
 
     if (g_cfgData.noSync) {
-        nodeMgrPtr_->addNode(&ctx->addr, srcMac);
+        nodeMgrPtr_->addNode(&srcAddr, srcMac);
     }
 
     if (g_cfgData.runMode == RunMode_Server) {
@@ -453,12 +475,13 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
 
                 AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
                 if (sendCtx) {
-                    memcpy(sendCtx->buf, ctx->buf, ctx->bufLen);
+                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+                    memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
-                    sendCtx->addr.sin6_family = AF_INET6;
-                    memcpy(&sendCtx->addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                    sendCtx->addr.sin6_port = n->ipv6Port;
+                    sendAddr.sin6_family = AF_INET6;
+                    memcpy(&sendAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                    sendAddr.sin6_port = n->ipv6Port;
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
@@ -470,9 +493,10 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
         } else if (!isSendToMe) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                ctx->addr.sin6_family = AF_INET6;
-                memcpy(&ctx->addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                ctx->addr.sin6_port = n->ipv6Port;
+                sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+                dstAddr.sin6_family = AF_INET6;
+                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                dstAddr.sin6_port = n->ipv6Port;
 
                 AioIntfPtr->reqUdpSend(udpSendFd, ctx);
                 return;
@@ -490,6 +514,11 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
 }
 
 void TapLan::handleUdpSend(AioIntf::Ctx* ctx) {
+    if (ctx->bufLen < 0) {
+        ctx->owner->releaseAioCtx(ctx);
+        LOGE(TAG, "Failed to recv udp.[%s]", strerror(-ctx->bufLen));
+    }
+
     ctx->owner->releaseAioCtx(ctx);
 }
 
@@ -592,16 +621,19 @@ void TapLan::aioWrk()
     io_uring* ring = &AioIntfPtr->ring_;
     SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
 
-    for (int i = 0; i < MAX_READ_REQ; ++i) {
-        AioIntfPtr->reqTapRead(tapFd);
-    }
-    for (int i = 0; i < MAX_RECV_REQ; ++i) {
-        AioIntfPtr->reqUdpRecv(static_cast<SocketFd>(*udpSockPtr_));
-    }
+    // for (int i = 0; i < MAX_READ_REQ; ++i) {
+    //     AioIntfPtr->reqTapRead(tapFd);
+    // }
+    // for (int i = 0; i < MAX_RECV_REQ; ++i) {
+    //     AioIntfPtr->reqUdpRecv(udpRecvFd);
+    // }
+    AioIntfPtr->reqTapReadMultishot(tapFd);
+    AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
     io_uring_submit(ring);
 
     io_uring_cqe *cqe;
-    __kernel_timespec timeout{3, 0};
+    __kernel_timespec timeout{IO_WAIT_TIME, 0};
+    size_t maxCqeBatch = std::min(MAX_READ_REQ, MAX_RECV_REQ) / 2;
     while (g_cfgData.isRunning) {
         int ret = io_uring_wait_cqe_timeout(ring, &cqe, &timeout);
         if (ret < 0 && ret != -ETIME) {
@@ -610,35 +642,30 @@ void TapLan::aioWrk()
         }
 
         unsigned head;
-        unsigned cqeCnt = 0, reqCnt = 0;
+        unsigned cqeCnt = 0;
         io_uring_for_each_cqe(ring, head, cqe) {
             ++cqeCnt;
 
             AioIntf::Ctx* ctx = reinterpret_cast<AioIntf::Ctx*>(cqe->user_data);
             ctx->bufLen = cqe->res;
 
-            switch (ctx->token)
-            {
+            switch (ctx->token) {
+            case TOKEN_UDP_RECV_MULTISHOT: {
+                if (!(cqe->flags & IORING_CQE_F_MORE)) {
+                    LOGE(TAG, "UDP recvmsg multishot stop.[%d]", strerror(-cqe->res));
+                    AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
+                }
+
+                size_t idx = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+                AioIntf::Ctx* realCtx = AioIntfPtr->acquireAioCtx(idx);
+                realCtx->bufLen = cqe->res;
+                handleUdpRecv(realCtx);
+
+                break;
+            }
+
             case TOKEN_UDP_RECV:
-                ++reqCnt;
-                if (ctx->bufLen >= 0) {
-                    AioIntfPtr->reqUdpRecv(udpRecvFd);
-                    handleUdpRecv(ctx);
-                } else
-                    AioIntfPtr->reqUdpRecv(udpRecvFd, ctx);
-                break;
-
-            case TOKEN_TAP_READ:
-                ++reqCnt;
-                if (ctx->bufLen > 0) {
-                    AioIntfPtr->reqTapRead(tapFd);
-                    handleTapRead(ctx);
-                } else
-                    AioIntfPtr->reqTapRead(tapFd, ctx);
-                break;
-
-            case TOKEN_TAP_WRITE:
-                handleTapWrite(ctx);
+                handleUdpRecv(ctx);
                 break;
 
             case TOKEN_UDP_SEND:
@@ -647,15 +674,22 @@ void TapLan::aioWrk()
                 handleUdpSend(ctx);
                 break;
 
+            case TOKEN_TAP_READ:
+                handleTapRead(ctx);
+                break;
+
+            case TOKEN_TAP_WRITE:
+                handleTapWrite(ctx);
+                break;
+
             default:
                 break;
             }
 
-            if (reqCnt >= ((MAX_READ_REQ + MAX_RECV_REQ) / 2)) {
+            if (cqeCnt >= maxCqeBatch) {
                 io_uring_cq_advance(ring, cqeCnt);
                 io_uring_submit(ring);
                 cqeCnt = 0;
-                reqCnt = 0;
             }
         }
         io_uring_cq_advance(ring, cqeCnt);
