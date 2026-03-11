@@ -551,16 +551,19 @@ void TapLan::aioWrk()
         }
     }
 
-    for (int i = 0; i < MAX_READ_REQ; ++i) {
-        AioIntfPtr->reqTapRead(tapFd);
-    }
-    for (int i = 0; i < MAX_RECV_REQ; ++i) {
-        AioIntfPtr->reqUdpRecv(udpRecvFd);
-    }
+    // for (int i = 0; i < MAX_READ_REQ; ++i) {
+    //     AioIntfPtr->reqTapRead(tapFd);
+    // }
+    // for (int i = 0; i < MAX_RECV_REQ; ++i) {
+    //     AioIntfPtr->reqUdpRecv(udpRecvFd);
+    // }
+    AioIntfPtr->reqTapReadMultishot(tapFd);
+    AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
 
     DWORD bytes;
     ULONG_PTR key;
     LPOVERLAPPED lpOverlapped;
+    DWORD err;
     while (g_cfgData.isRunning) {
         BOOL ok = GetQueuedCompletionStatus(
             hIOCP,
@@ -570,35 +573,32 @@ void TapLan::aioWrk()
             IO_WAIT_TIME * 1000
         );
 
-        if (!ok) {
-            DWORD err = GetLastError();
+        if (!lpOverlapped)
+            continue;
+
+        AioIntf::Ctx* ctx = CONTAINING_RECORD(lpOverlapped, AioIntf::Ctx, buf->ol);
+        if (!ctx->isPending) {
+            LOGD(TAG, "nice sio[%p].", ctx);
+        }
+        if (ok) {
+            ctx->bufLen = bytes;
+        } else {
+            err = GetLastError();
             if (err == WAIT_TIMEOUT)
                 continue;
 
             errMsg = getErrMsg(err);
+            ctx->bufLen = -err;
             LOGE(TAG, "Failed to GQCS.[%s]", errMsg.c_str());
         }
-        if (!lpOverlapped)
-            continue;
 
-        AioIntf::Ctx* ctx = CONTAINING_RECORD(lpOverlapped, AioIntf::Ctx, overlapped);
-        ctx->bufLen = bytes;
-        switch (ctx->token)
-        {
+        switch (ctx->token) {
         case TOKEN_UDP_RECV:
-            if (ok) {
-                AioIntfPtr->reqUdpRecv(udpRecvFd);
-                handleUdpRecv(ctx);
-            } else
-                AioIntfPtr->reqUdpRecv(udpRecvFd, ctx);
+            handleUdpRecv(ctx);
             break;
 
         case TOKEN_TAP_READ:
-            if (ok) {
-                AioIntfPtr->reqTapRead(tapFd);
-                handleTapRead(ctx);
-            } else
-                AioIntfPtr->reqTapRead(tapFd, ctx);
+            handleTapRead(ctx);
             break;
 
         case TOKEN_TAP_WRITE:

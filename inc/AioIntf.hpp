@@ -22,14 +22,20 @@ const size_t IOURING_SIZE = 1024;
 #ifdef      _WIN32
 class AioIntf {
 public:
-    struct Ctx {
-        AioIntf* owner;
-        OVERLAPPED overlapped;
+    struct Buf {
+        OVERLAPPED ol;
         sockaddr_in6 addr;
         INT addrLen;
-        uint8_t* buf;
-        DWORD bufLen;
-        uint8_t token;
+        char payload[];
+    };
+    struct Ctx {
+        char token;
+        AioIntf* owner;
+        unsigned short bufId;
+        Buf* buf;
+        INT bufLen;
+        WSABUF wsaBuf;
+        bool isPending;
 
         Ctx(){
             memset(this, 0, sizeof(Ctx));
@@ -42,14 +48,19 @@ public:
     AioIntf();
     ~AioIntf();
     Ctx* acquireAioCtx();
+    Ctx* acquireAioCtx(size_t idx);
     void releaseAioCtx(Ctx* ctx);
     int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
+    int reqTapReadMultishot(TapFd fd);
     int reqTapWrite(TapFd fd, Ctx* ctx);
     int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
+    int reqUdpRecvMultishot(SocketFd fd);
     int reqUdpSend(SocketFd fd, Ctx* ctx);
 
 private:
     uint8_t* dataBufs_;
+    TapFd tapFd_;
+    SocketFd udpFd_;
     std::vector<Ctx*> ioCtxs_;
     std::stack<Ctx*> freeStack_;
 };
@@ -89,7 +100,7 @@ public:
     Ctx* acquireAioCtx(size_t idx);
     void releaseAioCtx(Ctx* ctx);
     int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
-    int reqTapReadMultishot(SocketFd fd);
+    int reqTapReadMultishot(TapFd fd);
     int reqTapWrite(TapFd fd, Ctx* ctx);
     int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
     int reqUdpRecvMultishot(SocketFd fd);
@@ -98,6 +109,8 @@ public:
 
 private:
     uint8_t* dataBufs_;
+    TapFd tapFd_;
+    SocketFd udpFd_;
     std::vector<Ctx*> ioCtxs_;
     std::stack<Ctx*> freeStack_;
 };

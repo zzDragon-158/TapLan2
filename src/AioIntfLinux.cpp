@@ -1,14 +1,14 @@
 #include    "AioIntf.hpp"
 
+static const char* TAG = "[AioIntf]";
 const size_t PAYLOAD_SIZE = DATA_BUF_SIZE - sizeof(AioIntf::Buf);
 /* 0               256             512             768             1024 */
 /* |---------------|---------------|---------------|---------------|    */
 /* |      udp      |      tap      |           freestack           |    */
 const size_t START_UDP_BUF_IDX = 0;
 const size_t START_TAP_BUF_IDX = MAX_RECV_REQ;
-const size_t UDP_MULTISHOT_BUF_IDX = 512;
-const size_t START_FREE_BUF_IDX = 513;
-static const char* TAG = "[AioIntf]";
+const size_t UDP_MULTISHOT_BUF_IDX = MAX_READ_REQ + MAX_RECV_REQ;
+const size_t START_FREE_BUF_IDX = UDP_MULTISHOT_BUF_IDX + 1;
 
 AioIntf::AioIntf()
 {
@@ -128,7 +128,7 @@ void AioIntf::releaseAioCtx(Ctx* ctx)
         io_uring_buf_ring_add(bufRing_, ctx->buf, DATA_BUF_SIZE,
                               ctx->bufId, bufRingMask_, bufCnt++);
     } else if (ctx->bufId < UDP_MULTISHOT_BUF_IDX) {
-        reqTapRead(tapFd, ctx);
+        reqTapRead(tapFd_, ctx);
     } else
         freeStack_.push(ctx);
 
@@ -160,8 +160,10 @@ int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
     return 0;
 }
 
-int AioIntf::reqTapReadMultishot(SocketFd fd)
+int AioIntf::reqTapReadMultishot(TapFd fd)
 {
+    tapFd_ = fd;
+
     for (int idx = START_TAP_BUF_IDX; idx < START_TAP_BUF_IDX + MAX_READ_REQ; ++idx) {
         Ctx* ctx = acquireAioCtx(idx);
         reqTapRead(fd, ctx);
@@ -205,6 +207,8 @@ int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
 }
 
 int AioIntf::reqUdpRecvMultishot(SocketFd fd) {
+    udpFd_ = fd;
+
     Ctx* ctx = acquireAioCtx(UDP_MULTISHOT_BUF_IDX);
     ctx->token = TOKEN_UDP_RECV_MULTISHOT;
     memset(&ctx->msgHdr, 0, sizeof(msghdr));

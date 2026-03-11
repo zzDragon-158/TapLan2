@@ -1,6 +1,13 @@
 #include    "AioIntf.hpp"
 
 static const char* TAG = "[AioIntf]";
+const size_t PAYLOAD_SIZE = DATA_BUF_SIZE - sizeof(AioIntf::Buf);
+/* 0               256             512             768             1024 */
+/* |---------------|---------------|---------------|---------------|    */
+/* |      udp      |      tap      |           freestack           |    */
+const size_t START_UDP_BUF_IDX = 0;
+const size_t START_TAP_BUF_IDX = MAX_RECV_REQ;
+const size_t START_FREE_BUF_IDX = MAX_READ_REQ + MAX_RECV_REQ;
 
 AioIntf::AioIntf()
 {
@@ -18,10 +25,14 @@ AioIntf::AioIntf()
         Ctx* ctx = new Ctx();
 
         ctx->owner = this;
-        ctx->buf = dataBufs_ + i * DATA_BUF_SIZE;
+        ctx->bufId = i;
+        ctx->buf = reinterpret_cast<Buf*>(dataBufs_ + i * DATA_BUF_SIZE);
+        ZeroMemory(ctx->buf, sizeof(Buf));
+        ctx->wsaBuf.buf = ctx->buf->payload;
 
         ioCtxs_.push_back(ctx);
-        freeStack_.push(ctx);
+        if (i > START_FREE_BUF_IDX)
+            freeStack_.push(ctx);
     }
 
     hIOCP_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
@@ -47,8 +58,23 @@ AioIntf::Ctx* AioIntf::acquireAioCtx() {
     return ctx;
 }
 
-void AioIntf::releaseAioCtx(Ctx* ctx) {
-    freeStack_.push(ctx);
+AioIntf::Ctx* AioIntf::acquireAioCtx(size_t idx)
+{
+    if (idx >= DATA_BUF_NUM)
+        return nullptr;
+
+    return ioCtxs_[idx];
+}
+
+void AioIntf::releaseAioCtx(Ctx* ctx)
+{
+    if (ctx->bufId < START_TAP_BUF_IDX) {
+        reqUdpRecv(udpFd_, ctx);
+    } else if (ctx->bufId < START_FREE_BUF_IDX) {
+        reqTapRead(tapFd_, ctx);
+    } else {
+        freeStack_.push(ctx);
+    }
 }
 
 int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
@@ -57,17 +83,33 @@ int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
         ctx = acquireAioCtx();
 
     ctx->token = TOKEN_TAP_READ;
-    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
+    ZeroMemory(&ctx->buf->ol, sizeof(OVERLAPPED));
 
-    BOOL ok = ReadFile(fd, ctx->buf, DATA_BUF_SIZE, nullptr, &ctx->overlapped);
+    BOOL ok = ReadFile(fd, ctx->buf->payload, PAYLOAD_SIZE, nullptr, &ctx->buf->ol);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
             ctx->owner->releaseAioCtx(ctx);
-            LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
-        }
 
-        return -1;
+            LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
+            return -1;
+        }
+        ctx->isPending = true;
+    } else {
+        ctx->isPending = false;
+        LOGD(TAG, "fuck sio[%p].", ctx);
+    }
+
+    return 0;
+}
+
+int AioIntf::reqTapReadMultishot(TapFd fd)
+{
+    tapFd_ = fd;
+
+    for (int idx = START_TAP_BUF_IDX; idx < START_TAP_BUF_IDX + MAX_READ_REQ; ++idx) {
+        Ctx* ctx = acquireAioCtx(idx);
+        reqTapRead(fd, ctx);
     }
 
     return 0;
@@ -76,16 +118,21 @@ int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
 int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
 {
     ctx->token = TOKEN_TAP_WRITE;
-    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
+    ZeroMemory(&ctx->buf->ol, sizeof(OVERLAPPED));
 
-    BOOL ok = WriteFile(fd, ctx->buf, DATA_BUF_SIZE, nullptr, &ctx->overlapped);
+    BOOL ok = WriteFile(fd, ctx->buf->payload, ctx->bufLen, nullptr, &ctx->buf->ol);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
             ctx->owner->releaseAioCtx(ctx);
+
+            LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
             return -1;
         }
+        ctx->isPending = true;
+    } else {
+        ctx->isPending = false;
+        LOGD(TAG, "fuck sio[%p].", ctx);
     }
 
     return 0;
@@ -97,23 +144,20 @@ int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
         ctx = acquireAioCtx();
 
     ctx->token = TOKEN_UDP_RECV;
-    ctx->addrLen = sizeof(sockaddr_in6);
-    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
-
-    WSABUF wsaBuf;
-    wsaBuf.buf = (char*)ctx->buf;
-    wsaBuf.len = DATA_BUF_SIZE;
+    ctx->buf->addrLen = sizeof(ctx->buf->addr);
+    ZeroMemory(&ctx->buf->ol, sizeof(OVERLAPPED));
+    ctx->wsaBuf.len = PAYLOAD_SIZE;
 
     DWORD flags = 0;
     int ret = WSARecvFrom(
         fd,
-        &wsaBuf,
+        &ctx->wsaBuf,
         1,
         nullptr,
         &flags,
-        reinterpret_cast<sockaddr *>(&ctx->addr),
-        &ctx->addrLen,
-        &ctx->overlapped,
+        reinterpret_cast<sockaddr *>(&ctx->buf->addr),
+        &ctx->buf->addrLen,
+        &ctx->buf->ol,
         nullptr
     );
     if (ret == SOCKET_ERROR) {
@@ -122,29 +166,42 @@ int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
             ctx->owner->releaseAioCtx(ctx);
             LOGE(TAG, "Failed to recv udp.[%s]", getErrMsg(err).c_str());
         }
+        ctx->isPending = true;
+    } else {
+        ctx->isPending = false;
+        LOGD(TAG, "fuck sio[%p].", ctx);
     }
 
     return ret;
 }
 
+int AioIntf::reqUdpRecvMultishot(SocketFd fd)
+{
+    udpFd_ = fd;
+
+    for (int idx = START_UDP_BUF_IDX; idx < START_UDP_BUF_IDX + MAX_RECV_REQ; ++idx) {
+        Ctx* ctx = acquireAioCtx(idx);
+        reqUdpRecv(fd, ctx);
+    }
+
+    return 0;
+}
+
 int AioIntf::reqUdpSend(SocketFd fd, Ctx* ctx)
 {
     ctx->token = TOKEN_UDP_SEND;
-    ZeroMemory(&ctx->overlapped, sizeof(OVERLAPPED));
-
-    WSABUF wsaBuf;
-    wsaBuf.buf = (char*)ctx->buf;
-    wsaBuf.len = (ULONG)ctx->bufLen;
+    ZeroMemory(&ctx->buf->ol, sizeof(OVERLAPPED));
+    ctx->wsaBuf.len = ctx->bufLen;
 
     int ret = WSASendTo(
         fd,
-        &wsaBuf, 
-        1, 
-        nullptr, 
-        0, 
-        (const sockaddr*)&ctx->addr, 
-        sizeof(sockaddr_in6), 
-        &ctx->overlapped, 
+        &ctx->wsaBuf,
+        1,
+        nullptr,
+        0,
+        (const sockaddr*)&ctx->buf->addr, 
+        sizeof(sockaddr_in6),
+        &ctx->buf->ol,
         nullptr
     );
 
@@ -154,6 +211,10 @@ int AioIntf::reqUdpSend(SocketFd fd, Ctx* ctx)
             ctx->owner->releaseAioCtx(ctx);
             LOGE(TAG, "Failed to send udp.[%s]", getErrMsg(err).c_str());
         }
+        ctx->isPending = true;
+    } else {
+        ctx->isPending = false;
+        LOGD(TAG, "fuck sio[%p].", ctx);
     }
 
     return ret;
