@@ -57,6 +57,7 @@ typedef     int                 TapFd;
 
 #define     TAP_NAME            "TapLan"
 #define     TAP_MTU_SIZE        1418
+#define     TAP_QLEN            5000
 #define     ETH_HDR_LEN         14
 #define     ETH_MAC_LEN         6
 #define     TapDevPtr           TapDev::ptr()

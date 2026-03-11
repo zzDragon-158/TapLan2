@@ -30,7 +30,7 @@ void TapDev::generateMac() {
 }
 
 bool TapDev::open() {
-    tapFd = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
+    tapFd = ::open("/dev/net/tun", O_RDWR);
     if (tapFd == -1) {
         LOGF(TAG, "Failed to open [/dev/net/tun].[%s]", strerror(errno));
         return false;
@@ -59,6 +59,12 @@ bool TapDev::open() {
     ifr.ifr_mtu = TAP_MTU_SIZE;
     if (ioctl(tap_sock, SIOCSIFMTU, &ifr)) {
         LOGF(TAG, "Failed to set MTU to [%u].[%s]", TAP_MTU_SIZE, strerror(errno));
+        return false;
+    }
+
+    ifr.ifr_qlen = TAP_QLEN;
+    if (ioctl(tap_sock, SIOCSIFTXQLEN, &ifr)) {
+        LOGF(TAG, "Failed to set qlen to [%u].[%s]", TAP_QLEN, strerror(errno));
         return false;
     }
 

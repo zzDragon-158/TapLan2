@@ -6,11 +6,10 @@
 #include    "NodeMgr.hpp"
 #include    "Socket.hpp"
 #include    "TapDev.hpp"
+#include    "AioIntf.hpp"
 
 class TapLan {
 public:
-    static ConfigDataT config_;
-
     TapLan();
     ~TapLan();
     bool run();
@@ -24,8 +23,7 @@ private:
     UdpSocket*      udpSockPtr_;
     UdpSocket*      udpSockPtrArr_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
-    const char      *recvThreadName_, *sendThreadName_, *syncThreadName_;
-    std::thread     recvThread_, sendThread_, syncThread_;
+    std::thread     recvThread_, sendThread_, syncThread_, aioWrkThread_;
 
     void initUdpSockPtr();
     void handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr);
@@ -34,24 +32,13 @@ private:
     void readTapData();
     void syncNodeStatus();
 
-#ifdef      _WIN32
-    HANDLE hIOCP_;
-    IOPool* readBufs_;
-    IOPool* recvBufs_;
-    IOPool* ioBufs_;
-    std::thread iocpWrkThread;
+    void handleTapRead(AioIntf::Ctx* ctx);
+    void handleTapWrite(AioIntf::Ctx* ctx);
+    void handleUdpRecv(AioIntf::Ctx* ctx);
+    void handleUdpSend(AioIntf::Ctx* ctx);
+    void aioWrk();
 
-    int reqTapRead(IOContext* ctx);
-    int reqTapWrite(IOContext* ctx);
-    int reqUdpRecv(IOContext* ctx);
-    int reqUdpSend(IOContext* ctx);
-    void handleTapRead(IOContext* ctx);
-    void handleTapWrite(IOContext* ctx);
-    void handleUdpRecv(IOContext* ctx);
-    void handleUdpSend(IOContext* ctx);
-    void iocpWrk();
-
-#elif       __linux__
+#if 0
     // for io_uring
     union uring_userdata {
         // TODO: use this union to reinterprete [cqe->userdate]

@@ -17,12 +17,14 @@ add_library(LogMgr src/LogMgr.cpp)
 if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
     add_library(Socket src/SocketWin.cpp)
+    add_library(AioIntf src/AioIntfWin.cpp)
 
     target_link_libraries(Socket PUBLIC ws2_32)
 
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     add_library(TapDev src/TapDevLinux.cpp)
     add_library(Socket src/SocketLinux.cpp)
+    add_library(AioIntf src/AioIntfLinux.cpp)
 
 else()
     message(FATAL_ERROR "Unsupported platform")
@@ -30,7 +32,7 @@ else()
 endif()
 
 add_executable(TapLan src/main.cpp src/TapLan.cpp)
-target_link_libraries(TapLan NodeMgr TapDev Socket LogMgr)
+target_link_libraries(TapLan NodeMgr TapDev Socket LogMgr AioIntf)
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")

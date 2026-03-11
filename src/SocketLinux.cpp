@@ -2,7 +2,7 @@
 #include "LogMgr.hpp"
 
 static const char* TAG = "[Socket]";
-const int udpBufferSize = 1024 * 1024 * 8;
+const int udpBufferSize = 1024 * 1024 * 128;
 
 BsdSocket::BsdSocket(): fd_(INVALID_SOCKET), bindPort_(0),
                           sendBytes_(0), recvBytes_(0),
@@ -259,14 +259,14 @@ bool UdpSocket::open()
         }
     }
 
-    /* set timeout */ {
-        timeval timeout;
-        timeout.tv_sec = 3;
-        timeout.tv_usec = 0;
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
-        }
-    }
+    // /* set timeout */ {
+    //     timeval timeout;
+    //     timeout.tv_sec = 3;
+    //     timeout.tv_usec = 0;
+    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+    //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
+    //     }
+    // }
 
     /* set udp buffer size */ {
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {

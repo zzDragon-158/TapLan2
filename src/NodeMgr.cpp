@@ -2,11 +2,9 @@
 #include "LogMgr.hpp"
 #include "TapLan.hpp"
 
-#define cfgData TapLan::config_
-
 const char* TAG = "[NodeMgr]";
 
-NodeMgr::NodeMgr(): netNum_(cfgData.netNum), netNumLen_(cfgData.netNumLen),
+NodeMgr::NodeMgr(): netNum_(g_cfgData.netNum), netNumLen_(g_cfgData.netNumLen),
                     verNum_(0), tcpSockPtr_(nullptr)
 {
     addrPool_.set(0);
@@ -107,15 +105,15 @@ bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
 // TODO: support sync node status
 void NodeMgr::server()
 {
-    tcpSockPtr_ = new TcpSocket(cfgData.localPort);
+    tcpSockPtr_ = new TcpSocket(g_cfgData.localPort);
     if (!tcpSockPtr_->isFdValid() || !tcpSockPtr_->listen(5)) {
         LOGF(TAG, "Trying to run in server mode failed.");
-        cfgData.isRunning = false;
+        g_cfgData.isRunning = false;
         return ;
     }
 
     pfds_.push_back({ static_cast<SocketFd>(*tcpSockPtr_), POLLIN, 0 });
-    while (cfgData.isRunning) {
+    while (g_cfgData.isRunning) {
         int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), 3000);
         if (pollCnt < 0) {
             LOGE(TAG, "TapLanPoll failed.");
@@ -193,7 +191,7 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
             }
 
             RespIpMessage& rspMsg = reinterpret_cast<RespIpMessage&>(*(sndBuf + sendBytes));
-            rspMsg.netIDLen = cfgData.netNumLen;
+            rspMsg.netIDLen = g_cfgData.netNumLen;
             rspMsg.ipv4Addr = n->ipv4Addr;
             sendBytes += sizeof(RespIpMessage);
 
@@ -240,7 +238,7 @@ bool NodeMgr::syncNodeStatus()
     size_t sendBytes = 0;
     SyncMessage& syncMsgHdr = reinterpret_cast<SyncMessage&>(*sndBuf);
     sendBytes += sizeof(SyncMessage);
-    syncMsgHdr.mac = cfgData.mac;
+    syncMsgHdr.mac = g_cfgData.mac;
     syncMsgHdr.op = OP_MOD;
     // syncMsgHdr.key = ;
     RespNodeStatusMessage& syncMsg = reinterpret_cast<RespNodeStatusMessage&>(*(sndBuf + sendBytes));
@@ -266,8 +264,8 @@ void NodeMgr::client()
 {
     sockaddr_in6 serverAddr{};
     serverAddr.sin6_family = AF_INET6;
-    std::memcpy(&serverAddr.sin6_addr, &cfgData.remoteAddr, sizeof(in6_addr));
-    serverAddr.sin6_port = cfgData.remotePort;
+    std::memcpy(&serverAddr.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
+    serverAddr.sin6_port = g_cfgData.remotePort;
 
     bool isConnected = false;
     bool hasIPv4Addr = false;
@@ -281,14 +279,14 @@ void NodeMgr::client()
         }
 
         delete tcpSockPtr_;
-        tcpSockPtr_ = new TcpSocket(cfgData.localPort, serverAddr);
+        tcpSockPtr_ = new TcpSocket(g_cfgData.localPort, serverAddr);
         if (!tcpSockPtr_->isFdValid()) {
             LOGE(TAG, "create tcp socket failed.");
             std::this_thread::sleep_for(std::chrono::seconds(3));
             return isConnected;
         }
 
-        while (!isConnected && cfgData.isRunning) {
+        while (!isConnected && g_cfgData.isRunning) {
             if (!tcpSockPtr_->connect()) {
                 LOGE(TAG, "Can not connect to server, retrying ...");
                 std::this_thread::sleep_for(std::chrono::seconds(3));
@@ -306,15 +304,15 @@ void NodeMgr::client()
 
         SyncMessage reqMsgHdr{};
         reqMsgHdr.op = OP_REQ_IP;
-        reqMsgHdr.mac = cfgData.mac;
-        while (!hasIPv4Addr && cfgData.isRunning) {
+        reqMsgHdr.mac = g_cfgData.mac;
+        while (!hasIPv4Addr && g_cfgData.isRunning) {
             tcpSockPtr_->send(&reqMsgHdr, sizeof(SyncMessage));
 
             ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
             if (recvBytes == 0) {
                 LOGW(TAG, "server has close, retrying to connect...");
                 isConnected = false;
-                while (!retryConnect() && cfgData.isRunning);
+                while (!retryConnect() && g_cfgData.isRunning);
                 continue;
             } else if (recvBytes < sizeof(SyncMessage)) {
                 LOGE(TAG, "recvBytes[%ld] is not correct.", recvBytes);
@@ -331,18 +329,18 @@ void NodeMgr::client()
     auto getNodeStatus = [&]() {
         SyncMessage reqMsgHdr{};
         reqMsgHdr.op = OP_REQ_SYNC_NODE;
-        reqMsgHdr.mac = cfgData.mac;
+        reqMsgHdr.mac = g_cfgData.mac;
 
-        while (!isSync && cfgData.isRunning) {
+        while (!isSync && g_cfgData.isRunning) {
             tcpSockPtr_->send(&reqMsgHdr, sizeof(SyncMessage));
 
             ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
             if (recvBytes == 0) {
                 LOGW(TAG, "server has close, retrying to connect...");
                 isConnected = false;
-                while (!retryConnect() && cfgData.isRunning);
+                while (!retryConnect() && g_cfgData.isRunning);
                 hasIPv4Addr = false;
-                while (!getAndSetIPv4Addr() && cfgData.isRunning);
+                while (!getAndSetIPv4Addr() && g_cfgData.isRunning);
                 continue;
             } else if (recvBytes < sizeof(SyncMessage)) {
                 LOGE(TAG, "recvBytes[%ld] is not correct.", recvBytes);
@@ -361,9 +359,9 @@ void NodeMgr::client()
     };
 
     do {
-        while (!retryConnect() && cfgData.isRunning);
-        while (!getAndSetIPv4Addr() && cfgData.isRunning);
-        while (!getNodeStatus() && cfgData.isRunning);
+        while (!retryConnect() && g_cfgData.isRunning);
+        while (!getAndSetIPv4Addr() && g_cfgData.isRunning);
+        while (!getNodeStatus() && g_cfgData.isRunning);
         ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
         if (recvBytes == 0) {
             isConnected = false;
@@ -374,7 +372,7 @@ void NodeMgr::client()
         }
         handleResponse(rcvBuf, recvBytes);
         std::this_thread::sleep_for(std::chrono::seconds(1));
-    } while (cfgData.isRunning);
+    } while (g_cfgData.isRunning);
 }
 
 bool NodeMgr::handleResponse(uint8_t* rcvBuf, size_t recvbytes)
@@ -409,7 +407,7 @@ bool NodeMgr::handleResponse(uint8_t* rcvBuf, size_t recvbytes)
         while (numsOfNode-- && (recvbytes - offset) >= sizeof(Node)) {
             Node& n = reinterpret_cast<Node&>(*(rcvBuf + offset));
             if (IN6_IS_ADDR_UNSPECIFIED(&n.ipv6Addr)) {
-                std::memcpy(&n.ipv6Addr, &cfgData.remoteAddr, sizeof(in6_addr));
+                std::memcpy(&n.ipv6Addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
             }
             offset += sizeof(Node);
             addNode(n.mac, n);

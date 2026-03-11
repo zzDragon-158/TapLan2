@@ -2,7 +2,7 @@
 #include    "LogMgr.hpp"
 #include    "TapLan.hpp"
 
-#define     cfgData                                 TapLan::config_
+#define     g_cfgData                                 TapLan::g_cfgData
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles
 #define     ADAPTER_KEY                             "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"

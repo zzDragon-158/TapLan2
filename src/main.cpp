@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include "TapLan.hpp"
 
-#define cfgData TapLan::config_
+ConfigDataT g_cfgData;
 
 TapLan* TapLanPtr = nullptr;
 
@@ -55,7 +55,7 @@ void parseParams(int argc, char* argv[])
     while ((opt = getopt_long(argc, argv, "s:c:p:m:h", longOpts, &optIdx)) != -1) {
         switch (opt) {
             case 's': {
-                cfgData.runMode = RunMode_Server;
+                g_cfgData.runMode = RunMode_Server;
                 std::string cidr = optarg;
                 size_t idx = cidr.rfind('/');
                 if (idx == std::string::npos) {
@@ -65,24 +65,24 @@ void parseParams(int argc, char* argv[])
 
                 std::string netNumLenStr = cidr.substr(idx + 1);
                 try {
-                    cfgData.netNumLen = std::stoi(netNumLenStr);
+                    g_cfgData.netNumLen = std::stoi(netNumLenStr);
                 } catch (const std::exception& e) {
                     LOGR("parse [%s] to network number failed, reason: %s\n", netNumLenStr.c_str(), e.what());
                     delayExit(-1);
                 }
 
                 std::string netNumStr = cidr.substr(0, idx);
-                if (inet_pton(AF_INET, netNumStr.c_str(), &cfgData.netNum) == 0) {
+                if (inet_pton(AF_INET, netNumStr.c_str(), &g_cfgData.netNum) == 0) {
                     LOGR("parse [%s] to network number failed\n", netNumStr.c_str());
                     delayExit(-1);
                 }
-                cfgData.netNum &= (1 << cfgData.netNumLen) - 1;
-                cfgData.netNum = ntohl(cfgData.netNum);
+                g_cfgData.netNum &= (1 << g_cfgData.netNumLen) - 1;
+                g_cfgData.netNum = ntohl(g_cfgData.netNum);
 
                 break;
             }
             case 'c': {
-                cfgData.runMode = RunMode_Client;
+                g_cfgData.runMode = RunMode_Client;
                 std::string hostPortPair = optarg;
                 size_t idx = hostPortPair.rfind(':');
                 if (idx == std::string::npos) {
@@ -92,7 +92,7 @@ void parseParams(int argc, char* argv[])
 
                 std::string portStr = hostPortPair.substr(idx + 1);
                 try {
-                    cfgData.remotePort = htons(std::stoi(portStr));
+                    g_cfgData.remotePort = htons(std::stoi(portStr));
                 } catch (const std::exception& e) {
                     LOGR("parse [%s] to remote port failed, reason: %s\n", portStr.c_str(), e.what());
                     delayExit(-1);
@@ -110,7 +110,7 @@ void parseParams(int argc, char* argv[])
                     ipv6Str = std::string("::ffff:");
                     ipv6Str += hostStr;
                 }
-                if (inet_pton(AF_INET6, ipv6Str.c_str(), &(cfgData.remoteAddr)) == 0) {
+                if (inet_pton(AF_INET6, ipv6Str.c_str(), &(g_cfgData.remoteAddr)) == 0) {
                     LOGR("parse [%s] to remote ip address is invalid\n", ipv6Str.c_str());
                     delayExit(-1);
                 }
@@ -119,8 +119,8 @@ void parseParams(int argc, char* argv[])
             }
             case 'p': {
                 try {
-                    cfgData.localPort = std::stoi(optarg);
-                    if (cfgData.localPort > 65535) {
+                    g_cfgData.localPort = std::stoi(optarg);
+                    if (g_cfgData.localPort > 65535) {
                         LOGR("your input port number[%s] is invalid, range 0-65535\n", optarg);
                         delayExit(-1);
                     }
@@ -133,7 +133,7 @@ void parseParams(int argc, char* argv[])
             }
             case 'm':
                 try {
-                    cfgData.switchPortInterval = std::stoi(optarg);
+                    g_cfgData.switchPortInterval = std::stoi(optarg);
                 } catch (const std::exception& e) {
                     LOGR("parse [%s] to switch-port-interval failed, reason: %s\n", optarg, e.what());
                     delayExit(-1);
@@ -180,10 +180,10 @@ void parseParams(int argc, char* argv[])
                 LogMgrPtr->setLogLevel(level);
             }   break;
             case 257:
-                cfgData.noSync = true;
+                g_cfgData.noSync = true;
                 break;
             case 258:
-                cfgData.isAioEnable = true;
+                g_cfgData.isAioEnable = true;
                 break;
             case '?':
             case 'h': {
@@ -221,10 +221,9 @@ void delayExit(int code, int64_t delaySeconds)
     LogMgrPtr->terminate();
 
     if (delaySeconds > 0) {
-        std::cout << "Program will terminate after "<< delaySeconds <<" seconds." << std::endl;
+        std::cout << "Program will completely exit after "<< delaySeconds <<" seconds." << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
     }
-    std::cout << "Program terminated with exit code " << code << std::endl;
 
     exit(code);
 }

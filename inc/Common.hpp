@@ -3,68 +3,12 @@
 #include    <vector>
 #include    <stack>
 #include    <mutex>
+#include    <LogMgr.hpp>
 
 #ifdef      _WIN32
-#include    <malloc.h>
 #include    <winsock2.h>
 #include    <ws2tcpip.h>
 #include    <windows.h>
-
-class IOPool;
-struct IOContext {
-    IOPool* owner;
-    OVERLAPPED overlapped;
-    sockaddr_in6 addr;
-    INT addrLen;
-    uint8_t* buf;
-    DWORD bufLen;
-    uint8_t token;
-
-    IOContext(): owner(nullptr), overlapped{},
-                 addr{}, addrLen(sizeof(sockaddr_in6)),
-                 buf(nullptr), bufLen(0), token(0) {
-        buf = new uint8_t [2048] ;
-    }
-
-    ~IOContext() {
-        delete [] buf;
-    }
-
-    void reset() {
-        ZeroMemory(&overlapped, sizeof(OVERLAPPED));
-    }
-};
-class IOPool {
-private:
-    std::vector<IOContext*> allContexts;
-    std::stack<IOContext*> freeStack;
-
-public:
-    IOPool(size_t poolSize) {
-        for (size_t i = 0; i < poolSize; ++i) {
-            IOContext* ctx = new IOContext();
-            allContexts.push_back(ctx);
-            freeStack.push(ctx);
-        }
-    }
-
-    IOContext* acquire() {
-        if (freeStack.empty()) return nullptr;
-        IOContext* ctx = freeStack.top();
-        freeStack.pop();
-        ctx->owner = this;
-        return ctx;
-    }
-
-    void release(IOContext* ctx) {
-        ctx->reset();
-        freeStack.push(ctx);
-    }
-
-    ~IOPool() {
-        for (auto ctx : allContexts) delete ctx;
-    }
-};
 
 static std::string getErrMsg(DWORD errorCode)
 {
@@ -95,6 +39,9 @@ static std::string getErrMsg(DWORD errorCode)
 
 #elif       __linux__
 #include    <arpa/inet.h>
+#include    <sys/socket.h>
+#include    <sys/uio.h>
+#include    <liburing.h>
 
 #endif
 
@@ -117,10 +64,11 @@ struct Mac {
 };
 
 enum {
-    TOKEN_UDP_RECV  = 1,
-    TOKEN_TAP_READ  = 2,
-    TOKEN_TAP_WRITE = 3,
-    TOKEN_UDP_SEND  = 4,
+    TOKEN_UDP_RECV_MULTISHOT = 0,
+    TOKEN_UDP_RECV,
+    TOKEN_UDP_SEND,
+    TOKEN_TAP_READ,
+    TOKEN_TAP_WRITE,
 };
 
 enum RunModeT {
@@ -151,3 +99,6 @@ struct ConfigDataT {
         // nothing to do
     }
 };
+
+const int IO_WAIT_TIME = 3;
+extern ConfigDataT g_cfgData;
