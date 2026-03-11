@@ -211,6 +211,7 @@ void TapLan::recvSockData()
 
     while (g_cfgData.isRunning) {
         if (!g_cfgData.switchPortInterval) {
+            // FIXME: "recvFrom" will block cause user cant use "/quit" to terminate program.
             ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
             if (recvBytes <= ETH_HDR_LEN) {
                 continue;
@@ -371,12 +372,25 @@ bool TapLan::stop()
         return false;
 
     g_cfgData.isRunning = false;
-    if (sendThread_.joinable())
+    if (sendThread_.joinable()) {
         sendThread_.join();
-    if (recvThread_.joinable())
+        LOGI(TAG, "readWrk has exited.");
+    }
+
+    if (recvThread_.joinable()) {
         recvThread_.join();
-    if (syncThread_.joinable())
+        LOGI(TAG, "recvWrk has exited.");
+    }
+
+    if (aioWrkThread_.joinable()) {
+        aioWrkThread_.join();
+        LOGI(TAG, "aioWrk has exited.");
+    }
+
+    if (syncThread_.joinable()) {
         syncThread_.join();
+        LOGI(TAG, "syncWrk has exited.");
+    }
 
     return true;
 }

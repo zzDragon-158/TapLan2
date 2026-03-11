@@ -221,10 +221,9 @@ void delayExit(int code, int64_t delaySeconds)
     LogMgrPtr->terminate();
 
     if (delaySeconds > 0) {
-        std::cout << "Program will terminate after "<< delaySeconds <<" seconds." << std::endl;
+        std::cout << "Program will completely exit after "<< delaySeconds <<" seconds." << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
     }
-    std::cout << "Program terminated with exit code " << code << std::endl;
 
     exit(code);
 }
