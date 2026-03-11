@@ -576,10 +576,7 @@ void TapLan::aioWrk()
         if (!lpOverlapped)
             continue;
 
-        AioIntf::Ctx* ctx = CONTAINING_RECORD(lpOverlapped, AioIntf::Ctx, buf->ol);
-        if (!ctx->isPending) {
-            LOGD(TAG, "nice sio[%p].", ctx);
-        }
+        AioIntf::Ctx* ctx = CONTAINING_RECORD(lpOverlapped, AioIntf::Ctx, ol);
         if (ok) {
             ctx->bufLen = bytes;
         } else {

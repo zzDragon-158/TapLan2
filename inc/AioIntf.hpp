@@ -23,7 +23,6 @@ const size_t IOURING_SIZE = 1024;
 class AioIntf {
 public:
     struct Buf {
-        OVERLAPPED ol;
         sockaddr_in6 addr;
         INT addrLen;
         char payload[];
@@ -34,8 +33,8 @@ public:
         unsigned short bufId;
         Buf* buf;
         INT bufLen;
+        OVERLAPPED ol;
         WSABUF wsaBuf;
-        bool isPending;
 
         Ctx(){
             memset(this, 0, sizeof(Ctx));
