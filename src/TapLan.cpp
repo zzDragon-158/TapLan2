@@ -164,8 +164,7 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return ;
 
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
                 udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
             };
 
