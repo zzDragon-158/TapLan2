@@ -17,7 +17,7 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrs_{},
 
         if (g_cfgData.isRunning) {
             TapDevPtr->getMacAddr(g_cfgData.mac);
-            std::shared_ptr<Node> n = nodeMgrPtr_->addNode(&serverAddr_, g_cfgData.mac);
+            NodeSPtr n = nodeMgrPtr_->addNode(&serverAddr_, g_cfgData.mac);
             TapDevPtr->setIPv4Addr(&n->ipv4Addr, g_cfgData.netNumLen);
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
@@ -97,22 +97,20 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
 
     if (g_cfgData.runMode == RunMode_Server) {
         if (!needBroadcast) {
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
+            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
                 udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
             } else {
                 udpSockPtr->incDropped(1);
             }
         } else {
             size_t sendCnt = 0;
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return ;
 
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
                 udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
                 ++sendCnt;
             }, false);
@@ -162,7 +160,7 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
         dstAddr.sin6_family = AF_INET6;
 
         if (needBroadcast) {        // broadcast
-            auto broadcast = [&](uint64_t m, std::shared_ptr<Node> n) {
+            auto broadcast = [&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return ;
 
@@ -174,13 +172,11 @@ void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
             nodeMgrPtr_->forEach(broadcast, false);
             TapDevPtr->write(buf, bufLen);
         } else if (!isSendToMe) {   // not broadcast && not send to me
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
-            if (!n) {
-                return ;
+            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
+            if (n) {
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
+                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
             }
-            memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
-            dstAddr.sin6_port = n->ipv6Port;
-            udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
         } else {                    // not broadcast && send to me
             TapDevPtr->write(buf, bufLen);
         }
@@ -262,7 +258,7 @@ void TapLan::showNodeStatus()
     LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
-    auto printNodeStatus = [&](uint64_t m, std::shared_ptr<Node> n) {
+    auto printNodeStatus = [&](uint64_t m, NodeSPtr n) {
         char tapmacbuf[32];
         sprintf(tapmacbuf, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X",
             n->mac.addr[0], n->mac.addr[1], n->mac.addr[2], 
@@ -422,7 +418,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
                 return;
             }
         } else {
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return;
 
@@ -432,9 +428,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
-                    sendAddr.sin6_family = AF_INET6;
-                    memcpy(&sendAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                    sendAddr.sin6_port = n->ipv6Port;
+                    nodeMgrPtr_->setSockaddr(sendAddr, n);
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
@@ -483,7 +477,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
 
     if (g_cfgData.runMode == RunMode_Server) {
         if (needBroadcast) {
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return;
 
@@ -493,9 +487,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
-                    sendAddr.sin6_family = AF_INET6;
-                    memcpy(&sendAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                    sendAddr.sin6_port = n->ipv6Port;
+                    nodeMgrPtr_->setSockaddr(sendAddr, n);
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
@@ -508,9 +500,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
                 sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
-                dstAddr.sin6_family = AF_INET6;
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
 
                 AioIntfPtr->reqUdpSend(udpSendFd, ctx);
                 return;
@@ -741,7 +731,7 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
 
     if (g_cfgData.runMode == RunMode_Server) {
         if (!needBroadcast) {
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
+            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
                 msg->nums_of_addr = 1;
                 sockaddr_in6& addr = msg->addrs[0];
@@ -758,7 +748,7 @@ void TapLan::handle_tap_read(io_uring_cqe *cqe)
             }
         } else {
             msg->nums_of_addr = 0;
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return ;
 
@@ -935,7 +925,7 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
     if (g_cfgData.runMode == RunMode_Server) {
         if (needBroadcast) {        // broadcast
             msg->nums_of_addr = 0;
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return ;
 
@@ -955,7 +945,7 @@ int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
             io_uring_prep_write_fixed(sqe, tapFd, msg->data, cqe->res, 0, buf_id);
             sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
         } else if (!isSendToMe) {   // not broadcast && not send to me
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
+            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
             if (!n) {
                 udpSockPtr->incDropped(1);
                 return 1;

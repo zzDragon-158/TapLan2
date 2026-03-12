@@ -74,18 +74,20 @@ struct Node {
     uint8_t     reserved1[1];
     // 24 bytes
 };
+using NodeSPtr = std::shared_ptr<Node>;
 #pragma pack(pop)
 
 class NodeMgr {
 public:
     NodeMgr();
     ~NodeMgr();
-    std::shared_ptr<Node>   addNode(const sockaddr_in6* addr, uint64_t macNum);
-    std::shared_ptr<Node>   addNode(uint64_t macNum, Node& node);
-    std::shared_ptr<Node>   delNode(uint64_t macNum);
-    std::shared_ptr<Node>   findNode(uint64_t macNum);
+    NodeSPtr    addNode(const sockaddr_in6* addr, uint64_t macNum);
+    NodeSPtr    addNode(uint64_t macNum, Node& node);
+    NodeSPtr    delNode(uint64_t macNum);
+    NodeSPtr    findNode(uint64_t macNum);
     bool        setNodeStatus(uint64_t macNum, uint8_t status);
     size_t      getNodeNums() { return macToNode_.size(); };
+    void        setSockaddr(sockaddr_in6& addr, NodeSPtr n);
     template<typename Func>
     void forEach(Func&& f, bool isWrite)
     {
@@ -108,15 +110,15 @@ private:
     uint32_t netNum_;
     uint8_t netNumLen_;
     std::bitset<256> addrPool_;
-    std::map<uint64_t, std::shared_ptr<Node>> macToNode_;
+    std::map<uint64_t, NodeSPtr> macToNode_;
     uint32_t verNum_;
     std::shared_mutex rwMutex_;
     TcpSocket* tcpSockPtr_;
     std::vector<TapLanPollFd> pfds_;
     std::vector<TcpSocket> clients_;
     std::map<SocketFd, uint64_t> sockToMac_;
-    std::unordered_map<uint64_t, std::shared_ptr<Node>> activeDeltaBuffer_;
-    std::unordered_map<uint64_t, std::shared_ptr<Node>> processingBuffer_;
+    std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
+    std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
 
     bool handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr);
     bool syncNodeStatus();
