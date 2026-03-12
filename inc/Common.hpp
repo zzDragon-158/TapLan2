@@ -84,7 +84,7 @@ struct ConfigDataT {
     uint8_t     netNumLen;
     in6_addr    remoteAddr;
     uint16_t    remotePort;
-    uint16_t    switchPortInterval;
+    uint16_t    swPortIntvl;
     bool        isAioEnable;
     bool        noSync;
     bool        isRunning;
@@ -93,7 +93,7 @@ struct ConfigDataT {
     ConfigDataT(): runMode(RunMode_Server), localPort(3460),
                     netNum((192 << 24) + (168 << 16) + (208 << 8)),
                     netNumLen(24), remoteAddr{}, remotePort(0),
-                    switchPortInterval(0), isAioEnable(false),
+                    swPortIntvl(0), isAioEnable(false),
                     noSync(false), isRunning(false),
                     mac{} {
         // nothing to do

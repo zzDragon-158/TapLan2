@@ -133,7 +133,7 @@ void parseParams(int argc, char* argv[])
             }
             case 'm':
                 try {
-                    g_cfgData.switchPortInterval = std::stoi(optarg);
+                    g_cfgData.swPortIntvl = std::stoi(optarg);
                 } catch (const std::exception& e) {
                     LOGR("parse [%s] to switch-port-interval failed, reason: %s\n", optarg, e.what());
                     delayExit(-1);

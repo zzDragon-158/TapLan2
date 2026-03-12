@@ -21,11 +21,11 @@ public:
 private:
     sockaddr_in6    serverAddr_;
     UdpSocket*      udpSockPtr_;
-    UdpSocket*      udpSockPtrArr_[4];
+    UdpSocket*      udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
     std::thread     recvThread_, sendThread_, syncThread_, aioWrkThread_;
 
-    void initUdpSockPtr();
+    bool initUdpSockPtrs();
     void handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr);
     void recvSockData();
     void handleTapData(uint8_t* buf, size_t bufLen);

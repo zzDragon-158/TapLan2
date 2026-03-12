@@ -2,7 +2,7 @@
 
 static const char* TAG = "[TapLan]";
 
-TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrArr_{},
+TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrs_{},
                   nodeMgrPtr_(nullptr)
 {
     if (g_cfgData.runMode == RunMode_Server) {
@@ -13,9 +13,7 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrArr_{},
         serverAddr_.sin6_family = AF_INET6;
         serverAddr_.sin6_port = htons(g_cfgData.localPort);
 
-        initUdpSockPtr();
-
-        g_cfgData.isRunning = udpSockPtr_->isFdValid() && TapDevPtr->isFdVaild();
+        g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdVaild();
 
         if (g_cfgData.isRunning) {
             TapDevPtr->getMacAddr(g_cfgData.mac);
@@ -31,9 +29,7 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrArr_{},
         memcpy(&serverAddr_.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
         serverAddr_.sin6_port = g_cfgData.remotePort;
 
-        initUdpSockPtr();
-
-        g_cfgData.isRunning = udpSockPtr_->isFdValid() && TapDevPtr->isFdVaild();
+        g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdVaild();
 
         if (g_cfgData.isRunning) {
             TapDevPtr->getMacAddr(g_cfgData.mac);
@@ -51,37 +47,41 @@ TapLan::~TapLan()
 UdpSocket* TapLan::getUdpSockPtr()
 {
     UdpSocket* curUdpSockPtr = udpSockPtr_;
-    if (g_cfgData.switchPortInterval) {
+    if (g_cfgData.swPortIntvl) {
         std::time_t now = std::time(nullptr);
-        uint16_t portOffset = (now / 60 / g_cfgData.switchPortInterval) % 4;
-        curUdpSockPtr = udpSockPtrArr_[portOffset];
+        uint16_t portIdx = (now / 60 / g_cfgData.swPortIntvl) % 4;
+        for (int i = portIdx; i < portIdx + 4; ++i) {
+            curUdpSockPtr = udpSockPtrs_[portIdx % 4];
+            if (curUdpSockPtr)
+                break;
+        }
     }
 
     return curUdpSockPtr;
 }
 
-void TapLan::initUdpSockPtr()
+bool TapLan::initUdpSockPtrs()
 {
-    if (g_cfgData.switchPortInterval) {
-        uint16_t startPort = g_cfgData.localPort - g_cfgData.localPort % 4;
-        for (int i = 0; i < 4; ++i) {
-            uint16_t port = startPort + i;
-            udpSockPtrArr_[i] = new UdpSocket(port);
-            if (!udpSockPtrArr_[i]->isFdValid()) {
-                g_cfgData.switchPortInterval = 0;
-            }
-
-            if (port == g_cfgData.localPort) {
-                udpSockPtr_ = udpSockPtrArr_[i];
-            }
+    uint16_t startPort = g_cfgData.localPort - g_cfgData.localPort % 4;
+    for (int i = 0; i < 4; ++i) {
+        UdpSocket*& udpSockPtr = udpSockPtrs_[i];
+        uint16_t port = startPort + i;
+        if (!g_cfgData.swPortIntvl && port != g_cfgData.localPort) {
+            continue;
         }
-    } else {
-        udpSockPtr_ = new UdpSocket(g_cfgData.localPort);
+
+        udpSockPtr = new UdpSocket(port);
+        if (!udpSockPtr->isFdValid()) {
+            delete udpSockPtr;
+            udpSockPtr = nullptr;
+            LOGW(TAG, "Failed to bind [%u]port to udp socket.", port);
+        }
+        if (port == g_cfgData.localPort) {
+            udpSockPtr_ = udpSockPtr;
+        }
     }
 
-    if (!udpSockPtr_) {
-        udpSockPtr_ = new UdpSocket(g_cfgData.localPort);
-    }
+    return (udpSockPtr_ && udpSockPtr_->isFdValid());
 }
 
 void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
@@ -203,14 +203,14 @@ void TapLan::recvSockData()
     dstAddr.sin6_family = AF_INET6;
 
     TapLanPollFd pfds[4];
-    if (g_cfgData.switchPortInterval) {
+    if (g_cfgData.swPortIntvl) {
         for (int i = 0; i < 4; ++i) {
-            pfds[i] = { static_cast<SocketFd>(*udpSockPtrArr_[i]), POLLIN, 0 };
+            pfds[i] = { static_cast<SocketFd>(*udpSockPtrs_[i]), POLLIN, 0 };
         }
     }
 
     while (g_cfgData.isRunning) {
-        if (!g_cfgData.switchPortInterval) {
+        if (!g_cfgData.swPortIntvl) {
             // FIXME: "recvFrom" will block cause user cant use "/quit" to terminate program.
             ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
             if (recvBytes <= ETH_HDR_LEN) {
@@ -229,7 +229,7 @@ void TapLan::recvSockData()
             }
             for (int i = 0; i < 4; ++i) {
                 if (pfds[i].revents != 0) {
-                    ssize_t recvBytes = udpSockPtrArr_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
+                    ssize_t recvBytes = udpSockPtrs_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
                     if (recvBytes <= ETH_HDR_LEN) {
                         continue;
                     }
@@ -286,24 +286,24 @@ void TapLan::showNodeStatus()
 void TapLan::showStats()
 {
     uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
-    if (g_cfgData.switchPortInterval) {
+    if (g_cfgData.swPortIntvl) {
         LOGR("Each UDP:\n");
         for (int i = 0; i < 4; ++i) {
-            uint64_t sendBytes = udpSockPtrArr_[i]->getSendBytes(),
-                     sendErrs = udpSockPtrArr_[i]->getSendErrors(),
-                     recvBytes = udpSockPtrArr_[i]->getRecvBytes(),
-                     recvErrs = udpSockPtrArr_[i]->getRecvErrors(),
-                     dropped = udpSockPtrArr_[i]->getDropped();
+            uint64_t sendBytes = udpSockPtrs_[i]->getSendBytes(),
+                     sendErrs = udpSockPtrs_[i]->getSendErrors(),
+                     recvBytes = udpSockPtrs_[i]->getRecvBytes(),
+                     recvErrs = udpSockPtrs_[i]->getRecvErrors(),
+                     dropped = udpSockPtrs_[i]->getDropped();
 
             if (i == 3) {
-                LOGR("╙── UDP port %u:\n", udpSockPtrArr_[i]->getBindPort());
+                LOGR("╙── UDP port %u:\n", udpSockPtrs_[i]->getBindPort());
                 LOGR("    ╟── TX bytes:   %lu\n", sendBytes);
                 LOGR("    ╟── TX errors:  %lu\n", sendErrs);
                 LOGR("    ╟── RX bytes:   %lu\n", recvBytes);
                 LOGR("    ╟── RX errors:  %lu\n", recvErrs);
                 LOGR("    ╙── dropped:    %lu\n", dropped);
             } else {
-                LOGR("╟── UDP port %u:\n", udpSockPtrArr_[i]->getBindPort());
+                LOGR("╟── UDP port %u:\n", udpSockPtrs_[i]->getBindPort());
                 LOGR("║   ╟── TX bytes:   %lu\n", sendBytes);
                 LOGR("║   ╟── TX errors:  %lu\n", sendErrs);
                 LOGR("║   ╟── RX bytes:   %lu\n", recvBytes);
@@ -548,9 +548,9 @@ void TapLan::aioWrk()
         LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
         g_cfgData.isRunning = false;
     }
-    if (g_cfgData.switchPortInterval) {
+    if (g_cfgData.swPortIntvl) {
         for (int i = 0; i < 4; ++i) {
-            SocketFd udpFd = static_cast<SocketFd>(*udpSockPtrArr_[i]);
+            SocketFd udpFd = static_cast<SocketFd>(*udpSockPtrs_[i]);
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP, (ULONG_PTR)this, 0)) {
                 errMsg = getErrMsg(GetLastError());
                 LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
