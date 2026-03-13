@@ -7,6 +7,7 @@
 #include    "Socket.hpp"
 #include    "TapDev.hpp"
 #include    "AioIntf.hpp"
+#include    "SioIntf.hpp"
 
 class TapLan {
 public:
@@ -23,14 +24,14 @@ private:
     UdpSocket*      udpSockPtr_;
     UdpSocket*      udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
-    std::thread     recvThread_, sendThread_, syncThread_, aioWrkThread_;
+    std::thread     recvThread_, sendThread_, syncThread_, aioWrkThread_, sioWrkThread_;
 
     bool initUdpSockPtrs();
-    void handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr);
-    void recvSockData();
-    void handleTapData(uint8_t* buf, size_t bufLen);
-    void readTapData();
     void syncNodeStatus();
+
+    void handleSockData(SioIntf::Ctx* ctx);
+    void handleTapData(SioIntf::Ctx* ctx);
+    void sioWrk();
 
     void handleTapRead(AioIntf::Ctx* ctx);
     void handleTapWrite(AioIntf::Ctx* ctx);

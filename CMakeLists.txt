@@ -18,6 +18,7 @@ if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
     add_library(Socket src/SocketWin.cpp)
     add_library(AioIntf src/AioIntfWin.cpp)
+    add_library(SioIntf src/SioIntfWin.cpp)
 
     target_link_libraries(Socket PUBLIC ws2_32)
 
@@ -32,7 +33,7 @@ else()
 endif()
 
 add_executable(TapLan src/main.cpp src/TapLan.cpp)
-target_link_libraries(TapLan NodeMgr TapDev Socket LogMgr AioIntf)
+target_link_libraries(TapLan NodeMgr TapDev Socket LogMgr AioIntf SioIntf)
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")

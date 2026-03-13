@@ -84,13 +84,17 @@ bool TapLan::initUdpSockPtrs()
     return (udpSockPtr_ && udpSockPtr_->isFdValid());
 }
 
-void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
+void TapLan::handleTapData(SioIntf::Ctx* ctx)
 {
-    UdpSocket* udpSockPtr = getUdpSockPtr();
-    sockaddr_in6 dstAddr{};
-    dstAddr.sin6_family = AF_INET6;
+    if (ctx->dataLen <= 0) {
+        LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->dataLen));
+        return ;
+    }
 
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*buf);
+    UdpSocket* udpSockPtr = getUdpSockPtr();
+    SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
+
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
@@ -99,8 +103,8 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
         if (!needBroadcast) {
             NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                nodeMgrPtr_->setSockaddr(dstAddr, n);
-                udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                SioIntfPtr->udpSend(udpSendFd, ctx);
             } else {
                 udpSockPtr->incDropped(1);
             }
@@ -110,8 +114,8 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return ;
 
-                nodeMgrPtr_->setSockaddr(dstAddr, n);
-                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                SioIntfPtr->udpSend(udpSendFd, ctx);
                 ++sendCnt;
             }, false);
             if (sendCnt == 0) {
@@ -120,120 +124,96 @@ void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
         }
     }
     else if (g_cfgData.runMode == RunMode_Client) {
-        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast)
-            udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
+        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+            memcpy(&ctx->addr, &serverAddr_, sizeof(sockaddr_in6));
+            SioIntfPtr->udpSend(udpSendFd, ctx);
+        }
     } else {
         // RunMode_None
     }
 }
 
-void TapLan::readTapData()
+void TapLan::handleSockData(SioIntf::Ctx* ctx)
 {
-    uint8_t tapRxBuf[65536];
-
-    while (g_cfgData.isRunning) {
-        ssize_t readBytes = TapDevPtr->read(tapRxBuf, sizeof(tapRxBuf), 3000);
-        if (readBytes < ETH_HDR_LEN) {
-            continue;
-        }
-
-        handleTapData(tapRxBuf, readBytes);
+    if (ctx->dataLen < 0) {
+        LOGE(TAG, "Failed to recv udp.[%s]", strerror(-ctx->dataLen));
+        return ;
     }
-}
 
-void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
-{
     UdpSocket* udpSockPtr = getUdpSockPtr();
+    SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
 
-    EthHdr eh = reinterpret_cast<EthHdr&>(*buf);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
 
     if (g_cfgData.noSync) {
-        nodeMgrPtr_->addNode(&srcAddr, srcMac);
+        nodeMgrPtr_->addNode(&ctx->addr, srcMac);
     }
 
     if (g_cfgData.runMode == RunMode_Server) {
-        sockaddr_in6 dstAddr{};
-        dstAddr.sin6_family = AF_INET6;
-
         if (needBroadcast) {        // broadcast
             auto broadcast = [&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return ;
 
-                nodeMgrPtr_->setSockaddr(dstAddr, n);
-                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                SioIntfPtr->udpSend(udpSendFd, ctx);
             };
 
             nodeMgrPtr_->forEach(broadcast, false);
-            TapDevPtr->write(buf, bufLen);
+            SioIntfPtr->tapWrite(tapFd, ctx);
         } else if (!isSendToMe) {   // not broadcast && not send to me
             NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                nodeMgrPtr_->setSockaddr(dstAddr, n);
-                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                SioIntfPtr->udpSend(udpSendFd, ctx);
             }
         } else {                    // not broadcast && send to me
-            TapDevPtr->write(buf, bufLen);
+            SioIntfPtr->tapWrite(tapFd, ctx);
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
-        TapDevPtr->write(buf, bufLen);
+        SioIntfPtr->tapWrite(tapFd, ctx);
     } else {
         // RunMode_None
     }
 }
 
-void TapLan::recvSockData()
+void TapLan::sioWrk()
 {
-    uint8_t udpRxBuf[65536];
+    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    TapFd tapReadFd = tapFd;
+    SioIntf::Ctx* ctx = nullptr;
 
-    sockaddr_in6 srcAddr;
-    socklen_t srcAddrLen = sizeof(srcAddr);
-
-    sockaddr_in6 dstAddr;
-    memset(&dstAddr, 0, sizeof(dstAddr));
-    dstAddr.sin6_family = AF_INET6;
-
-    TapLanPollFd pfds[4];
-    if (g_cfgData.swPortIntvl) {
-        for (int i = 0; i < 4; ++i) {
-            pfds[i] = { static_cast<SocketFd>(*udpSockPtrs_[i]), POLLIN, 0 };
-        }
-    }
+    SioIntfPtr->init(udpRecvFd, tapReadFd);
 
     while (g_cfgData.isRunning) {
-        if (!g_cfgData.swPortIntvl) {
-            // FIXME: "recvFrom" will block cause user cant use "/quit" to terminate program.
-            ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
-            if (recvBytes <= ETH_HDR_LEN) {
-                continue;
-            }
+        DWORD result = WaitForMultipleObjects(2, SioIntfPtr->events_, FALSE, IO_WAIT_TIME * 1000);
+        if (result == WAIT_FAILED)
+            break;
 
-            handleSockData(udpRxBuf, recvBytes, srcAddr);
+        if (result == WAIT_TIMEOUT)
             continue;
-        } else {
-            int pollCnt = TapLanPoll(pfds, 4, 3000);
-            if (pollCnt < 0) {
-                LOGE(TAG, "TapLanPoll failed.");
-                continue;
-            } else if (pollCnt == 0) {
-                continue;
-            }
-            for (int i = 0; i < 4; ++i) {
-                if (pfds[i].revents != 0) {
-                    ssize_t recvBytes = udpSockPtrs_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
-                    if (recvBytes <= ETH_HDR_LEN) {
-                        continue;
-                    }
 
-                    handleSockData(udpRxBuf, recvBytes, srcAddr);
-                }
-            }
+        switch (result - WAIT_OBJECT_0) {
+        case EVENT_UDP_RECV:
+            ctx = SioIntfPtr->udpRecv(udpRecvFd);
+            handleSockData(ctx);
+            break;
+
+        case EVENT_TAP_READ:
+            ctx = SioIntfPtr->tapRead(tapReadFd);
+            handleTapData(ctx);
+            break;
+
+        default:
+            break;
         }
     }
+
+    LOGI(TAG, "sioWrk has exited.");
 }
 
 void TapLan::syncNodeStatus()
@@ -346,11 +326,13 @@ bool TapLan::run()
         aioWrkThread_ = std::thread(&TapLan::aioWrk, this);
         pthread_setname_np(aioWrkThread_.native_handle(), "aioWrk");
     } else {
-        sendThread_ = std::thread(&TapLan::readTapData, this);
-        pthread_setname_np(sendThread_.native_handle(), "readWrk");
+        // sendThread_ = std::thread(&TapLan::readTapData, this);
+        // pthread_setname_np(sendThread_.native_handle(), "readWrk");
 
-        recvThread_ = std::thread(&TapLan::recvSockData, this);
-        pthread_setname_np(recvThread_.native_handle(), "recvWrk");
+        // recvThread_ = std::thread(&TapLan::recvSockData, this);
+        // pthread_setname_np(recvThread_.native_handle(), "recvWrk");
+        sioWrkThread_ = std::thread(&TapLan::sioWrk, this);
+        pthread_setname_np(sioWrkThread_.native_handle(), "sioWrk");
     }
 
     if (!g_cfgData.noSync) {
