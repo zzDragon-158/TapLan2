@@ -134,7 +134,7 @@ void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
     }
 }
 
-void TapLan::handleSockData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
+void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 {
     if (ctx->dataLen > DATA_BUF_SIZE) {
         return ;
@@ -179,6 +179,32 @@ void TapLan::handleSockData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
     } else {
         // RunMode_None
     }
+}
+
+void TapLan::udpWrk()
+{
+    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    SioIntf sioIntf;
+
+    while (g_cfgData.isRunning) {
+        SioIntf::Ctx* ctx = sioIntf.udpRecv(udpRecvFd);
+        handleUdpData(sioIntf, ctx);
+    }
+
+    LOGI(TAG, "udpWrk has exited.");
+}
+
+void TapLan::tapWrk()
+{
+    TapFd tapReadFd = tapFd;
+    SioIntf sioIntf;
+
+    while (g_cfgData.isRunning) {
+        SioIntf::Ctx* ctx = sioIntf.tapRead(tapReadFd);
+        handleTapData(sioIntf, ctx);
+    }
+
+    LOGI(TAG, "tapWrk has exited.");
 }
 
 void TapLan::syncNodeStatus()
@@ -291,8 +317,11 @@ bool TapLan::run()
         aioWrkThread_ = std::thread(&TapLan::aioWrk, this);
         pthread_setname_np(aioWrkThread_.native_handle(), "aioWrk");
     } else {
-        sioWrkThread_ = std::thread(&TapLan::sioWrk, this);
-        pthread_setname_np(sioWrkThread_.native_handle(), "sioWrk");
+        udpWrkThread_ = std::thread(&TapLan::udpWrk, this);
+        pthread_setname_np(udpWrkThread_.native_handle(), "udpWrk");
+
+        tapWrkThread_ = std::thread(&TapLan::tapWrk, this);
+        pthread_setname_np(tapWrkThread_.native_handle(), "tapWrk");
     }
 
     if (!g_cfgData.noSync) {
@@ -309,9 +338,14 @@ bool TapLan::stop()
         return false;
 
     g_cfgData.isRunning = false;
+    // FIXME: need close fd.
 
-    if (sioWrkThread_.joinable()) {
-        sioWrkThread_.join();
+    if (udpWrkThread_.joinable()) {
+        udpWrkThread_.join();
+    }
+
+    if (tapWrkThread_.joinable()) {
+        tapWrkThread_.join();
     }
 
     if (aioWrkThread_.joinable()) {
@@ -484,7 +518,7 @@ void TapLan::sioWrk()
         switch (evId) {
         case EVENT_UDP_RECV:
             ctx = sioIntf.udpRecv(udpRecvFd);
-            handleSockData(sioIntf, ctx);
+            handleUdpData(sioIntf, ctx);
             break;
 
         case EVENT_TAP_READ:
@@ -604,7 +638,7 @@ void TapLan::sioWrk()
     pfds[EVENT_TAP_READ] = {tapReadFd, POLLIN, 0};
 
     while (g_cfgData.isRunning) {
-        int res = poll(pfds, 2, IO_WAIT_TIME);
+        int res = poll(pfds, NUMS_OF_EVENT, IO_WAIT_TIME);
         if (res < 0) {
             LOGE(TAG, "Failed to poll events.[%s]", strerror(errno));
             continue;
@@ -614,7 +648,7 @@ void TapLan::sioWrk()
 
         if (pfds[EVENT_UDP_RECV].revents & POLLIN) {
             SioIntf::Ctx* ctx = sioIntf.udpRecv(udpRecvFd);
-            handleSockData(sioIntf, ctx);
+            handleUdpData(sioIntf, ctx);
             pfds[EVENT_UDP_RECV].revents &= ~POLLIN;
         }
         if (pfds[EVENT_TAP_READ].revents & POLLIN) {

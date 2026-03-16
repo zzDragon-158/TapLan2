@@ -24,13 +24,15 @@ private:
     UdpSocket*      udpSockPtr_;
     UdpSocket*      udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
-    std::thread     syncThread_, aioWrkThread_, sioWrkThread_;
+    std::thread     syncThread_, aioWrkThread_, sioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
     void syncNodeStatus();
 
-    void handleSockData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
+    void handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
     void handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
+    void udpWrk();
+    void tapWrk();
     void sioWrk();
 
     void handleTapRead(AioIntf::Ctx* ctx);
