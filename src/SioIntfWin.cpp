@@ -2,14 +2,14 @@
 
 static const char* TAG = "[SioIntf]";
 
-SioIntf::SioIntf()
+SioIntf::SioIntf(): udpCurCtxIdx_(0), tapCurCtxIdx_(0)
 {
-    udpCurCtxIdx_ = tapCurCtxIdx_ = 0;
+    ;
 }
 
 SioIntf::~SioIntf()
 {
-
+    ;
 }
 
 int SioIntf::init(SocketFd ufd, TapFd tfd)
@@ -24,9 +24,10 @@ int SioIntf::tapReqRead(TapFd fd)
 {
     HANDLE& tapReadEv = events_[EVENT_TAP_READ];
     Ctx* ctx = &tapCtxs_[(tapCurCtxIdx_ = ++tapCurCtxIdx_ % 2)];
-
     tapReadEv = ctx->ol.hEvent;
-    if (ReadFile(fd, ctx->buf, 2048, &ctx->dataLen, &ctx->ol)) {
+    events_[EVENT_TAP_READ + NUMS_OF_EVENT] = ctx->ol.hEvent;
+
+    if (ReadFile(fd, ctx->buf, DATA_BUF_SIZE, nullptr, &ctx->ol)) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
             LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
@@ -39,11 +40,10 @@ int SioIntf::tapReqRead(TapFd fd)
 
 SioIntf::Ctx* SioIntf::tapRead(TapFd fd)
 {
-    Ctx* ctx = nullptr;
+    Ctx* ctx = &tapCtxs_[tapCurCtxIdx_];
 
-    if (GetOverlappedResult(fd, &tapCtxs_[tapCurCtxIdx_].ol, &tapCtxs_[tapCurCtxIdx_].dataLen, FALSE)) {
-        ctx = &tapCtxs_[tapCurCtxIdx_];
-    } else {
+    if (!GetOverlappedResult(fd, &ctx->ol, &ctx->dataLen, FALSE)) {
+        ctx->dataLen = -1;
         LOGE(TAG, "Failed to get read result.");
     }
     tapReqRead(fd);
@@ -53,26 +53,38 @@ SioIntf::Ctx* SioIntf::tapRead(TapFd fd)
 
 int SioIntf::tapWrite(TapFd fd, Ctx* ctx)
 {
-    DWORD writeBytes;
-    if (WriteFile(tapFd, ctx->buf, ctx->dataLen, &writeBytes, &ctx->ol)) {
-        return writeBytes;
+    DWORD err;
+
+    if (WriteFile(fd, ctx->buf, ctx->dataLen, nullptr, &ctx->ol)) {
+        return ctx->dataLen;
     }
 
-    DWORD err = GetLastError();
-    if (err == ERROR_IO_PENDING) {
-        if (WaitForSingleObject(ctx->ol.hEvent, IO_WAIT_TIME * 1000) == WAIT_OBJECT_0) {
-            if (!GetOverlappedResult(tapFd, &ctx->ol, &writeBytes, TRUE)) {
-                LOGE(TAG, "Failed to write tap.");
-            }
-        } else {
-            LOGE(TAG, "Failed to wait for writing tap.");
-        }
-    } else {
+    err = GetLastError();
+    if (err != ERROR_IO_PENDING) {
         LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
         return -1;
     }
 
-    return writeBytes;
+    DWORD res = WaitForSingleObject(ctx->ol.hEvent, IO_WAIT_TIME * 1000);
+    if (res != WAIT_OBJECT_0) {
+        switch (res) {
+        case WAIT_TIMEOUT:
+            LOGE(TAG, "Write tap timeout.");
+            break;
+
+        case WAIT_FAILED:
+            err = GetLastError();
+            LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err));
+            break;
+
+        default:
+            LOGE(TAG, "Unknown error[%u].", res);
+            break;
+        }
+        return -1;
+    }
+
+    return ctx->dataLen;
 }
 
 int SioIntf::udpReqRecv(SocketFd fd)
@@ -80,15 +92,16 @@ int SioIntf::udpReqRecv(SocketFd fd)
     int ret;
     HANDLE& udpRecvEv = events_[EVENT_UDP_RECV];
     Ctx* ctx = &udpCtxs_[(udpCurCtxIdx_ = ++udpCurCtxIdx_ % 2)];
-
     udpRecvEv = ctx->ol.hEvent;
-    ctx->wsaBuf.len = 2048;
+    events_[EVENT_UDP_RECV + NUMS_OF_EVENT] = ctx->ol.hEvent;
+
     ctx->addrLen = sizeof(sockaddr_in6);
+    ctx->wsaBuf.len = DATA_BUF_SIZE;
     DWORD flags = 0;
     ret = WSARecvFrom(fd,
                       &ctx->wsaBuf,
                       1,
-                      &ctx->dataLen,
+                      nullptr,
                       &flags,
                       reinterpret_cast<sockaddr*>(&ctx->addr),
                       &ctx->addrLen,
@@ -109,13 +122,17 @@ SioIntf::Ctx* SioIntf::udpRecv(SocketFd fd)
 {
     Ctx* ctx = &udpCtxs_[udpCurCtxIdx_];
     DWORD flags = 0;
-    WSAGetOverlappedResult(
-        fd, 
-        &ctx->ol, 
-        &ctx->dataLen, 
-        FALSE,
-        &flags
-    );
+    if (!WSAGetOverlappedResult(fd, 
+                                &ctx->ol, 
+                                &ctx->dataLen, 
+                                FALSE,
+                                &flags)) {
+        DWORD err = WSAGetLastError();
+        if (err != WSA_IO_PENDING) {
+            ctx->dataLen = -1;
+            LOGE(TAG, "Failed to get recv result.[%s]", getErrMsg(err));
+        }
+    }
     udpReqRecv(fd);
 
     return ctx;

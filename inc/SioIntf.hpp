@@ -3,8 +3,6 @@
 #include    "TapDev.hpp"
 #include    "Socket.hpp"
 
-#define     SioIntfPtr      SioIntf::ptr()
-
 enum {
     EVENT_UDP_RECV = 0,
     EVENT_TAP_READ,
@@ -17,18 +15,17 @@ public:
         OVERLAPPED ol;
         sockaddr_in6 addr;
         int addrLen;
-        char buf[2048];
         WSABUF wsaBuf;
         DWORD dataLen;
+        char buf[DATA_BUF_SIZE];
 
         Ctx() {
             ZeroMemory(this, sizeof(Ctx));
             ol.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-            wsaBuf = { 2048, buf };
+            wsaBuf = { DATA_BUF_SIZE, buf };
         };
     };
 
-    static SioIntf* ptr();
     SioIntf();
     ~SioIntf();
     int init(SocketFd ufd, TapFd tfd);
@@ -39,14 +36,8 @@ public:
     Ctx* udpRecv(SocketFd fd);
     int udpSend(SocketFd fd, Ctx* ctx);
 
-    HANDLE events_[NUMS_OF_EVENT];
+    HANDLE events_[NUMS_OF_EVENT * 2];
     Ctx udpCtxs_[2];
     Ctx tapCtxs_[2];
     unsigned udpCurCtxIdx_, tapCurCtxIdx_;
 };
-
-inline SioIntf* SioIntf::ptr()
-{
-    static SioIntf ins;
-    return &ins;
-}

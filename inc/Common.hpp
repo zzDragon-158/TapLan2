@@ -101,4 +101,5 @@ struct ConfigDataT {
 };
 
 const int IO_WAIT_TIME = 3;
+const size_t DATA_BUF_SIZE = 2048;
 extern ConfigDataT g_cfgData;
