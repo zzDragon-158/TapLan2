@@ -181,46 +181,6 @@ void TapLan::handleSockData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
     }
 }
 
-void TapLan::sioWrk()
-{
-    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
-    TapFd tapReadFd = tapFd;
-    SioIntf::Ctx* ctx = nullptr;
-    SioIntf sioIntf;
-
-    sioIntf.init(udpRecvFd, tapReadFd);
-
-    bool reverse = false;
-    while (g_cfgData.isRunning) {
-        DWORD result = WaitForMultipleObjects(NUMS_OF_EVENT, (sioIntf.events_ + reverse), FALSE, IO_WAIT_TIME * 1000);
-        if (result == WAIT_FAILED) {
-            DWORD err = GetLastError();
-            LOGE(TAG, "Failed to wait for IO.[%s]", getErrMsg(err).c_str());
-            break;
-        }
-
-        DWORD evId = result ^ reverse;
-        switch (evId) {
-        case EVENT_UDP_RECV:
-            ctx = sioIntf.udpRecv(udpRecvFd);
-            handleSockData(sioIntf, ctx);
-            break;
-
-        case EVENT_TAP_READ:
-            ctx = sioIntf.tapRead(tapReadFd);
-            handleTapData(sioIntf, ctx);
-            break;
-
-        default:
-            break;
-        }
-
-        reverse = !reverse;
-    }
-
-    LOGI(TAG, "sioWrk has exited.");
-}
-
 void TapLan::syncNodeStatus()
 {
     if (g_cfgData.runMode == RunMode_Server) {
@@ -502,6 +462,46 @@ void TapLan::handleUdpSend(AioIntf::Ctx* ctx) {
 }
 
 #ifdef      _WIN32
+void TapLan::sioWrk()
+{
+    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    TapFd tapReadFd = tapFd;
+    SioIntf::Ctx* ctx = nullptr;
+    SioIntf sioIntf;
+
+    sioIntf.init(udpRecvFd, tapReadFd);
+
+    bool reverse = false;
+    while (g_cfgData.isRunning) {
+        DWORD result = WaitForMultipleObjects(NUMS_OF_EVENT, (sioIntf.events_ + reverse), FALSE, IO_WAIT_TIME * 1000);
+        if (result == WAIT_FAILED) {
+            DWORD err = GetLastError();
+            LOGE(TAG, "Failed to wait for IO.[%s]", getErrMsg(err).c_str());
+            break;
+        }
+
+        DWORD evId = result ^ reverse;
+        switch (evId) {
+        case EVENT_UDP_RECV:
+            ctx = sioIntf.udpRecv(udpRecvFd);
+            handleSockData(sioIntf, ctx);
+            break;
+
+        case EVENT_TAP_READ:
+            ctx = sioIntf.tapRead(tapReadFd);
+            handleTapData(sioIntf, ctx);
+            break;
+
+        default:
+            break;
+        }
+
+        reverse = !reverse;
+    }
+
+    LOGI(TAG, "sioWrk has exited.");
+}
+
 void TapLan::aioWrk()
 {
     std::string errMsg;
