@@ -496,6 +496,7 @@ void TapLan::handleUdpSend(AioIntf::Ctx* ctx) {
 }
 
 #ifdef      _WIN32
+#if 0
 void TapLan::sioWrk()
 {
     SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
@@ -535,6 +536,7 @@ void TapLan::sioWrk()
 
     LOGI(TAG, "sioWrk has exited.");
 }
+#endif
 
 void TapLan::aioWrk()
 {
@@ -628,6 +630,7 @@ void TapLan::aioWrk()
 }
 
 #elif       __linux__
+#if 0
 void TapLan::sioWrk()
 {
     TapFd tapReadFd = tapFd;
@@ -658,6 +661,7 @@ void TapLan::sioWrk()
         }
     }
 }
+#endif
 
 void TapLan::aioWrk()
 {

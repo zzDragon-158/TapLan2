@@ -29,18 +29,13 @@ public:
 
     SioIntf();
     ~SioIntf();
-    int init(SocketFd ufd, TapFd tfd);
-    int tapReqRead(TapFd fd);
     Ctx* tapRead(TapFd fd);
     int tapWrite(TapFd fd, Ctx* ctx);
-    int udpReqRecv(SocketFd fd);
     Ctx* udpRecv(SocketFd fd);
     int udpSend(SocketFd fd, Ctx* ctx);
 
-    HANDLE events_[NUMS_OF_EVENT * 2];
-    Ctx udpCtxs_[2];
-    Ctx tapCtxs_[2];
-    unsigned udpCurCtxIdx_, tapCurCtxIdx_;
+    Ctx udpSioCtx_;
+    Ctx tapSioCtx_;
 };
 
 #elif __linux__
