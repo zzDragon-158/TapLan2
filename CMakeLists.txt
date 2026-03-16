@@ -26,6 +26,7 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     add_library(TapDev src/TapDevLinux.cpp)
     add_library(Socket src/SocketLinux.cpp)
     add_library(AioIntf src/AioIntfLinux.cpp)
+    add_library(SioIntf src/SioIntfLinux.cpp)
 
 else()
     message(FATAL_ERROR "Unsupported platform")

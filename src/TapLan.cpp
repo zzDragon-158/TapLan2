@@ -594,6 +594,37 @@ void TapLan::aioWrk()
 }
 
 #elif       __linux__
+void TapLan::sioWrk()
+{
+    TapFd tapReadFd = tapFd;
+    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    SioIntf sioIntf;
+    pollfd pfds[NUMS_OF_EVENT];
+    pfds[EVENT_UDP_RECV] = {udpRecvFd, POLLIN, 0};
+    pfds[EVENT_TAP_READ] = {tapReadFd, POLLIN, 0};
+
+    while (g_cfgData.isRunning) {
+        int res = poll(pfds, 2, IO_WAIT_TIME);
+        if (res < 0) {
+            LOGE(TAG, "Failed to poll events.[%s]", strerror(errno));
+            continue;
+        } else if (res == 0) {
+            continue;
+        }
+
+        if (pfds[EVENT_UDP_RECV].revents & POLLIN) {
+            SioIntf::Ctx* ctx = sioIntf.udpRecv(udpRecvFd);
+            handleSockData(sioIntf, ctx);
+            pfds[EVENT_UDP_RECV].revents &= ~POLLIN;
+        }
+        if (pfds[EVENT_TAP_READ].revents & POLLIN) {
+            SioIntf::Ctx* ctx = sioIntf.tapRead(tapReadFd);
+            handleTapData(sioIntf, ctx);
+            pfds[EVENT_TAP_READ].revents &= ~POLLIN;
+        }
+    }
+}
+
 void TapLan::aioWrk()
 {
     io_uring* ring = &AioIntfPtr->ring_;

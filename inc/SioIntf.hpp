@@ -9,6 +9,7 @@ enum {
     NUMS_OF_EVENT,
 };
 
+#ifdef      _WIN32
 class SioIntf {
 public:
     struct Ctx {
@@ -41,3 +42,30 @@ public:
     Ctx tapCtxs_[2];
     unsigned udpCurCtxIdx_, tapCurCtxIdx_;
 };
+
+#elif __linux__
+class SioIntf {
+public:
+    struct Ctx {
+        sockaddr_in6 addr;
+        socklen_t addrLen;
+        int dataLen;
+        char buf[DATA_BUF_SIZE];
+
+        Ctx() {
+            memset(this, 0, sizeof(Ctx));
+        };
+    };
+
+    SioIntf();
+    ~SioIntf();
+    Ctx* tapRead(TapFd fd);
+    int tapWrite(TapFd fd, Ctx* ctx);
+    Ctx* udpRecv(SocketFd fd);
+    int udpSend(SocketFd fd, Ctx* ctx);
+
+    Ctx udpSioCtx_;
+    Ctx tapSioCtx_;
+};
+
+#endif
