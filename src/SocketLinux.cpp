@@ -42,6 +42,7 @@ bool BsdSocket::close()
 {
     if (fd_ != INVALID_SOCKET) {
         LOGT(TAG, "close fd_[%ld]", fd_);
+        ::shutdown(fd_, SHUT_RDWR);
         ::close(fd_);
         fd_ = INVALID_SOCKET;
     }

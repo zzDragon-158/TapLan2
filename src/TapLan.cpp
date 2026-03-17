@@ -340,10 +340,10 @@ bool TapLan::stop()
         return false;
 
     g_cfgData.isRunning = false;
-    // FIXME: need close fd.
     TapDevPtr->close();
     for (int i = 0; i < 4; ++i) {
-        udpSockPtrs_[i]->close();
+        if (udpSockPtrs_[i])
+            udpSockPtrs_[i]->close();
     }
 
     if (udpWrkThread_.joinable()) {
