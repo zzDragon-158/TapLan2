@@ -501,48 +501,6 @@ void TapLan::handleUdpSend(AioIntf::Ctx* ctx) {
 }
 
 #ifdef      _WIN32
-#if 0
-void TapLan::sioWrk()
-{
-    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
-    TapFd tapReadFd = tapFd;
-    SioIntf::Ctx* ctx = nullptr;
-    SioIntf sioIntf;
-
-    sioIntf.init(udpRecvFd, tapReadFd);
-
-    bool reverse = false;
-    while (g_cfgData.isRunning) {
-        DWORD result = WaitForMultipleObjects(NUMS_OF_EVENT, (sioIntf.events_ + reverse), FALSE, IO_WAIT_TIME * 1000);
-        if (result == WAIT_FAILED) {
-            DWORD err = GetLastError();
-            LOGE(TAG, "Failed to wait for IO.[%s]", getErrMsg(err).c_str());
-            break;
-        }
-
-        DWORD evId = result ^ reverse;
-        switch (evId) {
-        case EVENT_UDP_RECV:
-            ctx = sioIntf.udpRecv(udpRecvFd);
-            handleUdpData(sioIntf, ctx);
-            break;
-
-        case EVENT_TAP_READ:
-            ctx = sioIntf.tapRead(tapReadFd);
-            handleTapData(sioIntf, ctx);
-            break;
-
-        default:
-            break;
-        }
-
-        reverse = !reverse;
-    }
-
-    LOGI(TAG, "sioWrk has exited.");
-}
-#endif
-
 void TapLan::aioWrk()
 {
     std::string errMsg;
@@ -571,12 +529,6 @@ void TapLan::aioWrk()
         }
     }
 
-    // for (int i = 0; i < MAX_READ_REQ; ++i) {
-    //     AioIntfPtr->reqTapRead(tapFd);
-    // }
-    // for (int i = 0; i < MAX_RECV_REQ; ++i) {
-    //     AioIntfPtr->reqUdpRecv(udpRecvFd);
-    // }
     AioIntfPtr->reqTapReadMultishot(tapFd);
     AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
 
@@ -637,50 +589,11 @@ void TapLan::aioWrk()
 }
 
 #elif       __linux__
-#if 0
-void TapLan::sioWrk()
-{
-    TapFd tapReadFd = tapFd;
-    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
-    SioIntf sioIntf;
-    pollfd pfds[NUMS_OF_EVENT];
-    pfds[EVENT_UDP_RECV] = {udpRecvFd, POLLIN, 0};
-    pfds[EVENT_TAP_READ] = {tapReadFd, POLLIN, 0};
-
-    while (g_cfgData.isRunning) {
-        int res = poll(pfds, NUMS_OF_EVENT, IO_WAIT_TIME);
-        if (res < 0) {
-            LOGE(TAG, "Failed to poll events.[%s]", strerror(errno));
-            continue;
-        } else if (res == 0) {
-            continue;
-        }
-
-        if (pfds[EVENT_UDP_RECV].revents & POLLIN) {
-            SioIntf::Ctx* ctx = sioIntf.udpRecv(udpRecvFd);
-            handleUdpData(sioIntf, ctx);
-            pfds[EVENT_UDP_RECV].revents &= ~POLLIN;
-        }
-        if (pfds[EVENT_TAP_READ].revents & POLLIN) {
-            SioIntf::Ctx* ctx = sioIntf.tapRead(tapReadFd);
-            handleTapData(sioIntf, ctx);
-            pfds[EVENT_TAP_READ].revents &= ~POLLIN;
-        }
-    }
-}
-#endif
-
 void TapLan::aioWrk()
 {
     io_uring* ring = &AioIntfPtr->ring_;
     SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
 
-    // for (int i = 0; i < MAX_READ_REQ; ++i) {
-    //     AioIntfPtr->reqTapRead(tapFd);
-    // }
-    // for (int i = 0; i < MAX_RECV_REQ; ++i) {
-    //     AioIntfPtr->reqUdpRecv(udpRecvFd);
-    // }
     AioIntfPtr->reqTapReadMultishot(tapFd);
     AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
     io_uring_submit(ring);
