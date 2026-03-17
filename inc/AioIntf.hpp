@@ -11,7 +11,6 @@
 
 #define     AioIntfPtr      AioIntf::ptr()
 
-const size_t DATA_BUF_SIZE = 2048;
 const size_t DATA_BUF_NUM = 1024;
 const int MAX_RECV_REQ = 256;
 const int MAX_READ_REQ = 256;

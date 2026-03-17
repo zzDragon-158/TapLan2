@@ -17,7 +17,7 @@ TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrs_{},
 
         if (g_cfgData.isRunning) {
             TapDevPtr->getMacAddr(g_cfgData.mac);
-            std::shared_ptr<Node> n = nodeMgrPtr_->addNode(&serverAddr_, g_cfgData.mac);
+            NodeSPtr n = nodeMgrPtr_->addNode(&serverAddr_, g_cfgData.mac);
             TapDevPtr->setIPv4Addr(&n->ipv4Addr, g_cfgData.netNumLen);
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
@@ -84,161 +84,127 @@ bool TapLan::initUdpSockPtrs()
     return (udpSockPtr_ && udpSockPtr_->isFdValid());
 }
 
-void TapLan::handleTapData(uint8_t* buf, size_t bufLen)
+void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 {
-    UdpSocket* udpSockPtr = getUdpSockPtr();
-    sockaddr_in6 dstAddr{};
-    dstAddr.sin6_family = AF_INET6;
+    if (ctx->dataLen > DATA_BUF_SIZE) {
+        return ;
+    }
 
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*buf);
+    UdpSocket* udpSockPtr = getUdpSockPtr();
+    SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
+
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     bool needBroadcast = eh.dst[0] & 0x01;
 
     if (g_cfgData.runMode == RunMode_Server) {
         if (!needBroadcast) {
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
+            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
-                udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&dstAddr, sizeof(dstAddr));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                sioIntf.udpSend(udpSendFd, ctx);
             } else {
                 udpSockPtr->incDropped(1);
             }
         } else {
             size_t sendCnt = 0;
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return ;
 
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
-                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                sioIntf.udpSend(udpSendFd, ctx);
                 ++sendCnt;
             }, false);
+
             if (sendCnt == 0) {
                 udpSockPtr->incDropped(1);
             }
         }
     }
     else if (g_cfgData.runMode == RunMode_Client) {
-        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast)
-            udpSockPtr->sendTo(buf, bufLen, (const sockaddr*)&serverAddr_, sizeof(serverAddr_));
+        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+            memcpy(&ctx->addr, &serverAddr_, sizeof(sockaddr_in6));
+            sioIntf.udpSend(udpSendFd, ctx);
+        }
     } else {
         // RunMode_None
     }
 }
 
-void TapLan::readTapData()
+void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 {
-    uint8_t tapRxBuf[65536];
-
-    while (g_cfgData.isRunning) {
-        ssize_t readBytes = TapDevPtr->read(tapRxBuf, sizeof(tapRxBuf), 3000);
-        if (readBytes < ETH_HDR_LEN) {
-            continue;
-        }
-
-        handleTapData(tapRxBuf, readBytes);
+    if (ctx->dataLen > DATA_BUF_SIZE) {
+        return ;
     }
-}
 
-void TapLan::handleSockData(uint8_t* buf, size_t bufLen, sockaddr_in6& srcAddr)
-{
     UdpSocket* udpSockPtr = getUdpSockPtr();
+    SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
 
-    EthHdr eh = reinterpret_cast<EthHdr&>(*buf);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
 
     if (g_cfgData.noSync) {
-        nodeMgrPtr_->addNode(&srcAddr, srcMac);
+        nodeMgrPtr_->addNode(&ctx->addr, srcMac);
     }
 
     if (g_cfgData.runMode == RunMode_Server) {
-        sockaddr_in6 dstAddr{};
-        dstAddr.sin6_family = AF_INET6;
-
         if (needBroadcast) {        // broadcast
-            auto broadcast = [&](uint64_t m, std::shared_ptr<Node> n) {
+            auto broadcast = [&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return ;
 
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
-                udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(dstAddr));
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                sioIntf.udpSend(udpSendFd, ctx);
             };
 
             nodeMgrPtr_->forEach(broadcast, false);
-            TapDevPtr->write(buf, bufLen);
+            sioIntf.tapWrite(tapFd, ctx);
         } else if (!isSendToMe) {   // not broadcast && not send to me
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
-            if (!n) {
-                return ;
+            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
+            if (n) {
+                nodeMgrPtr_->setSockaddr(ctx->addr, n);
+                sioIntf.udpSend(udpSendFd, ctx);
             }
-            memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(dstAddr.sin6_addr));
-            dstAddr.sin6_port = n->ipv6Port;
-            udpSockPtr->sendTo(buf, bufLen, (sockaddr*)&dstAddr, sizeof(sockaddr_in6));
         } else {                    // not broadcast && send to me
-            TapDevPtr->write(buf, bufLen);
+            sioIntf.tapWrite(tapFd, ctx);
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
-        TapDevPtr->write(buf, bufLen);
+        sioIntf.tapWrite(tapFd, ctx);
     } else {
         // RunMode_None
     }
 }
 
-void TapLan::recvSockData()
+void TapLan::udpWrk()
 {
-    uint8_t udpRxBuf[65536];
-
-    sockaddr_in6 srcAddr;
-    socklen_t srcAddrLen = sizeof(srcAddr);
-
-    sockaddr_in6 dstAddr;
-    memset(&dstAddr, 0, sizeof(dstAddr));
-    dstAddr.sin6_family = AF_INET6;
-
-    TapLanPollFd pfds[4];
-    if (g_cfgData.swPortIntvl) {
-        for (int i = 0; i < 4; ++i) {
-            pfds[i] = { static_cast<SocketFd>(*udpSockPtrs_[i]), POLLIN, 0 };
-        }
-    }
+    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    SioIntf sioIntf;
 
     while (g_cfgData.isRunning) {
-        if (!g_cfgData.swPortIntvl) {
-            // FIXME: "recvFrom" will block cause user cant use "/quit" to terminate program.
-            ssize_t recvBytes = udpSockPtr_->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
-            if (recvBytes <= ETH_HDR_LEN) {
-                continue;
-            }
-
-            handleSockData(udpRxBuf, recvBytes, srcAddr);
-            continue;
-        } else {
-            int pollCnt = TapLanPoll(pfds, 4, 3000);
-            if (pollCnt < 0) {
-                LOGE(TAG, "TapLanPoll failed.");
-                continue;
-            } else if (pollCnt == 0) {
-                continue;
-            }
-            for (int i = 0; i < 4; ++i) {
-                if (pfds[i].revents != 0) {
-                    ssize_t recvBytes = udpSockPtrs_[i]->recvFrom(udpRxBuf, sizeof(udpRxBuf), (sockaddr*)&srcAddr, &srcAddrLen);
-                    if (recvBytes <= ETH_HDR_LEN) {
-                        continue;
-                    }
-
-                    handleSockData(udpRxBuf, recvBytes, srcAddr);
-                }
-            }
-        }
+        SioIntf::Ctx* ctx = sioIntf.udpRecv(udpRecvFd);
+        handleUdpData(sioIntf, ctx);
     }
+
+    LOGI(TAG, "udpWrk has exited.");
+}
+
+void TapLan::tapWrk()
+{
+    TapFd tapReadFd = tapFd;
+    SioIntf sioIntf;
+
+    while (g_cfgData.isRunning) {
+        SioIntf::Ctx* ctx = sioIntf.tapRead(tapReadFd);
+        handleTapData(sioIntf, ctx);
+    }
+
+    LOGI(TAG, "tapWrk has exited.");
 }
 
 void TapLan::syncNodeStatus()
@@ -250,6 +216,8 @@ void TapLan::syncNodeStatus()
     } else {
         // RunMode_None
     }
+
+    LOGI(TAG, "syncWrk has exited.");
 }
 
 void TapLan::showNodeStatus()
@@ -262,7 +230,7 @@ void TapLan::showNodeStatus()
     LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
-    auto printNodeStatus = [&](uint64_t m, std::shared_ptr<Node> n) {
+    auto printNodeStatus = [&](uint64_t m, NodeSPtr n) {
         char tapmacbuf[32];
         sprintf(tapmacbuf, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X",
             n->mac.addr[0], n->mac.addr[1], n->mac.addr[2], 
@@ -351,11 +319,11 @@ bool TapLan::run()
         aioWrkThread_ = std::thread(&TapLan::aioWrk, this);
         pthread_setname_np(aioWrkThread_.native_handle(), "aioWrk");
     } else {
-        sendThread_ = std::thread(&TapLan::readTapData, this);
-        pthread_setname_np(sendThread_.native_handle(), "readWrk");
+        udpWrkThread_ = std::thread(&TapLan::udpWrk, this);
+        pthread_setname_np(udpWrkThread_.native_handle(), "udpWrk");
 
-        recvThread_ = std::thread(&TapLan::recvSockData, this);
-        pthread_setname_np(recvThread_.native_handle(), "recvWrk");
+        tapWrkThread_ = std::thread(&TapLan::tapWrk, this);
+        pthread_setname_np(tapWrkThread_.native_handle(), "tapWrk");
     }
 
     if (!g_cfgData.noSync) {
@@ -372,24 +340,26 @@ bool TapLan::stop()
         return false;
 
     g_cfgData.isRunning = false;
-    if (sendThread_.joinable()) {
-        sendThread_.join();
-        LOGI(TAG, "readWrk has exited.");
+    TapDevPtr->close();
+    for (int i = 0; i < 4; ++i) {
+        if (udpSockPtrs_[i])
+            udpSockPtrs_[i]->close();
     }
 
-    if (recvThread_.joinable()) {
-        recvThread_.join();
-        LOGI(TAG, "recvWrk has exited.");
+    if (udpWrkThread_.joinable()) {
+        udpWrkThread_.join();
+    }
+
+    if (tapWrkThread_.joinable()) {
+        tapWrkThread_.join();
     }
 
     if (aioWrkThread_.joinable()) {
         aioWrkThread_.join();
-        LOGI(TAG, "aioWrk has exited.");
     }
 
     if (syncThread_.joinable()) {
         syncThread_.join();
-        LOGI(TAG, "syncWrk has exited.");
     }
 
     return true;
@@ -422,7 +392,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
                 return;
             }
         } else {
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return;
 
@@ -432,9 +402,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
-                    sendAddr.sin6_family = AF_INET6;
-                    memcpy(&sendAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                    sendAddr.sin6_port = n->ipv6Port;
+                    nodeMgrPtr_->setSockaddr(sendAddr, n);
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
@@ -483,7 +451,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
 
     if (g_cfgData.runMode == RunMode_Server) {
         if (needBroadcast) {
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return;
 
@@ -493,9 +461,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
                     sendCtx->bufLen = ctx->bufLen;
 
-                    sendAddr.sin6_family = AF_INET6;
-                    memcpy(&sendAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                    sendAddr.sin6_port = n->ipv6Port;
+                    nodeMgrPtr_->setSockaddr(sendAddr, n);
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
@@ -508,9 +474,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
                 sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
-                dstAddr.sin6_family = AF_INET6;
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                dstAddr.sin6_port = n->ipv6Port;
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
 
                 AioIntfPtr->reqUdpSend(udpSendFd, ctx);
                 return;
@@ -565,12 +529,6 @@ void TapLan::aioWrk()
         }
     }
 
-    // for (int i = 0; i < MAX_READ_REQ; ++i) {
-    //     AioIntfPtr->reqTapRead(tapFd);
-    // }
-    // for (int i = 0; i < MAX_RECV_REQ; ++i) {
-    //     AioIntfPtr->reqUdpRecv(udpRecvFd);
-    // }
     AioIntfPtr->reqTapReadMultishot(tapFd);
     AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
 
@@ -597,10 +555,12 @@ void TapLan::aioWrk()
             err = GetLastError();
             if (err == WAIT_TIMEOUT)
                 continue;
+            else if (err == ERROR_OPERATION_ABORTED)
+                break;
 
             errMsg = getErrMsg(err);
-            ctx->bufLen = -err;
             LOGE(TAG, "Failed to GQCS.[%s]", errMsg.c_str());
+            ctx->bufLen = -err;
         }
 
         switch (ctx->token) {
@@ -624,6 +584,8 @@ void TapLan::aioWrk()
             break;
         }
     }
+
+    LOGI(TAG, "aioWrk has exited.");
 }
 
 #elif       __linux__
@@ -632,12 +594,6 @@ void TapLan::aioWrk()
     io_uring* ring = &AioIntfPtr->ring_;
     SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
 
-    // for (int i = 0; i < MAX_READ_REQ; ++i) {
-    //     AioIntfPtr->reqTapRead(tapFd);
-    // }
-    // for (int i = 0; i < MAX_RECV_REQ; ++i) {
-    //     AioIntfPtr->reqUdpRecv(udpRecvFd);
-    // }
     AioIntfPtr->reqTapReadMultishot(tapFd);
     AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);
     io_uring_submit(ring);
@@ -706,428 +662,7 @@ void TapLan::aioWrk()
         io_uring_cq_advance(ring, cqeCnt);
         io_uring_submit(ring);
     }
-}
-#endif
 
-#if 0
-void TapLan::prep_tap_read(uint32_t buf_id) {
-    uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
-    io_uring_sqe* sqe = io_uring_get_sqe(&tap_uring);
-    io_uring_prep_read_fixed(sqe, tapFd, msg->data, TAP_BUF_SIZE - MSG_HDR_SIZE, 0, buf_id);
-    sqe->user_data = (TOKEN_TAP_READ << 16) | buf_id;
-};
-
-void TapLan::handle_tap_read(io_uring_cqe *cqe)
-{
-    uint16_t buf_id = (uint16_t)cqe->user_data;
-    if (cqe->res <= 0) {
-        if (cqe->res != -EAGAIN && cqe->res != 0) {
-            TapDevPtr->incReadErrs(1);
-            LOGE(TAG, "handle tap read failed.[%s]", strerror(-cqe->res));
-        }
-        prep_tap_read(buf_id);
-        return ;
-    }
-
-    TapDevPtr->incReadBytes(cqe->res);
-    UdpSocket* udpSockPtr = getUdpSockPtr();
-    SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr);
-    uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
-
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*msg->data);
-    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-    bool needBroadcast = eh.dst[0] & 0x01;
-
-    if (g_cfgData.runMode == RunMode_Server) {
-        if (!needBroadcast) {
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
-            if (n) {
-                msg->nums_of_addr = 1;
-                sockaddr_in6& addr = msg->addrs[0];
-                memset(&addr, 0, sizeof(sockaddr_in6));
-                addr.sin6_family = AF_INET6;
-                memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                addr.sin6_port = n->ipv6Port;
-
-                io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
-                io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
-                sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
-            } else {
-                prep_tap_read(buf_id);
-            }
-        } else {
-            msg->nums_of_addr = 0;
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
-                if (n->status == NODE_OFFLINE || n->mac == srcMac)
-                    return ;
-
-                sockaddr_in6& addr = msg->addrs[msg->nums_of_addr++];
-                memset(&addr, 0, sizeof(sockaddr_in6));
-                addr.sin6_family = AF_INET6;
-                memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                addr.sin6_port = n->ipv6Port;
-
-                io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
-                io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
-                sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
-            }, false);
-
-            if (msg->nums_of_addr == 0) {
-                udpSockPtr->incDropped(1);
-                prep_tap_read(buf_id);
-            }
-        }
-    } else if (g_cfgData.runMode == RunMode_Client) {
-        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
-            msg->nums_of_addr = 1;
-            sockaddr_in6& addr = msg->addrs[0];
-            memcpy(&addr, &serverAddr_, sizeof(sockaddr_in6));
-
-            io_uring_sqe *sqe = io_uring_get_sqe(&tap_uring);
-            io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&serverAddr_, sizeof(sockaddr_in6));
-            sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
-        }
-    } else {
-        // RunMode_None
-    }
-
-    return ;
-}
-
-void TapLan::uring_read_tap_wrk()
-{
-    int ret;
-    SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr_);
-    io_uring_params params{};
-    params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
-    ret = io_uring_queue_init_params(QD, &tap_uring, &params);
-    if (ret < 0) {
-        LOGF(TAG, "TAP queue init params failed.[%s]", strerror(-ret));
-        g_cfgData.isRunning = false;
-        return ;
-    }
-
-    read_bufs = (uint8_t *)mmap(NULL, TAP_BUF_NUM * TAP_BUF_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    if (read_bufs == MAP_FAILED) {
-        posix_memalign((void **)&read_bufs, 4096, TAP_BUF_NUM * TAP_BUF_SIZE);
-    }
-
-    iovec iovs[TAP_BUF_NUM];
-    for (size_t i = 0; i < TAP_BUF_NUM; ++i) {
-        iovs[i].iov_base = read_bufs + i * TAP_BUF_SIZE;
-        iovs[i].iov_len = TAP_BUF_SIZE;
-    }
-    ret = io_uring_register_buffers(&tap_uring, iovs, TAP_BUF_NUM);
-    if (ret < 0) {
-        LOGF(TAG, "TAP register buffers failed.[%s]", strerror(-ret));
-        g_cfgData.isRunning = false;
-        return ;
-    }
-
-    for (size_t idx = 0; idx < TAP_BUF_NUM; ++idx) {
-        prep_tap_read(idx);
-    }
-    io_uring_submit(&tap_uring);
-
-    auto handle_udp_send = [&](io_uring_cqe *cqe) {
-        UdpSocket* udpSockPtr = getUdpSockPtr();
-        uint32_t buf_id = (uint16_t)cqe->user_data;
-        if (cqe->res < 0) {
-            udpSockPtr->incSendErrs(1);
-            LOGE(TAG, "TAP handle udp send failed.[%s]", strerror(-cqe->res));
-        }
-
-        udpSockPtr->incSendBytes(cqe->res);
-        uring_send_msg *msg = (uring_send_msg *)(read_bufs + (buf_id * TAP_BUF_SIZE));
-        if (!--msg->nums_of_addr)
-            prep_tap_read(buf_id);
-    };
-
-    io_uring_cqe *cqe;
-    __kernel_timespec timeout{3, 0};
-    while (g_cfgData.isRunning) {
-        ret = io_uring_wait_cqe_timeout(&tap_uring, &cqe, &timeout);
-        if (ret < 0 && ret != -ETIME) {
-            LOGF(TAG, "TAP wait cqe failed.[%s]", strerror(-ret));
-            break;
-        }
-
-        unsigned head;
-        unsigned cqe_count = 0;
-        io_uring_for_each_cqe(&tap_uring, head, cqe) {
-            ++cqe_count;
-
-            switch (cqe->user_data >> 16)
-            {
-            case TOKEN_UDP_RECV:
-                break;
-
-            case TOKEN_TAP_READ:
-                handle_tap_read(cqe);
-                break;
-
-            case TOKEN_TAP_WRITE:
-                break;
-
-            case TOKEN_UDP_SEND:
-                handle_udp_send(cqe);
-                break;
-            
-            default:
-                break;
-            }
-        }
-
-        io_uring_cq_advance(&tap_uring, cqe_count);
-        io_uring_submit(&tap_uring);
-    }
-
-    io_uring_queue_exit(&tap_uring);
-    g_cfgData.isRunning = false;
-    std::cout << "Thread " << sendThreadName_ << " has exited." << std::endl;
-    return ;
-}
-
-void TapLan::prep_udp_recv() {
-    SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr_);
-    io_uring_sqe* sqe = io_uring_get_sqe(&udp_uring);
-    io_uring_prep_recv_multishot(sqe, udp_fd, nullptr, 0, 0);
-    sqe->flags |= IOSQE_BUFFER_SELECT;
-    sqe->buf_group = UDP_BUF_GRP_ID;
-    sqe->user_data = (TOKEN_UDP_RECV << 16);
-}
-
-int TapLan::handle_udp_recv(io_uring_cqe *cqe) {
-    UdpSocket* udpSockPtr = getUdpSockPtr();
-    SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr);
-
-    if (!(cqe->flags & IORING_CQE_F_MORE)) {
-        LOGE(TAG, "UDP recvmsg multishot stop.[%d]", strerror(-cqe->res));
-        prep_udp_recv();
-    }
-
-    if (cqe->res < 0) {
-        udpSockPtr->incRecvErrs(1);
-        LOGE(TAG, "UDP handle udp recv failed.[%s]", strerror(-cqe->res));
-        return 1;
-    } else if (cqe->res == 0) {
-        udpSockPtr->incRecvErrs(1);
-        return 1;
-    } else {
-        udpSockPtr->incRecvBytes(cqe->res);
-    }
-
-    uint32_t buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-    uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
-
-    EthHdr eh = reinterpret_cast<EthHdr&>(*msg->data);
-    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-    bool needBroadcast = eh.dst[0] & 0x01;
-    bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
-
-    // TODO: support recv srcaddr
-    // if (g_cfgData.noSync) {
-    //     nodeMgrPtr_->addNode(&ctx->addr, srcMac);
-    // }
-
-    if (g_cfgData.runMode == RunMode_Server) {
-        if (needBroadcast) {        // broadcast
-            msg->nums_of_addr = 0;
-            nodeMgrPtr_->forEach([&](uint64_t m, std::shared_ptr<Node> n) {
-                if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
-                    return ;
-
-                sockaddr_in6& addr = msg->addrs[msg->nums_of_addr++];
-                memset(&addr, 0, sizeof(sockaddr_in6));
-                addr.sin6_family = AF_INET6;
-                memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-                addr.sin6_port = n->ipv6Port;
-
-                io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-                io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
-                sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
-            }, false);
-
-            ++msg->nums_of_addr;
-            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-            io_uring_prep_write_fixed(sqe, tapFd, msg->data, cqe->res, 0, buf_id);
-            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
-        } else if (!isSendToMe) {   // not broadcast && not send to me
-            std::shared_ptr<Node> n = nodeMgrPtr_->findNode(dstMac);
-            if (!n) {
-                udpSockPtr->incDropped(1);
-                return 1;
-            }
-            msg->nums_of_addr = 1;
-            sockaddr_in6& addr = msg->addrs[0];
-            memset(&addr, 0, sizeof(sockaddr_in6));
-            addr.sin6_family = AF_INET6;
-            memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
-            addr.sin6_port = n->ipv6Port;
-            
-            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-            io_uring_prep_sendto(sqe, udp_fd, &msg->data, cqe->res, 0, (sockaddr*)&addr, sizeof(sockaddr_in6));
-            sqe->user_data = (TOKEN_UDP_SEND << 16) | buf_id;
-        } else {                    // not broadcast && send to me
-            msg->nums_of_addr = 1;
-            io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-            io_uring_prep_write_fixed(sqe, tapFd, msg->data, cqe->res, 0, buf_id);
-            sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
-        }
-    } else if (g_cfgData.runMode == RunMode_Client) {
-        msg->nums_of_addr = 1;
-        io_uring_sqe *sqe = io_uring_get_sqe(&udp_uring);
-        io_uring_prep_write_fixed(sqe, tapFd, msg->data, cqe->res, 0, buf_id);
-        sqe->user_data = (TOKEN_TAP_WRITE << 16) | buf_id;
-    } else {
-        // RunMode_None
-    }
-
-    return 0;
-}
-
-void TapLan::uring_recv_udp_wrk()
-{
-    int ret;
-    SocketFd udp_fd = static_cast<SocketFd>(*udpSockPtr_);
-    io_uring_params params{};
-    params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
-    ret = io_uring_queue_init_params(QD, &udp_uring, &params);
-    if (ret < 0) {
-        LOGF(TAG, "UDP queue init params failed.[%s]", strerror(-ret));
-        g_cfgData.isRunning = false;
-        return ;
-    }
-
-    io_uring_buf_ring *udp_buf_ring;
-    size_t buf_ring_size = UDP_BUF_NUM * sizeof(io_uring_buf);
-    posix_memalign((void**)(&udp_buf_ring), 4096, buf_ring_size);
-
-    io_uring_buf_reg bufReg{};
-    bufReg.ring_addr = reinterpret_cast<uint64_t>(udp_buf_ring);
-    bufReg.ring_entries = UDP_BUF_NUM;
-    bufReg.bgid = UDP_BUF_GRP_ID;
-    ret = io_uring_register_buf_ring(&udp_uring, &bufReg, 0);
-    if (ret < 0) {
-        LOGF(TAG, "UDP register buf ring failed.[%s]", strerror(-ret));
-        g_cfgData.isRunning = false;
-        return ;
-    }
-
-    recv_bufs = (uint8_t *)mmap(NULL, UDP_BUF_NUM * UDP_BUF_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    if (recv_bufs == MAP_FAILED) {
-        posix_memalign((void **)&recv_bufs, 4096, UDP_BUF_NUM * UDP_BUF_SIZE);
-    }
-
-    iovec iovs[UDP_BUF_NUM];
-    for (size_t i = 0; i < UDP_BUF_NUM; ++i) {
-        iovs[i].iov_base = recv_bufs + i * UDP_BUF_SIZE;
-        iovs[i].iov_len = UDP_BUF_SIZE;
-    }
-    ret = io_uring_register_buffers(&udp_uring, iovs, UDP_BUF_NUM);
-    if (ret < 0) {
-        LOGF(TAG, "UDP register udp buffers failed.[%s]", strerror(-ret));
-        g_cfgData.isRunning = false;
-        return ;
-    }
-
-    io_uring_buf_ring_init(udp_buf_ring);
-    int buf_ring_mask = io_uring_buf_ring_mask(UDP_BUF_NUM);
-    for (size_t i = 0; i < UDP_BUF_NUM; ++i) {
-        io_uring_buf_ring_add(udp_buf_ring, recv_bufs + (i * UDP_BUF_SIZE) + MSG_HDR_SIZE,
-                                UDP_BUF_SIZE - MSG_HDR_SIZE, i, buf_ring_mask, i);
-    }
-    io_uring_buf_ring_advance(udp_buf_ring, UDP_BUF_NUM);
-
-    prep_udp_recv();
-    io_uring_submit(&udp_uring);
-
-    auto handle_tap_write = [&](io_uring_cqe *cqe) {
-        if (cqe->res < 0) {
-            TapDevPtr->incWriteErrs(1);
-            LOGE(TAG, "UDP handle tap write failed.[%s]", strerror(-cqe->res));
-        }
-
-        TapDevPtr->incWriteBytes(cqe->res);
-        uint16_t buf_id = cqe->user_data;
-        uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
-        if (!--msg->nums_of_addr)
-            return 1;
-        return 0;
-    };
-
-    auto handle_udp_send = [&](io_uring_cqe *cqe) {
-        UdpSocket* udpSockPtr = getUdpSockPtr();
-        if (cqe->res < 0) {
-            udpSockPtr->incSendErrs(1);
-            LOGE(TAG, "UDP handle udp send failed.[%s]", strerror(-cqe->res));
-        }
-
-        udpSockPtr->incSendBytes(cqe->res);
-        uint16_t buf_id = cqe->user_data;
-        uring_send_msg *msg = (uring_send_msg *)(recv_bufs + (buf_id * UDP_BUF_SIZE));
-        if (!--msg->nums_of_addr)
-            return 1;
-        return 0;
-    };
-
-    io_uring_cqe *cqe;
-    __kernel_timespec timeout{3, 0};
-    while (g_cfgData.isRunning) {
-        ret = io_uring_wait_cqe_timeout(&udp_uring, &cqe, &timeout);
-        if (ret < 0 && ret != -ETIME) {
-            LOGF(TAG, "UDP wait cqe failed.[%s]", strerror(-ret));
-            break;
-        }
-
-        unsigned head;
-        unsigned cqe_count = 0;
-        unsigned ring_count = 0;
-        io_uring_for_each_cqe(&udp_uring, head, cqe) {
-            cqe_count++;
-
-            unsigned prev_ring_count = ring_count;
-            uint16_t buf_id;
-            switch (cqe->user_data >> 16)
-            {
-            case TOKEN_UDP_RECV:
-                ring_count += handle_udp_recv(cqe);
-                buf_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-                break;
-
-            case TOKEN_TAP_READ:
-                break;
-
-            case TOKEN_TAP_WRITE:
-                ring_count += handle_tap_write(cqe);
-                buf_id = cqe->user_data;
-                break;
-
-            case TOKEN_UDP_SEND:
-                ring_count += handle_udp_send(cqe);
-                buf_id = cqe->user_data;
-                break;
-
-            default:
-                break;
-            }
-
-            if (prev_ring_count != ring_count) {
-                io_uring_buf_ring_add(udp_buf_ring, recv_bufs + (buf_id * UDP_BUF_SIZE) + MSG_HDR_SIZE,
-                                        UDP_BUF_SIZE - MSG_HDR_SIZE, buf_id, buf_ring_mask, prev_ring_count);
-            }
-        }
-
-        io_uring_cq_advance(&udp_uring, cqe_count);
-        if (ring_count)
-            io_uring_buf_ring_advance(udp_buf_ring, ring_count);
-        io_uring_submit(&udp_uring);
-    }
-
-    io_uring_queue_exit(&udp_uring);
-    g_cfgData.isRunning = false;
-    return ;
+    LOGI(TAG, "aioWrk has exited.");
 }
 #endif

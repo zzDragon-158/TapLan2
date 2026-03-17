@@ -75,6 +75,7 @@ class TapDev {
 public:
     static TapDev*  ptr();
     bool            isFdVaild() { return fdValid_; };
+    bool            close();
     ssize_t         write(const void* buf, size_t bufLen);
     ssize_t         read(void* buf, size_t bufLen, int timeout = -1);
     void            getMacAddr(Mac& mac);
@@ -100,7 +101,6 @@ private:
     ~TapDev();
     void            generateMac();
     bool            open();
-    bool            close();
 };
 
 inline TapDev* TapDev::ptr()

@@ -82,10 +82,14 @@ bool TapDev::open() {
 }
 
 bool TapDev::close() {
-    if (tapFd != -1)
+    if (tapFd != -1) {
         ::close(tapFd);
-    if (tap_sock != -1)
+        tapFd = -1;
+    }
+    if (tap_sock != -1) {
         ::close(tap_sock);
+        tap_sock = -1;
+    }
     // system("ip link del dev " TAP_NAME);
 
     return true;

@@ -16,9 +16,9 @@ NodeMgr::~NodeMgr()
     // pass
 }
 
-std::shared_ptr<Node> NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
+NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
 {
-    std::shared_ptr<Node> n = findNode(macNum);
+    NodeSPtr n = findNode(macNum);
     if (n)
         return n;
 
@@ -50,7 +50,7 @@ std::shared_ptr<Node> NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum
     return n;
 }
 
-std::shared_ptr<Node> NodeMgr::addNode(uint64_t macNum, Node& node)
+NodeSPtr NodeMgr::addNode(uint64_t macNum, Node& node)
 {
     std::shared_ptr n = std::make_shared<Node>();
     std::memcpy(n.get(), &node, sizeof(Node));
@@ -64,9 +64,9 @@ std::shared_ptr<Node> NodeMgr::addNode(uint64_t macNum, Node& node)
     return n;
 }
 
-std::shared_ptr<Node> NodeMgr::delNode(uint64_t macNum)
+NodeSPtr NodeMgr::delNode(uint64_t macNum)
 {
-    std::shared_ptr<Node> n = findNode(macNum);
+    NodeSPtr n = findNode(macNum);
     if (!n)
         return nullptr;
 
@@ -79,7 +79,7 @@ std::shared_ptr<Node> NodeMgr::delNode(uint64_t macNum)
     return n;
 }
 
-std::shared_ptr<Node> NodeMgr::findNode(uint64_t macNum)
+NodeSPtr NodeMgr::findNode(uint64_t macNum)
 {
     std::shared_lock<std::shared_mutex> rLock(rwMutex_);
     auto it = macToNode_.find(macNum);
@@ -91,7 +91,7 @@ std::shared_ptr<Node> NodeMgr::findNode(uint64_t macNum)
 
 bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
 {
-    std::shared_ptr<Node> n = findNode(macNum);
+    NodeSPtr n = findNode(macNum);
     if (!n)
         return false;
 
@@ -100,6 +100,13 @@ bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
     activeDeltaBuffer_[macNum] = n;
 
     return true;
+}
+
+void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
+{
+    addr.sin6_family = AF_INET6;
+    memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(n->ipv6Addr));
+    addr.sin6_port = n->ipv6Port;
 }
 
 // TODO: support sync node status
@@ -180,7 +187,7 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
 
             sockaddr_in6 addr;
             client.getRemoteAddr(&addr);
-            std::shared_ptr<Node> n = addNode(&addr, static_cast<uint64_t>(rspMsgHdr.mac));
+            NodeSPtr n = addNode(&addr, static_cast<uint64_t>(rspMsgHdr.mac));
             if (!n) {
                 LOGE(TAG, "add node failed.");
                 return false;
@@ -206,7 +213,7 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
             rspMsg.numsOfNode = 0;
             sendBytes += sizeof(RespNodeStatusMessage);
 
-            forEach([&](uint64_t k, std::shared_ptr<Node> v) {
+            forEach([&](uint64_t k, NodeSPtr v) {
                 std::memcpy(sndBuf + sendBytes, v.get(), sizeof(Node));
                 sendBytes += sizeof(Node);
                 ++rspMsg.numsOfNode;

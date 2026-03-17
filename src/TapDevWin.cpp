@@ -299,9 +299,12 @@ bool TapDev::open() {
 }
 
 bool TapDev::close() {
-    CloseHandle(tapFd);
-    CloseHandle(overlapRead.hEvent);
-    CloseHandle(overlapWrite.hEvent);
+    if (tapFd != INVALID_HANDLE_VALUE) {
+        CloseHandle(tapFd);
+        tapFd = INVALID_HANDLE_VALUE;
+        CloseHandle(overlapRead.hEvent);
+        CloseHandle(overlapWrite.hEvent);
+    }
     // if (system(TAP_INSTALL " remove TAP0901"))
     //     LOGE(TAG, "Removing tap device failed.");
 
