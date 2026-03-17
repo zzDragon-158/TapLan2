@@ -216,6 +216,8 @@ void TapLan::syncNodeStatus()
     } else {
         // RunMode_None
     }
+
+    LOGI(TAG, "syncWrk has exited.");
 }
 
 void TapLan::showNodeStatus()
@@ -339,6 +341,10 @@ bool TapLan::stop()
 
     g_cfgData.isRunning = false;
     // FIXME: need close fd.
+    TapDevPtr->close();
+    for (int i = 0; i < 4; ++i) {
+        udpSockPtrs_[i]->close();
+    }
 
     if (udpWrkThread_.joinable()) {
         udpWrkThread_.join();
@@ -354,7 +360,6 @@ bool TapLan::stop()
 
     if (syncThread_.joinable()) {
         syncThread_.join();
-        LOGI(TAG, "syncWrk has exited.");
     }
 
     return true;
@@ -598,10 +603,12 @@ void TapLan::aioWrk()
             err = GetLastError();
             if (err == WAIT_TIMEOUT)
                 continue;
+            else if (err == ERROR_OPERATION_ABORTED)
+                break;
 
             errMsg = getErrMsg(err);
-            ctx->bufLen = -err;
             LOGE(TAG, "Failed to GQCS.[%s]", errMsg.c_str());
+            ctx->bufLen = -err;
         }
 
         switch (ctx->token) {

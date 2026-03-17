@@ -48,7 +48,9 @@ SioIntf::Ctx* SioIntf::tapRead(TapFd fd)
 
     if (!GetOverlappedResult(fd, &ctx->ol, &ctx->dataLen, FALSE)) {
         err = GetLastError();
-        LOGE(TAG, "Failed to get read result.[%s]", getErrMsg(err).c_str());
+        if (err != ERROR_OPERATION_ABORTED) {
+            LOGE(TAG, "Failed to get read result.[%s]", getErrMsg(err).c_str());
+        }
         goto r_fail;
     }
 
@@ -125,7 +127,9 @@ SioIntf::Ctx* SioIntf::udpRecv(SocketFd fd)
 
     if (res == SOCKET_ERROR) {
         err = WSAGetLastError();
-        LOGE(TAG, "Failed to recvfrom udp.[%s]", getErrMsg(err).c_str());
+        if (err != WSAEINTR) {
+            LOGE(TAG, "Failed to recvfrom udp.[%s]", getErrMsg(err).c_str());
+        }
         goto r_fail;
     }
 

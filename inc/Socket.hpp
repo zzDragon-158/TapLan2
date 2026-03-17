@@ -55,6 +55,7 @@ public:
     explicit operator SocketFd() { return fd_; };
     ~BsdSocket();
     bool isFdValid() { return fdValid_; };
+    bool close();
     uint16_t getBindPort() { return bindPort_; };
     uint64_t getSendBytes() { return sendBytes_; };
     uint64_t getSendErrors() { return sendErrs_; };
@@ -83,7 +84,6 @@ protected:
 #endif
 
     virtual bool open();
-    bool close();
     std::string getErrStr();
 };
 
