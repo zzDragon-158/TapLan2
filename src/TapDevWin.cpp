@@ -112,7 +112,7 @@ static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     return true;
 }
 
-static bool findExistedTap() {
+static bool findExistingTap() {
     bool ret = false;
     LONG err;
     std::string errMsg;
@@ -353,7 +353,7 @@ TapDev::~TapDev() {
 bool TapDev::open() {
     std::string errMsg;
 
-    if (!findExistedTap() && !createNewTap())
+    if (!findExistingTap() && !createNewTap())
         return false;
 
     std::stringstream tapName;

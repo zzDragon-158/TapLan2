@@ -595,6 +595,7 @@ void TapLan::aioWrk()
 void TapLan::aioWrk()
 {
     io_uring* ring = &AioIntfPtr->ring_;
+    TapFd tapFd = TapDevPtr->getFd();
     SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
 
     AioIntfPtr->reqTapReadMultishot(tapFd);

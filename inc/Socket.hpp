@@ -1,14 +1,11 @@
 #pragma     once
 #include    <cstdint>
 #include    <string>
-
-#ifdef      _WIN32
-// #include    <WS2tcpip.h>
 #include    "Common.hpp"
 
-#define     TapLanPoll          WSAPoll
+#ifdef      _WIN32
 
-typedef     SOCKET              SocketFd;
+#define     TapLanPoll          WSAPoll
 
 #elif __linux__
 #include    <poll.h>            // for poll
@@ -22,9 +19,6 @@ typedef     SOCKET              SocketFd;
 #include    <sys/mman.h>        // for mmap
 
 #define     TapLanPoll          poll
-#define     INVALID_SOCKET      -1
-
-typedef     int                 SocketFd;
 
 #else
 #error      "unsupported platform!"
