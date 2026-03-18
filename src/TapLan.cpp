@@ -117,7 +117,7 @@ void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
                 nodeMgrPtr_->setSockaddr(ctx->addr, n);
                 sioIntf.udpSend(udpSendFd, ctx);
                 ++sendCnt;
-            }, false);
+            });
 
             if (sendCnt == 0) {
                 udpSockPtr->incDropped(1);
@@ -156,15 +156,13 @@ void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 
     if (g_cfgData.runMode == RunMode_Server) {
         if (needBroadcast) {        // broadcast
-            auto broadcast = [&](uint64_t m, NodeSPtr n) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return ;
 
                 nodeMgrPtr_->setSockaddr(ctx->addr, n);
                 sioIntf.udpSend(udpSendFd, ctx);
-            };
-
-            nodeMgrPtr_->forEach(broadcast, false);
+            });
             sioIntf.tapWrite(tapFd, ctx);
         } else if (!isSendToMe) {   // not broadcast && not send to me
             NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
@@ -231,7 +229,7 @@ void TapLan::showNodeStatus()
     LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
-    auto printNodeStatus = [&](uint64_t m, NodeSPtr n) {
+    nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
         char tapmacbuf[32];
         sprintf(tapmacbuf, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X",
             n->mac.addr[0], n->mac.addr[1], n->mac.addr[2], 
@@ -248,8 +246,7 @@ void TapLan::showNodeStatus()
             (n->status == NODE_ONLINE? "ONLINE": "OFFLINE"),
             tapmacbuf, tapipbuf, ipv6str.c_str(), ntohs(n->ipv6Port));
         LOGR("%s", buf);
-    };
-    nodeMgrPtr_->forEach(printNodeStatus, false);
+    });
 }
 
 void TapLan::showStats()
@@ -407,7 +404,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
-            }, false);
+            });
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
         if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
@@ -467,7 +464,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
 
                     AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
                 }
-            }, false);
+            });
 
             AioIntfPtr->reqTapWrite(tapFd, ctx);
             return;

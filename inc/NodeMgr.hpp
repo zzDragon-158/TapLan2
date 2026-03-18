@@ -9,17 +9,6 @@
 #include    <functional>
 #include    <mutex>
 #include    <shared_mutex>
-#ifdef      _WIN32
-// #include    <WS2tcpip.h>
-
-#elif       __linux__
-#include    <arpa/inet.h>
-
-#else
-#error      "unsupported platform!"
-
-#endif
-
 #include    "Socket.hpp"
 #include    "Common.hpp"
 
@@ -74,8 +63,11 @@ struct Node {
     uint8_t     reserved1[1];
     // 24 bytes
 };
-using NodeSPtr = std::shared_ptr<Node>;
 #pragma pack(pop)
+
+using NodeSPtr = std::shared_ptr<Node>;
+using WLock = std::unique_lock<std::shared_mutex>;
+using RLock = std::shared_lock<std::shared_mutex>;
 
 class NodeMgr {
 public:
@@ -89,18 +81,11 @@ public:
     size_t      getNodeNums() { return macToNode_.size(); };
     void        setSockaddr(sockaddr_in6& addr, NodeSPtr n);
     template<typename Func>
-    void forEach(Func&& f, bool isWrite)
+    void forEach(Func&& f)
     {
-        if (isWrite) {
-            std::unique_lock<std::shared_mutex> wLock(rwMutex_);
-            for (auto& [key, value] : macToNode_) {
-                f(key, value);
-            }
-        } else {
-            std::shared_lock<std::shared_mutex> rLock(rwMutex_);
-            for (auto& [key, value] : macToNode_) {
-                f(key, value);
-            }
+        RLock lock(rwMutex_);
+        for (auto& [key, value] : macToNode_) {
+            f(key, value);
         }
     }
     void server();

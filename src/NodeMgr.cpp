@@ -42,7 +42,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     n->status = NODE_ONLINE;
     n->lastSeen = time(nullptr);
 
-    std::unique_lock<std::shared_mutex> wLock(rwMutex_);
+    WLock wLock(rwMutex_);
     addrPool_.set(hostNum);
     macToNode_[macNum] = n;
     activeDeltaBuffer_[macNum] = n;
@@ -55,7 +55,7 @@ NodeSPtr NodeMgr::addNode(uint64_t macNum, Node& node)
     std::shared_ptr n = std::make_shared<Node>();
     std::memcpy(n.get(), &node, sizeof(Node));
 
-    std::unique_lock<std::shared_mutex> wLock(rwMutex_);
+    WLock wLock(rwMutex_);
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
     uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
     addrPool_.set(hostNum);
@@ -70,7 +70,7 @@ NodeSPtr NodeMgr::delNode(uint64_t macNum)
     if (!n)
         return nullptr;
 
-    std::unique_lock<std::shared_mutex> wLock(rwMutex_);
+    WLock wLock(rwMutex_);
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
     uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
     addrPool_.reset(hostNum);
@@ -81,7 +81,7 @@ NodeSPtr NodeMgr::delNode(uint64_t macNum)
 
 NodeSPtr NodeMgr::findNode(uint64_t macNum)
 {
-    std::shared_lock<std::shared_mutex> rLock(rwMutex_);
+    RLock rLock(rwMutex_);
     auto it = macToNode_.find(macNum);
     if (it == macToNode_.end())
         return nullptr;
@@ -95,7 +95,7 @@ bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
     if (!n)
         return false;
 
-    std::unique_lock<std::shared_mutex> wLock(rwMutex_);
+    WLock wLock(rwMutex_);
     n->status = status;
     activeDeltaBuffer_[macNum] = n;
 
@@ -216,7 +216,7 @@ bool NodeMgr::handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr)
                 std::memcpy(sndBuf + sendBytes, v.get(), sizeof(Node));
                 sendBytes += sizeof(Node);
                 ++rspMsg.numsOfNode;
-            }, false);
+            });
 
             break;
         }
