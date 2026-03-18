@@ -61,6 +61,18 @@ struct Mac {
         __builtin_memcpy(&this->addr, &m, 6);
         return *this;
     }
+    void generateMac() {
+        addr[0] = 0x02;
+        addr[1] = 0x34;
+        addr[2] = 0x60;
+
+        auto now = std::chrono::high_resolution_clock::now();
+        auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+        uint32_t seed = static_cast<uint32_t>(micros ^ (getpid() << 16));
+        addr[3] = (seed >> 16) & 0xFF;
+        addr[4] = (seed >> 8) & 0xFF;
+        addr[5] = seed & 0xFF;
+    }
 };
 
 enum {

@@ -13,10 +13,11 @@
 #define     TAP_IOCTL_GET_MAC                       TAP_CONTROL_CODE(1, METHOD_BUFFERED)
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
-WinAdapterInfo tapInfo;
+static NetAdaptInfo tapInfo;
 static const char* TAG = "[TapDev]";
 
-static std::string getCurrentWorkDir() {
+static std::string getCurrentWorkDir()
+{
     namespace fs = std::filesystem;
     try {
         return fs::current_path().string();
@@ -25,23 +26,124 @@ static std::string getCurrentWorkDir() {
     }
 }
 
+static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
+{
+    LONG err;
+    std::string errMsg;
+
+    err = RegGetValueA(
+        adaptKey,
+        adaptIdx,
+        "DeviceInstanceID",
+        RRF_RT_REG_SZ,
+        nullptr,
+        tapInfo.devInstId,
+        &tapInfo.devInstIdLen
+    );
+    if (err != ERROR_SUCCESS) {
+        errMsg = getErrMsg(err);
+        LOGF(TAG, "Failed to get DeviceInstanceID from %s.[%s]", adaptIdx, errMsg.c_str());
+        return false;
+    }
+    LOGT(TAG, "DeviceInstanceID: [%s]", tapInfo.devInstId);
+
+    err = RegGetValueA(
+        adaptKey,
+        adaptIdx,
+        "NetCfgInstanceId",
+        RRF_RT_REG_SZ,
+        nullptr,
+        tapInfo.netCfgInstId,
+        &tapInfo.netInstIdLen
+    );
+    if (err != ERROR_SUCCESS) {
+        errMsg = getErrMsg(err);
+        LOGF(TAG, "Failed to get NetCfgInstanceId from %s.[%s]", adaptIdx, errMsg.c_str());
+        return false;
+    }
+    LOGT(TAG, "NetCfgInstanceId: [%s]", tapInfo.netCfgInstId);
+
+    std::stringstream connKeyPath;
+    connKeyPath << NETWORK_CONNECTIONS_KEY << "\\" << tapInfo.netCfgInstId << "\\Connection";
+
+    HKEY connKey;
+    err = RegOpenKeyExA(
+        HKEY_LOCAL_MACHINE,
+        connKeyPath.str().c_str(),
+        0,
+        KEY_READ | KEY_SET_VALUE,
+        &connKey
+    );
+    if (err != ERROR_SUCCESS) {
+        errMsg = getErrMsg(err);
+        LOGF(TAG, "Failed to open %s.[%s]", connKeyPath.str().c_str(), errMsg);
+        RegCloseKey(connKey);
+        return false;
+    }
+
+    err = RegGetValueA(
+        connKey,
+        nullptr,
+        "Name",
+        RRF_RT_REG_SZ,
+        nullptr,
+        tapInfo.name,
+        &tapInfo.nameLen
+    );
+    RegCloseKey(connKey);
+    if (err) {
+        errMsg = getErrMsg(err);
+        LOGE(TAG, "Failed to get Name from %s.[%s]", connKeyPath.str().c_str(), errMsg.c_str());
+        return false;
+    }
+
+    if (0 != strcmp(TAP_NAME, tapInfo.name)) {
+        char cmd[256];
+        snprintf(cmd, REG_BUF_SIZE, "netsh interface set interface name=\"%s\" newname=\"%s\"", tapInfo.name, TAP_NAME);
+        if (system(cmd)) {
+            LOGE(TAG, "Failed to exec [%s].", cmd);
+            return false;
+        }
+
+        strcpy((char*)tapInfo.name, TAP_NAME);
+        tapInfo.nameLen = strlen(TAP_NAME) + 1;
+    }
+
+    return true;
+}
+
 static bool findExistedTap() {
     bool ret = false;
     LONG err;
     std::string errMsg;
 
-    HKEY openKey0;
-    err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, NETWORK_CONNECTIONS_KEY, 0, KEY_READ, &openKey0);
+    HKEY adaptKey;
+    err = RegOpenKeyExA(
+        HKEY_LOCAL_MACHINE,
+        ADAPTER_KEY,
+        0,
+        KEY_READ,
+        &adaptKey
+    );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGT(TAG, "Failed to open %s.[%s]", NETWORK_CONNECTIONS_KEY, errMsg.c_str());
-        return ret;
+        LOGE(TAG, "Failed to open %s.[%s]", ADAPTER_KEY, errMsg.c_str());
+        return false;
     }
 
     for (DWORD idx = 0; ; ++idx) {
-        WinAdapterInfo adapterInfo;
-
-        err = RegEnumKeyExA(openKey0, idx, adapterInfo.netCfgInstId, &adapterInfo.netInstIdLen, nullptr, nullptr, nullptr, nullptr);
+        CHAR adaptIdx[REG_BUF_SIZE];
+        DWORD adaptIdxLen = REG_BUF_SIZE;
+        err = RegEnumKeyExA(
+            adaptKey,
+            idx,
+            adaptIdx,
+            &adaptIdxLen,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        );
         if (err != ERROR_SUCCESS) {
             if (err != ERROR_NO_MORE_ITEMS) {
                 errMsg = getErrMsg(err);
@@ -50,41 +152,34 @@ static bool findExistedTap() {
             break;
         }
 
-        std::stringstream regPath;
-        regPath << NETWORK_CONNECTIONS_KEY << "\\" << adapterInfo.netCfgInstId << "\\Connection";
-
-        HKEY openKey1;
-        err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, regPath.str().c_str(), 0, KEY_READ, &openKey1);
+        CHAR owner[REG_BUF_SIZE];
+        DWORD ownerLen = REG_BUF_SIZE;
+        err = RegGetValueA(
+            adaptKey,
+            adaptIdx,
+            "Owner",
+            RRF_RT_REG_SZ,
+            nullptr,
+            &owner,
+            &ownerLen
+        );
         if (err != ERROR_SUCCESS) {
-            if (err != ERROR_FILE_NOT_FOUND) {
-                errMsg = getErrMsg(err);
-                LOGT(TAG, "Failed to open %s.[%s]", regPath.str().c_str(), errMsg.c_str());
-            }
+            errMsg = getErrMsg(err);
+            LOGT(TAG, "Failed to get Owner from %s.[%s]", adaptIdx, errMsg.c_str());
+            continue;
+        } else if (0 != strcmp(TAP_NAME, owner)) {
             continue;
         }
 
-        // FIXME: use "MyProgramName" instead of "Name" to check will be better
-        err = RegGetValueA(openKey1, nullptr, "Name", RRF_RT_REG_SZ, nullptr, adapterInfo.name, &adapterInfo.nameLen);
-        RegCloseKey(openKey1);
-        if (err) {
-            LOGT(TAG, "Failed to get Name from %s.[%s]", regPath.str().c_str(), errMsg.c_str());
-            continue;
-        }
-
-        if (0 != strcmp(TAP_NAME, (const char*)adapterInfo.name))
-            continue;
-        LOGT(TAG, "NetCfgInstanceId: [%s]", adapterInfo.netCfgInstId);
-
-        memcpy(&tapInfo, &adapterInfo, sizeof(WinAdapterInfo));
-        ret = true;
+        ret = initTapInfo(adaptKey, adaptIdx);
         break;
     }
 
-    RegCloseKey(openKey0);
+    RegCloseKey(adaptKey);
     return ret;
 }
 
-static bool createNewTap(Mac mac) {
+static bool createNewTap() {
     bool ret = false;
     LONG err;
     std::string errMsg;
@@ -93,11 +188,11 @@ static bool createNewTap(Mac mac) {
         GetSystemTimeAsFileTime(&ft);
         memcpy(&startTimestamp, &ft, 8);
     }
-    char cmd[BUFFER_SIZE];
+    char cmd[REG_BUF_SIZE];
 
     DWORD attributes = GetFileAttributesA(TAP_INSTALL);
     if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
-        snprintf(cmd, BUFFER_SIZE, "%s install OemVista.inf TAP0901", TAP_INSTALL);
+        snprintf(cmd, REG_BUF_SIZE, "%s install OemVista.inf TAP0901", TAP_INSTALL);
         if (system(TAP_INSTALL " install OemVista.inf TAP0901")) {
             LOGE(TAG, "Failed to exec [%s].", cmd);
             return ret;
@@ -107,8 +202,14 @@ static bool createNewTap(Mac mac) {
         return ret;
     }
 
-    HKEY openKey0, openKey1;
-    err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, ADAPTER_KEY, 0, KEY_READ, &openKey0);
+    HKEY adaptKey;
+    err = RegOpenKeyExA(
+        HKEY_LOCAL_MACHINE,
+        ADAPTER_KEY,
+        0,
+        KEY_READ,
+        &adaptKey
+    );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
         LOGE(TAG, "Failed to open %s.[%s]", ADAPTER_KEY, errMsg.c_str());
@@ -116,10 +217,19 @@ static bool createNewTap(Mac mac) {
     }
 
     for (DWORD idx = 0; ; ++idx) {
-        WinAdapterInfo adapterInfo;
-        CHAR driverId[BUFFER_SIZE];
-        DWORD driverIdLen = BUFFER_SIZE;
-        err = RegEnumKeyExA(openKey0, idx, driverId, &driverIdLen, nullptr, nullptr, nullptr, nullptr);
+        NetAdaptInfo adapterInfo;
+        CHAR adaptIdx[REG_BUF_SIZE];
+        DWORD adaptIdxLen = REG_BUF_SIZE;
+        err = RegEnumKeyExA(
+            adaptKey,
+            idx,
+            adaptIdx,
+            &adaptIdxLen,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        );
         if (err != ERROR_SUCCESS) {
             if (err != ERROR_NO_MORE_ITEMS) {
                 errMsg = getErrMsg(err);
@@ -130,137 +240,120 @@ static bool createNewTap(Mac mac) {
 
         DWORD64 installTimestamp;
         DWORD installTimestampLen = sizeof(installTimestamp);
-        err = RegGetValueA(openKey0, driverId, "NetworkInterfaceInstallTimestamp", RRF_RT_QWORD, nullptr, &installTimestamp, &installTimestampLen);
+        err = RegGetValueA(
+            adaptKey,
+            adaptIdx,
+            "NetworkInterfaceInstallTimestamp",
+            RRF_RT_QWORD,
+            nullptr,
+            &installTimestamp,
+            &installTimestampLen
+        );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT(TAG, "Failed to get NetworkInterfaceInstallTimestamp from %s.[%s]", driverId, errMsg.c_str());
+            LOGT(TAG, "Failed to get NetworkInterfaceInstallTimestamp from %s.[%s]", adaptIdx, errMsg.c_str());
             continue;
         } else if (installTimestamp < startTimestamp) {
             continue;
         }
 
-        CHAR providerName[BUFFER_SIZE];
-        DWORD providerNameLen = BUFFER_SIZE;
-        err = RegGetValueA(openKey0, driverId, "ProviderName", RRF_RT_REG_SZ, nullptr, &providerName, &providerNameLen);
+        CHAR providerName[REG_BUF_SIZE];
+        DWORD providerNameLen = REG_BUF_SIZE;
+        err = RegGetValueA(
+            adaptKey,
+            adaptIdx,
+            "ProviderName",
+            RRF_RT_REG_SZ,
+            nullptr,
+            &providerName,
+            &providerNameLen
+        );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT(TAG, "Failed to get ProviderName from %s.[%s]", driverId, errMsg.c_str());
+            LOGT(TAG, "Failed to get ProviderName from %s.[%s]", adaptIdx, errMsg.c_str());
             continue;
         } else if (strcmp("TAP-Windows Provider V9", (const char*)providerName) != 0) {
             continue;
         }
-        LOGT(TAG, "DriverId: [%s]", driverId);
 
-        err = RegGetValueA(openKey0, driverId, "DeviceInstanceID", RRF_RT_REG_SZ, nullptr, adapterInfo.devInstId, &adapterInfo.devInstIdLen);
-        if (err != ERROR_SUCCESS) {
-            errMsg = getErrMsg(err);
-            LOGF(TAG, "Failed to get DeviceInstanceID from %s.[%s]", driverId, errMsg.c_str());
-            break;
-        }
-
-        err = RegGetValueA(openKey0, driverId, "NetCfgInstanceId", RRF_RT_REG_SZ, nullptr, adapterInfo.netCfgInstId, &adapterInfo.netInstIdLen);
-        if (err != ERROR_SUCCESS) {
-            errMsg = getErrMsg(err);
-            LOGF(TAG, "Failed to get NetCfgInstanceId from %s.[%s]", driverId, errMsg.c_str());
-            break;
-        }
-
+        Mac mac;
+        mac.generateMac();
         uint64_t macNum = static_cast<uint64_t>(mac);
         macNum = _byteswap_uint64(macNum);
         macNum >>= 16;
         std::stringstream macSs;
         macSs << std::hex << std::uppercase << std::setfill('0') << std::setw(12) << macNum;
-        err = RegSetKeyValueA(openKey0, driverId, "NetworkAddress", REG_SZ, macSs.str().c_str(), macSs.str().length() + 1);
+        err = RegSetKeyValueA(
+            adaptKey,
+            adaptIdx,
+            "NetworkAddress",
+            REG_SZ,
+            macSs.str().c_str(),
+            macSs.str().length() + 1
+        );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
             LOGE(TAG, "Failed to set NetworkAddress to %s.[%s]", macSs.str().c_str(), errMsg.c_str());
         }
 
         std::string mtu_size = std::to_string(1418);
-        err = RegSetKeyValueA(openKey0, driverId, "MTU", REG_SZ, mtu_size.c_str(), mtu_size.length() + 1);
+        err = RegSetKeyValueA(
+            adaptKey,
+            adaptIdx,
+            "MTU",
+            REG_SZ,
+            mtu_size.c_str(),
+            mtu_size.length() + 1
+        );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
             LOGE(TAG, "Failed to set MTU to %s.[%s]", mtu_size.c_str(), errMsg.c_str());
         }
 
-        std::string myProgName = TAP_NAME;
-        err = RegSetKeyValueA(openKey0, driverId, "MyProgramName", REG_SZ, myProgName.c_str(), myProgName.length() + 1);
+        std::string owner = TAP_NAME;
+        err = RegSetKeyValueA(
+            adaptKey,
+            adaptIdx,
+            "Owner",
+            REG_SZ,
+            owner.c_str(),
+            owner.length() + 1
+        );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to set MyProgramName to %s.[%s]", myProgName.c_str(), errMsg.c_str());
+            LOGE(TAG, "Failed to set Owner to %s.[%s]", owner.c_str(), errMsg.c_str());
         }
 
-        snprintf(cmd, BUFFER_SIZE, "%s restart @%s", TAP_INSTALL, adapterInfo.devInstId);
+        snprintf(cmd, REG_BUF_SIZE, "%s restart @%s", TAP_INSTALL, adapterInfo.devInstId);
         if (system(cmd)) {
             LOGF(TAG, "Failed to exec [%s].", cmd);
             break;
         }
 
-        std::stringstream regPath;
-        regPath << NETWORK_CONNECTIONS_KEY << "\\" << adapterInfo.netCfgInstId << "\\Connection";
-        LOGT(TAG, "NetCfgInstanceId: [%s]", adapterInfo.netCfgInstId);
-
-        err = RegOpenKeyExA(HKEY_LOCAL_MACHINE, regPath.str().c_str(), 0, KEY_READ | KEY_SET_VALUE, &openKey1);
-        if (err != ERROR_SUCCESS) {
-            errMsg = getErrMsg(err);
-            LOGF(TAG, "Failed to open %s.[%s]", regPath.str().c_str(), errMsg);
-            RegCloseKey(openKey0);
-            return false;
-        }
-        err = RegGetValueA(openKey1, nullptr, "Name", RRF_RT_REG_SZ, nullptr, adapterInfo.name, &adapterInfo.nameLen);
-        RegCloseKey(openKey1);
-        if (err) {
-            errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to get Name from %s.[%s]", regPath.str().c_str(), errMsg.c_str());
-            break;
-        }
-        snprintf(cmd, BUFFER_SIZE, "netsh interface set interface name=\"%s\" newname=\"%s\"", adapterInfo.name, TAP_NAME);
-        if (system(cmd)) {
-            LOGE(TAG, "Failed to exec [%s].", cmd);
-            break;
-        }
-        strcpy((char*)adapterInfo.name, TAP_NAME);
-        adapterInfo.nameLen = strlen(TAP_NAME) + 1;
-
-        memcpy(&tapInfo, &adapterInfo, sizeof(WinAdapterInfo));
-        ret = true;
+        ret = initTapInfo(adaptKey, adaptIdx);
         break;
     }
 
-    RegCloseKey(openKey1);
-    RegCloseKey(openKey0);
+    RegCloseKey(adaptKey);
     return ret;
 }
 
 TapDev::TapDev(): fdValid_(false), mac_{},
                     writeErrs_(0), readErrs_(0) {
-    generateMac();
     fdValid_ = open();
 }
 
 TapDev::~TapDev() {
     close();
+    // use tapInfo.DeviceInstanceID to remove
     // if (system(TAP_INSTALL " remove TAP0901"))
     //     LOGE(TAG, "Removing tap device failed.");
-}
-
-void TapDev::generateMac() {
-    mac_.addr[0] = 0x02;
-    mac_.addr[1] = 0x34;
-    mac_.addr[2] = 0x60;
-
-    auto now = std::chrono::high_resolution_clock::now();
-    auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-    uint32_t seed = static_cast<uint32_t>(micros ^ (getpid() << 16));
-    mac_.addr[3] = (seed >> 16) & 0xFF;
-    mac_.addr[4] = (seed >> 8) & 0xFF;
-    mac_.addr[5] = seed & 0xFF;
 }
 
 bool TapDev::open() {
     std::string errMsg;
 
-    if (!findExistedTap() && !createNewTap(mac_))
+    if (!findExistedTap() && !createNewTap())
         return false;
 
     std::stringstream tapName;

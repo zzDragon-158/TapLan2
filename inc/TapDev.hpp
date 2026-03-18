@@ -7,7 +7,6 @@
 #include    "Common.hpp"
 
 #ifdef      _WIN32
-// #include    <WS2tcpip.h>
 #include    <string>
 #include    <stack>
 #include    <vector>
@@ -15,24 +14,27 @@
 #include    <thread>
 #include    <filesystem>
 
-#define     BUFFER_SIZE         1024
-
 typedef     HANDLE              TapFd;
-struct WinAdapterInfo {
-    CHAR netCfgInstId[BUFFER_SIZE];
+const size_t REG_BUF_SIZE = 256;
+struct NetAdaptInfo {
+    CHAR netCfgInstId[REG_BUF_SIZE];
     DWORD netInstIdLen;
-    CHAR devInstId[BUFFER_SIZE];
+    CHAR devInstId[REG_BUF_SIZE];
     DWORD devInstIdLen;
-    BYTE name[BUFFER_SIZE];
+    CHAR name[REG_BUF_SIZE];
     DWORD nameLen;
     DWORD mediaStatus;
     DWORD mediaStatusLen;
 
-    WinAdapterInfo():   netCfgInstId{}, netInstIdLen(BUFFER_SIZE),
-                        devInstId{}, devInstIdLen(BUFFER_SIZE),
-                        name{}, nameLen(BUFFER_SIZE),
-                        mediaStatus(TRUE), mediaStatusLen(sizeof(mediaStatusLen)) {
-        // nothing to do
+    NetAdaptInfo(): netCfgInstId{},
+                    netInstIdLen(REG_BUF_SIZE),
+                    devInstId{},
+                    devInstIdLen(REG_BUF_SIZE),
+                    name{},
+                    nameLen(REG_BUF_SIZE),
+                    mediaStatus(TRUE),
+                    mediaStatusLen(sizeof(mediaStatusLen)) {
+        ;
     }
 };
 
@@ -98,7 +100,6 @@ private:
 
     TapDev();
     ~TapDev();
-    void            generateMac();
     bool            open();
 };
 

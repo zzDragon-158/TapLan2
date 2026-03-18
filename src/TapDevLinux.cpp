@@ -7,25 +7,12 @@ ifreq ifr{};
 
 TapDev::TapDev(): fdValid_(false), mac_{},
                     writeErrs_(0), readErrs_(0) {
-    generateMac();
+    mac_.generateMac();
     fdValid_ = open();
 }
 
 TapDev::~TapDev() {
     close();
-}
-
-void TapDev::generateMac() {
-    mac_.addr[0] = 0x02;
-    mac_.addr[1] = 0x34;
-    mac_.addr[2] = 0x60;
-
-    auto now = std::chrono::high_resolution_clock::now();
-    auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-    uint32_t seed = static_cast<uint32_t>(micros ^ (getpid() << 16));
-    mac_.addr[3] = (seed >> 16) & 0xFF;
-    mac_.addr[4] = (seed >> 8) & 0xFF;
-    mac_.addr[5] = seed & 0xFF;
 }
 
 bool TapDev::open() {
