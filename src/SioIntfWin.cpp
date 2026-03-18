@@ -166,3 +166,55 @@ int SioIntf::udpSend(SocketFd fd, Ctx* ctx)
 
     return sendBytes;
 }
+
+int SioIntf::tcpRecv(Ctx* ctx)
+{
+    DWORD recvBytes;
+
+    ctx->wsaBuf.len = DATA_BUF_SIZE;
+    DWORD flags = 0;
+    int res = WSARecv(
+        static_cast<SocketFd>(*ctx->sockPtr),
+        &ctx->wsaBuf,
+        1,
+        &recvBytes,
+        &flags,
+        nullptr,
+        nullptr
+    );
+    if (res == SOCKET_ERROR) {
+        int err = WSAGetLastError();
+        if (err != WSAEINTR) {
+            LOGE(TAG, "Failed to recv tcp.[%s]", getErrMsg(err).c_str());
+        }
+        return -1;
+    }
+
+    return recvBytes;
+}
+
+int SioIntf::tcpSend(Ctx* ctx)
+{
+    DWORD sendBytes;
+
+    ctx->wsaBuf.len = ctx->dataLen;
+    int res = WSASend(
+        static_cast<SocketFd>(*ctx->sockPtr),
+        &ctx->wsaBuf,
+        1,
+        &sendBytes,
+        0,
+        nullptr,
+        nullptr
+    );
+
+    if (res == SOCKET_ERROR) {
+        int err = WSAGetLastError();
+        if (err != WSAEINTR) {
+            LOGE(TAG, "Failed to send tcp.[%s]", getErrMsg(err).c_str());
+        }
+        return -1;
+    }
+
+    return sendBytes;
+}

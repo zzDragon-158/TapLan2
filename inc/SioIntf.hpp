@@ -12,6 +12,7 @@ public:
         INT addrLen;
         WSABUF wsaBuf;
         DWORD dataLen;
+        BsdSocket* sockPtr;
         char buf[DATA_BUF_SIZE];
 
         Ctx() {
@@ -41,6 +42,26 @@ public:
     int tapWrite(TapFd fd, Ctx* ctx);
     Ctx* udpRecv(SocketFd fd);
     int udpSend(SocketFd fd, Ctx* ctx);
+
+    /**
+     * @brief TCP接收数据
+     * 
+     * @param ctx 包含用来接收的套接字，数据缓冲区
+     * @return int 
+     * @retval >=0 实际接收的字节数
+     * @retval -1 发送失败
+     */
+    int tcpRecv(Ctx* ctx);
+
+    /**
+     * @brief TCP发送数据
+     * 
+     * @param ctx 包含用来发送的套接字，数据和数据长度
+     * @return int
+     * @retval >=0 实际发送的字节数
+     * @retval -1 发送失败
+     */
+    int tcpSend(Ctx* ctx);
 
     Ctx udpSioCtx_;
     Ctx tapSioCtx_;
