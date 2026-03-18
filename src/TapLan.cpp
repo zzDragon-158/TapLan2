@@ -142,6 +142,7 @@ void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 
     UdpSocket* udpSockPtr = getUdpSockPtr();
     SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
+    TapFd tapFd = TapDevPtr->getFd();
 
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
@@ -196,7 +197,7 @@ void TapLan::udpWrk()
 
 void TapLan::tapWrk()
 {
-    TapFd tapReadFd = tapFd;
+    TapFd tapReadFd = TapDevPtr->getFd();
     SioIntf sioIntf;
 
     while (g_cfgData.isRunning) {
@@ -435,6 +436,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
         LOGE(TAG, "Failed to recv udp.[%s]", strerror(-ctx->bufLen));
     }
 
+    TapFd tapFd = TapDevPtr->getFd();
     SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
     sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
     char* payload = ctx->buf->payload;
@@ -505,6 +507,7 @@ void TapLan::aioWrk()
 {
     std::string errMsg;
     HANDLE& hIOCP = AioIntfPtr->hIOCP_;
+    TapFd tapFd = TapDevPtr->getFd();
     SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
 
     if (!CreateIoCompletionPort(tapFd, hIOCP, (ULONG_PTR)this, 0)) {

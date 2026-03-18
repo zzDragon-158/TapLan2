@@ -2,7 +2,6 @@
 #include    "LogMgr.hpp"
 
 static const char* TAG = "[TapDev]";
-TapFd tapFd = -1;
 int tap_sock = -1;
 ifreq ifr{};
 
@@ -30,8 +29,8 @@ void TapDev::generateMac() {
 }
 
 bool TapDev::open() {
-    tapFd = ::open("/dev/net/tun", O_RDWR);
-    if (tapFd == -1) {
+    fd_ = ::open("/dev/net/tun", O_RDWR);
+    if (fd_ == -1) {
         LOGF(TAG, "Failed to open [/dev/net/tun].[%s]", strerror(errno));
         return false;
     }
@@ -44,7 +43,7 @@ bool TapDev::open() {
 
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
     std::strncpy(ifr.ifr_name, TAP_NAME, IFNAMSIZ);
-    if (ioctl(tapFd, TUNSETIFF, &ifr)) {
+    if (ioctl(fd_, TUNSETIFF, &ifr)) {
         LOGF(TAG, "Failed to create TAP.[%s]", strerror(errno));
         return false;
     }
@@ -82,9 +81,9 @@ bool TapDev::open() {
 }
 
 bool TapDev::close() {
-    if (tapFd != -1) {
-        ::close(tapFd);
-        tapFd = -1;
+    if (fd_ != -1) {
+        ::close(fd_);
+        fd_ = -1;
     }
     if (tap_sock != -1) {
         ::close(tap_sock);
@@ -121,7 +120,7 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
 }
 
 ssize_t TapDev::write(const void* buf, size_t bufLen) {
-    ssize_t writeBytes = ::write(tapFd, buf, bufLen);
+    ssize_t writeBytes = ::write(fd_, buf, bufLen);
     if (writeBytes == -1) {
         LOGE(TAG, "Failed to write to TAP.[%s]", strerror(errno));
         ++writeErrs_;
@@ -135,12 +134,12 @@ ssize_t TapDev::write(const void* buf, size_t bufLen) {
 }
 
 ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
-    struct pollfd pfd = {tapFd, POLLIN, 0};
+    struct pollfd pfd = {fd_, POLLIN, 0};
     if (poll(&pfd, 1, timeout) <= 0) {
         return 0;
     }
 
-    ssize_t readBytes = ::read(tapFd, buf, bufLen);
+    ssize_t readBytes = ::read(fd_, buf, bufLen);
     if (readBytes == -1) {
         LOGE(TAG, "Failed to read from TAP.[%s]", strerror(errno));
         ++readErrs_;

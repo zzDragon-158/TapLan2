@@ -109,7 +109,6 @@ void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
     addr.sin6_port = n->ipv6Port;
 }
 
-// TODO: support sync node status
 void NodeMgr::server()
 {
     tcpSockPtr_ = new TcpSocket(g_cfgData.localPort);

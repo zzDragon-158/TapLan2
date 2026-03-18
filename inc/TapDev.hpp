@@ -69,15 +69,13 @@ struct EthHdr {
     uint16_t type;
 };
 #pragma pack(pop)
-extern TapFd tapFd;
 
 class TapDev {
 public:
     static TapDev*  ptr();
+    TapFd           getFd() { return fd_; };
     bool            isFdVaild() { return fdValid_; };
     bool            close();
-    ssize_t         write(const void* buf, size_t bufLen);
-    ssize_t         read(void* buf, size_t bufLen, int timeout = -1);
     void            getMacAddr(Mac& mac);
     bool            setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen);
     uint64_t        getWriteBytes() { return writeBytes_; };
@@ -90,6 +88,7 @@ public:
     void            incReadErrs(uint64_t v) { readErrs_ += v; };
 
 private:
+    TapFd           fd_;
     bool            fdValid_;
     Mac             mac_;
     uint64_t        writeBytes_;

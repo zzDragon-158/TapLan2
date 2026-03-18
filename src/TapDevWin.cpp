@@ -2,7 +2,6 @@
 #include    "LogMgr.hpp"
 #include    "TapLan.hpp"
 
-#define     g_cfgData                                 TapLan::g_cfgData
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles
 #define     ADAPTER_KEY                             "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
@@ -15,8 +14,6 @@
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
 WinAdapterInfo tapInfo;
-OVERLAPPED overlapRead{}, overlapWrite{};
-TapFd tapFd = nullptr;
 static const char* TAG = "[TapDev]";
 
 static std::string getCurrentWorkDir() {
@@ -239,12 +236,12 @@ TapDev::TapDev(): fdValid_(false), mac_{},
                     writeErrs_(0), readErrs_(0) {
     generateMac();
     fdValid_ = open();
-    overlapRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    overlapWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 }
 
 TapDev::~TapDev() {
     close();
+    // if (system(TAP_INSTALL " remove TAP0901"))
+    //     LOGE(TAG, "Removing tap device failed.");
 }
 
 void TapDev::generateMac() {
@@ -268,17 +265,17 @@ bool TapDev::open() {
 
     std::stringstream tapName;
     tapName << USERMODEDEVICEDIR << tapInfo.netCfgInstId << TAPSUFFIX;
-    tapFd = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
-    if (tapFd == INVALID_HANDLE_VALUE) {
+    fd_ = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
+    if (fd_ == INVALID_HANDLE_VALUE) {
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to open TAP device.[%s]", errMsg.c_str());
         return false;
     }
 
-    if (!DeviceIoControl(tapFd, TAP_IOCTL_SET_MEDIA_STATUS,
-                        &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
-                        &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
-                        &tapInfo.mediaStatusLen, nullptr)) {
+    if (!DeviceIoControl(fd_, TAP_IOCTL_SET_MEDIA_STATUS,
+                         &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
+                         &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
+                         &tapInfo.mediaStatusLen, nullptr)) {
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to set status to up.[%s]", errMsg.c_str());
         return false;
@@ -286,10 +283,10 @@ bool TapDev::open() {
 
     memset(mac_.addr, 0, 6);
     DWORD macLen = sizeof(mac_);
-    if (!DeviceIoControl(tapFd, TAP_IOCTL_GET_MAC,
-                        mac_.addr, 6,
-                        mac_.addr, 6,
-                        &macLen, nullptr)) {
+    if (!DeviceIoControl(fd_, TAP_IOCTL_GET_MAC,
+                         mac_.addr, 6,
+                         mac_.addr, 6,
+                         &macLen, nullptr)) {
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to get MAC address.[%s]", errMsg.c_str());
         return false;
@@ -299,14 +296,10 @@ bool TapDev::open() {
 }
 
 bool TapDev::close() {
-    if (tapFd != INVALID_HANDLE_VALUE) {
-        CloseHandle(tapFd);
-        tapFd = INVALID_HANDLE_VALUE;
-        CloseHandle(overlapRead.hEvent);
-        CloseHandle(overlapWrite.hEvent);
+    if (fd_ != INVALID_HANDLE_VALUE) {
+        CloseHandle(fd_);
+        fd_ = INVALID_HANDLE_VALUE;
     }
-    // if (system(TAP_INSTALL " remove TAP0901"))
-    //     LOGE(TAG, "Removing tap device failed.");
 
     return true;
 }
@@ -329,57 +322,4 @@ bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
     LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
 
     return true;
-}
-
-ssize_t TapDev::write(const void* buf, size_t bufLen) {
-    static DWORD writeBytes;
-    if (WriteFile(tapFd, buf, bufLen, &writeBytes, &overlapWrite)) {
-        ResetEvent(overlapWrite.hEvent);
-        return writeBytes;
-    }
-
-    DWORD err = GetLastError();
-    if (err == ERROR_IO_PENDING) {
-        GetOverlappedResult(tapFd, &overlapWrite, &writeBytes, TRUE);
-        ResetEvent(overlapWrite.hEvent);
-        if (writeBytes < bufLen) {
-            LOGE(TAG, "writeBytes[%ld] is less than expected[%lu].", writeBytes, bufLen);
-            ++writeErrs_;
-        }
-    } else {
-        LOGE(TAG, "Failed to write to tap device.[%s]", getErrMsg(err).c_str());
-        ++writeErrs_;
-        writeBytes = -1;
-    }
-
-    return writeBytes;
-}
-
-ssize_t TapDev::read(void* buf, size_t bufLen, int timeout) {
-    static DWORD readBytes;
-    static bool waitFlag = false;
-    if (!waitFlag && ReadFile(tapFd, buf, bufLen, &readBytes, &overlapRead)) {
-        ResetEvent(overlapRead.hEvent);
-        return readBytes;
-    }
-
-    if (!waitFlag) {
-        waitFlag = true;
-        DWORD err = GetLastError();
-        if (err != ERROR_IO_PENDING) {
-            waitFlag = false;
-            LOGE(TAG, "Failed to read from tap device.[%s]", getErrMsg(err).c_str());
-            ++readErrs_;
-            return -1;
-        }
-    }
-
-    if (WAIT_OBJECT_0 == WaitForSingleObject(overlapRead.hEvent, timeout)) {
-        waitFlag = false;
-        GetOverlappedResult(tapFd, &overlapRead, &readBytes, FALSE);
-        ResetEvent(overlapRead.hEvent);
-        return readBytes;
-    }
-
-    return 0;
 }
