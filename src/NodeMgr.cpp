@@ -168,7 +168,7 @@ void NodeMgr::server()
                     pfds_.erase(pfds_.begin() + i);
                     clients_.erase(clients_.begin() + i - 1);
                     continue;
-                } else if (recvBytes != sizeof(SyncMsgHdr)) {  // 接收消息格式不对
+                } else if (recvBytes < 0) {  // 接收消息格式不对
                     continue;
                 }
 
@@ -248,7 +248,6 @@ bool NodeMgr::reqIPFromServer()
         connStatus_ = NOT_CONNECTED;
         return false;
     } else if (recvBytes < 0) {
-        LOGE(TAG, "recvBytes[%ld] is unexpected.", recvBytes);
         return false;
     }
 
@@ -279,8 +278,7 @@ bool NodeMgr::syncNodeFromServer()
         LOGW(TAG, "server has closed the connection.");
         connStatus_ = NOT_CONNECTED;
         return false;
-    } else if (recvBytes < sizeof(SyncMsgHdr)) {
-        LOGE(TAG, "recvBytes[%ld] is unexpected.", recvBytes);
+    } else if (recvBytes < 0) {
         return false;
     }
 
