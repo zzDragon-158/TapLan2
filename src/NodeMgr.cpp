@@ -133,7 +133,7 @@ void NodeMgr::server()
 
     pfds_.push_back({ static_cast<SocketFd>(*tcpSockPtr_), POLLIN, 0 });
     while (g_cfgData.isRunning) {
-        int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), 3000);
+        int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
         if (pollCnt < 0) {
             LOGE(TAG, "TapLanPoll failed.");
             continue;
@@ -172,14 +172,10 @@ void NodeMgr::server()
                     continue;
                 }
 
-                // 处理消息
-                const SyncMsgHdr& reqMsgHdr = reinterpret_cast<const SyncMsgHdr&>(recvBuf);
-                if (reqMsgHdr.key) {
-                    // TODO: check if the key is valid.
-                }
                 handleSyncMsg(recvBuf, recvBytes, client);
             }
         }
+
         syncNodeToClients();
     }
 }
@@ -332,26 +328,27 @@ bool NodeMgr::syncNodeToClients()
 
 bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSocket& srcSock)
 {
+    bool ok;
     SyncMsgHdr& msgHdr = reinterpret_cast<SyncMsgHdr&>(*msg);
 
     switch (msgHdr.op) {
     case OP_REQ_IP:
-        handleIPReq(msg, srcSock);
+        ok = handleIPReq(msg, srcSock);
         break;
 
     case OP_RESP_IP:
-        handleIPMsg(msg);
+        ok = handleIPMsg(msg);
         break;
 
     case OP_REQ_SYNC_NODE:
-        handleSyncNodeReq(msg, srcSock);
+        ok = handleSyncNodeReq(msg, srcSock);
         break;
 
     case OP_RESP_SYNC_NODE:
         reset();
 
     case OP_MOD:
-        handleSyncNodeMsg(msg);
+        ok = handleSyncNodeMsg(msg);
         break;
 
     default:
@@ -359,7 +356,11 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSocket& srcSock)
         break;
     }
 
-    return true;
+    if (!ok) {
+        LOGW(TAG, "Failed to handle OP[%u].", msgHdr.op);
+    }
+
+    return ok;
 }
 
 bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSocket& client)
