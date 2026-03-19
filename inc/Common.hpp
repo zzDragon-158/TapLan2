@@ -10,7 +10,7 @@
 #include    <ws2tcpip.h>
 #include    <windows.h>
 
-typedef     SOCKET              SocketFd;
+typedef     SOCKET              SockFd;
 
 static std::string getErrMsg(DWORD errorCode)
 {
@@ -47,7 +47,7 @@ static std::string getErrMsg(DWORD errorCode)
 
 #define     INVALID_SOCKET      -1
 
-typedef     int                 SocketFd;
+typedef     int                 SockFd;
 
 #endif
 

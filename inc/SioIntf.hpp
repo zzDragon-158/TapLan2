@@ -12,7 +12,7 @@ public:
         INT addrLen;
         WSABUF wsaBuf;
         DWORD dataLen;
-        BsdSocket* sockPtr;
+        BsdSock* sockPtr;
         char buf[DATA_BUF_SIZE];
 
         Ctx() {
@@ -40,8 +40,8 @@ public:
     ~SioIntf();
     Ctx* tapRead(TapFd fd);
     int tapWrite(TapFd fd, Ctx* ctx);
-    Ctx* udpRecv(SocketFd fd);
-    int udpSend(SocketFd fd, Ctx* ctx);
+    Ctx* udpRecv(SockFd fd);
+    int udpSend(SockFd fd, Ctx* ctx);
 
     /**
      * @brief TCP接收数据

@@ -17,12 +17,12 @@ public:
     bool stop();
     void showNodeStatus();
     void showStats();
-    UdpSocket* getUdpSockPtr();
+    UdpSock* getUdpSockPtr();
 
 private:
     sockaddr_in6    serverAddr_;
-    UdpSocket*      udpSockPtr_;
-    UdpSocket*      udpSockPtrs_[4];
+    UdpSock*      udpSockPtr_;
+    UdpSock*      udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
     std::thread     syncThread_, aioWrkThread_, sioWrkThread_, tapWrkThread_, udpWrkThread_;
 

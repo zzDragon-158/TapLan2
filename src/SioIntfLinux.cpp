@@ -36,7 +36,7 @@ int SioIntf::tapWrite(TapFd fd, Ctx* ctx)
     return res;
 }
 
-SioIntf::Ctx* SioIntf::udpRecv(SocketFd fd)
+SioIntf::Ctx* SioIntf::udpRecv(SockFd fd)
 {
     Ctx* ctx = &udpSioCtx_;
 
@@ -55,7 +55,7 @@ SioIntf::Ctx* SioIntf::udpRecv(SocketFd fd)
     return ctx;
 }
 
-int SioIntf::udpSend(SocketFd fd, Ctx* ctx)
+int SioIntf::udpSend(SockFd fd, Ctx* ctx)
 {
     int res = ::sendto(fd,
                        ctx->buf,

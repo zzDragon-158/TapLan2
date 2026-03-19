@@ -124,14 +124,14 @@ void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
 
 void NodeMgr::server()
 {
-    tcpSockPtr_ = new TcpSocket(g_cfgData.localPort);
+    tcpSockPtr_ = new TcpSock(g_cfgData.localPort);
     if (!tcpSockPtr_->isFdValid() || !tcpSockPtr_->listen(5)) {
         LOGF(TAG, "Trying to run in server mode failed.");
         g_cfgData.isRunning = false;
         return ;
     }
 
-    pfds_.push_back({ static_cast<SocketFd>(*tcpSockPtr_), POLLIN, 0 });
+    pfds_.push_back({ static_cast<SockFd>(*tcpSockPtr_), POLLIN, 0 });
     while (g_cfgData.isRunning) {
         int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
         if (pollCnt < 0) {
@@ -142,7 +142,7 @@ void NodeMgr::server()
         size_t pfdsLen = pfds_.size();
         if (pfds_.begin()->revents != 0) {
             --pollCnt;
-            SocketFd tcpFd = INVALID_SOCKET;
+            SockFd tcpFd = INVALID_SOCKET;
             sockaddr_in6 addr;
             if (tcpSockPtr_->accept(tcpFd, addr)) {
                 pfds_.push_back({ tcpFd, POLLIN, 0 });
@@ -156,10 +156,10 @@ void NodeMgr::server()
                 --pollCnt;
                 uint8_t recvBuf[65536];
                 uint8_t sendBuf[65536];
-                TcpSocket& client = clients_[i - 1];
+                TcpSock& client = clients_[i - 1];
                 ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
                 if (recvBytes == 0) {   // 对方关闭连接
-                    auto it = sockToMac_.find(static_cast<SocketFd>(client));
+                    auto it = sockToMac_.find(static_cast<SockFd>(client));
                     if (it != sockToMac_.end()) {
                         if (!setNodeStatus(it->second, NODE_OFFLINE))
                             LOGW(TAG, "set node status failed.");
@@ -212,7 +212,7 @@ bool NodeMgr::connectToServer()
 {
     if (!tcpSockPtr_ || !tcpSockPtr_->isFdValid()) {
         delete tcpSockPtr_;
-        tcpSockPtr_ = new TcpSocket(g_cfgData.localPort, serverAddr_);
+        tcpSockPtr_ = new TcpSock(g_cfgData.localPort, serverAddr_);
         if (!tcpSockPtr_->isFdValid()) {
             LOGE(TAG, "Failed to create tcp socket.");
             return false;
@@ -317,7 +317,7 @@ bool NodeMgr::syncNodeToClients()
     processingBuffer_.clear();
 
     for (auto& client: clients_) {
-        if (sockToMac_.find(static_cast<SocketFd>(client)) != sockToMac_.end()) {
+        if (sockToMac_.find(static_cast<SockFd>(client)) != sockToMac_.end()) {
             syncMsgHdr.msgLen = sendBytes;
             client.send(sndBuf, sendBytes);
         }
@@ -326,7 +326,7 @@ bool NodeMgr::syncNodeToClients()
     return true;
 }
 
-bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSocket& srcSock)
+bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock& srcSock)
 {
     bool ok;
     SyncMsgHdr& msgHdr = reinterpret_cast<SyncMsgHdr&>(*msg);
@@ -363,7 +363,7 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSocket& srcSock)
     return ok;
 }
 
-bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSocket& client)
+bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock& client)
 {
     uint8_t sndBuf[65536];
     size_t sendBytes = 0;
@@ -412,7 +412,7 @@ bool NodeMgr::handleIPMsg(uint8_t* respMsg)
     return TapDevPtr->setIPv4Addr(&ipMsg.ipv4Addr, ipMsg.netIDLen);
 }
 
-bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSocket& client)
+bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSock& client)
 {
     uint8_t sndBuf[65536];
     size_t sendBytes = 0;
@@ -422,7 +422,7 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSocket& client)
     sendBytes += sizeof(SyncMsgHdr);
 
     respMsgHdr.op = OP_RESP_SYNC_NODE;
-    sockToMac_[static_cast<SocketFd>(client)] = respMsgHdr.mac;
+    sockToMac_[static_cast<SockFd>(client)] = respMsgHdr.mac;
 
     SyncNodeMsg& respMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
     respMsg.verNum = verNum_;

@@ -4,7 +4,7 @@
 static const char* TAG = "[Socket]";
 const int udpBufferSize = 1024 * 1024 * 128;
 
-BsdSocket::BsdSocket(): fd_(INVALID_SOCKET), bindPort_(0),
+BsdSock::BsdSock(): fd_(INVALID_SOCKET), bindPort_(0),
                           sendBytes_(0), recvBytes_(0),
                           sendErrs_(0), recvErrs_(0),
                           dropped_(0)
@@ -12,7 +12,7 @@ BsdSocket::BsdSocket(): fd_(INVALID_SOCKET), bindPort_(0),
     // nothing to do
 }
 
-BsdSocket::BsdSocket(BsdSocket&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
+BsdSock::BsdSock(BsdSock&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
                                                                     sendBytes_(other.sendBytes_), recvBytes_(other.recvBytes_),
                                                                     sendErrs_(other.sendErrs_), recvErrs_(other.sendErrs_),
                                                                     dropped_(other.dropped_)
@@ -20,12 +20,12 @@ BsdSocket::BsdSocket(BsdSocket&& other) noexcept: fd_(other.fd_), fdValid_(other
     other.fd_ = INVALID_SOCKET;
 }
 
-BsdSocket::~BsdSocket()
+BsdSock::~BsdSock()
 {
     close();
 }
 
-bool BsdSocket::open()
+bool BsdSock::open()
 {
     // TODO: maybe for open raw socket?
     LOGT(TAG, "Why are we here?");
@@ -33,12 +33,12 @@ bool BsdSocket::open()
     return true;
 }
 
-std::string BsdSocket::getErrStr()
+std::string BsdSock::getErrStr()
 {
     return "[Error " + std::to_string(errno) + "] " + strerror(errno);
 }
 
-bool BsdSocket::close()
+bool BsdSock::close()
 {
     if (fd_ != INVALID_SOCKET) {
         LOGT(TAG, "close fd_[%ld]", fd_);
@@ -50,7 +50,7 @@ bool BsdSocket::close()
     return true;
 }
 
-BsdSocket& BsdSocket::operator=(BsdSocket&& other) noexcept
+BsdSock& BsdSock::operator=(BsdSock&& other) noexcept
 {
     if (this != &other) {
         close();
@@ -61,42 +61,42 @@ BsdSocket& BsdSocket::operator=(BsdSocket&& other) noexcept
     return *this;
 }
 
-TcpSocket::TcpSocket(uint16_t localPort): BsdSocket(), isPassive_(true)
+TcpSock::TcpSock(uint16_t localPort): BsdSock(), isPassive_(true)
 {
     bindPort_ = localPort;
     memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr): BsdSocket(), isPassive_(false)
+TcpSock::TcpSock(uint16_t localPort, sockaddr_in6 serverAddr): BsdSock(), isPassive_(false)
 {
     bindPort_ = localPort;
     memcpy(&remoteAddr_, &serverAddr, sizeof(sockaddr_in6));
     fdValid_ = open();
 }
 
-TcpSocket::TcpSocket(SocketFd fd, sockaddr_in6 sa): BsdSocket(), isPassive_(false)
+TcpSock::TcpSock(SockFd fd, sockaddr_in6 sa): BsdSock(), isPassive_(false)
 {
     fd_ = fd;
     memcpy(&remoteAddr_, &sa, sizeof(sa));
     fdValid_ = (fd != INVALID_SOCKET);
 }
 
-TcpSocket::TcpSocket(TcpSocket&& other) noexcept: BsdSocket(std::move(other)), isPassive_(other.isPassive_)
+TcpSock::TcpSock(TcpSock&& other) noexcept: BsdSock(std::move(other)), isPassive_(other.isPassive_)
 {
     LOGT(TAG, "move construction fd_[%ld]", fd_);
     memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
 }
 
-TcpSocket::~TcpSocket()
+TcpSock::~TcpSock()
 {
     // nothing to do
 }
 
-TcpSocket& TcpSocket::operator=(TcpSocket&& other) noexcept
+TcpSock& TcpSock::operator=(TcpSock&& other) noexcept
 {
     if (this != &other) {
-        BsdSocket::operator=(std::move(other));
+        BsdSock::operator=(std::move(other));
         memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
         memset(&other.remoteAddr_, 0, sizeof(sockaddr_in6));
     }
@@ -104,7 +104,7 @@ TcpSocket& TcpSocket::operator=(TcpSocket&& other) noexcept
     return *this;
 }
 
-bool TcpSocket::open()
+bool TcpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
     if (fd_ == INVALID_SOCKET) {
@@ -153,7 +153,7 @@ bool TcpSocket::open()
     return true;
 }
 
-bool TcpSocket::connect()
+bool TcpSock::connect()
 {
     if (::connect(fd_, reinterpret_cast<const sockaddr *>(&remoteAddr_), sizeof(remoteAddr_))) {
         LOGE(TAG, "TCP connect failed. %s", getErrStr().c_str());
@@ -164,7 +164,7 @@ bool TcpSocket::connect()
     return true;
 }
 
-bool TcpSocket::listen(int backlog)
+bool TcpSock::listen(int backlog)
 {
     if (::listen(fd_, backlog)) {
         LOGE(TAG, "TCP listen failed. %s", getErrStr().c_str());
@@ -175,7 +175,7 @@ bool TcpSocket::listen(int backlog)
     return true;
 }
 
-bool TcpSocket::accept(SocketFd& fd, sockaddr_in6& addr)
+bool TcpSock::accept(SockFd& fd, sockaddr_in6& addr)
 {
     socklen_t addrLen = sizeof(sockaddr_in6);
     fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);
@@ -186,7 +186,7 @@ bool TcpSocket::accept(SocketFd& fd, sockaddr_in6& addr)
     return true;
 }
 
-ssize_t TcpSocket::send(const void* buf, size_t bufLen)
+ssize_t TcpSock::send(const void* buf, size_t bufLen)
 {
     ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
     if (sendBytes < bufLen) {
@@ -199,7 +199,7 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
     return sendBytes;
 }
 
-ssize_t TcpSocket::recv(void* buf, size_t bufLen)
+ssize_t TcpSock::recv(void* buf, size_t bufLen)
 {
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
     if (recvBytes == -1 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT)) {
@@ -216,23 +216,23 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
     return recvBytes;
 }
 
-void TcpSocket::getRemoteAddr(sockaddr_in6* addr)
+void TcpSock::getRemoteAddr(sockaddr_in6* addr)
 {
     memcpy(addr, &remoteAddr_, sizeof(sockaddr_in6));
 }
 
-UdpSocket::UdpSocket(uint16_t port): BsdSocket()
+UdpSock::UdpSock(uint16_t port): BsdSock()
 {
     bindPort_ = port;
     fdValid_ = open();
 }
 
-UdpSocket::~UdpSocket()
+UdpSock::~UdpSock()
 {
     // nothing to do
 }
 
-bool UdpSocket::open()
+bool UdpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
     if (fd_ == -1) {
@@ -281,7 +281,7 @@ bool UdpSocket::open()
     return true;
 }
 
-ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr, socklen_t addrLen)
+ssize_t UdpSock::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr, socklen_t addrLen)
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
@@ -294,7 +294,7 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
     return sendBytes;
 }
 
-ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen)
+ssize_t UdpSock::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen)
 {
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {

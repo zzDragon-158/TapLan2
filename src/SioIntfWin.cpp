@@ -106,7 +106,7 @@ int SioIntf::tapWrite(TapFd fd, Ctx* ctx)
     return writeBytes;
 }
 
-SioIntf::Ctx* SioIntf::udpRecv(SocketFd fd)
+SioIntf::Ctx* SioIntf::udpRecv(SockFd fd)
 {
     DWORD err;
     DWORD res;
@@ -141,7 +141,7 @@ r_success:
     return ctx;
 }
 
-int SioIntf::udpSend(SocketFd fd, Ctx* ctx)
+int SioIntf::udpSend(SockFd fd, Ctx* ctx)
 {
     int res;
     DWORD err;
@@ -174,7 +174,7 @@ int SioIntf::tcpRecv(Ctx* ctx)
     ctx->wsaBuf.len = DATA_BUF_SIZE;
     DWORD flags = 0;
     int res = WSARecv(
-        static_cast<SocketFd>(*ctx->sockPtr),
+        static_cast<SockFd>(*ctx->sockPtr),
         &ctx->wsaBuf,
         1,
         &recvBytes,
@@ -199,7 +199,7 @@ int SioIntf::tcpSend(Ctx* ctx)
 
     ctx->wsaBuf.len = ctx->dataLen;
     int res = WSASend(
-        static_cast<SocketFd>(*ctx->sockPtr),
+        static_cast<SockFd>(*ctx->sockPtr),
         &ctx->wsaBuf,
         1,
         &sendBytes,

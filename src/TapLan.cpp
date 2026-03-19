@@ -44,9 +44,9 @@ TapLan::~TapLan()
     stop();
 }
 
-UdpSocket* TapLan::getUdpSockPtr()
+UdpSock* TapLan::getUdpSockPtr()
 {
-    UdpSocket* curUdpSockPtr = udpSockPtr_;
+    UdpSock* curUdpSockPtr = udpSockPtr_;
     if (g_cfgData.swPortIntvl) {
         std::time_t now = std::time(nullptr);
         uint16_t portIdx = (now / 60 / g_cfgData.swPortIntvl) % 4;
@@ -64,13 +64,13 @@ bool TapLan::initUdpSockPtrs()
 {
     uint16_t startPort = g_cfgData.localPort - g_cfgData.localPort % 4;
     for (int i = 0; i < 4; ++i) {
-        UdpSocket*& udpSockPtr = udpSockPtrs_[i];
+        UdpSock*& udpSockPtr = udpSockPtrs_[i];
         uint16_t port = startPort + i;
         if (!g_cfgData.swPortIntvl && port != g_cfgData.localPort) {
             continue;
         }
 
-        udpSockPtr = new UdpSocket(port);
+        udpSockPtr = new UdpSock(port);
         if (!udpSockPtr->isFdValid()) {
             delete udpSockPtr;
             udpSockPtr = nullptr;
@@ -90,8 +90,8 @@ void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
         return ;
     }
 
-    UdpSocket* udpSockPtr = getUdpSockPtr();
-    SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
+    UdpSock* udpSockPtr = getUdpSockPtr();
+    SockFd udpSendFd = static_cast<SockFd>(*udpSockPtr);
 
     EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
     Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
@@ -140,8 +140,8 @@ void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
         return ;
     }
 
-    UdpSocket* udpSockPtr = getUdpSockPtr();
-    SocketFd udpSendFd = static_cast<SocketFd>(*udpSockPtr);
+    UdpSock* udpSockPtr = getUdpSockPtr();
+    SockFd udpSendFd = static_cast<SockFd>(*udpSockPtr);
     TapFd tapFd = TapDevPtr->getFd();
 
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
@@ -182,7 +182,7 @@ void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 
 void TapLan::udpWrk()
 {
-    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    SockFd udpRecvFd = static_cast<SockFd>(*udpSockPtr_);
     SioIntf sioIntf;
 
     while (g_cfgData.isRunning) {
@@ -369,7 +369,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
         LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->bufLen));
     }
 
-    SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
+    SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
     sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
     char* payload = ctx->buf->payload;
 
@@ -434,7 +434,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
     }
 
     TapFd tapFd = TapDevPtr->getFd();
-    SocketFd udpSendFd = static_cast<SocketFd>(*getUdpSockPtr());
+    SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
     sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
     char* payload = ctx->buf->payload;
 
@@ -505,7 +505,7 @@ void TapLan::aioWrk()
     std::string errMsg;
     HANDLE& hIOCP = AioIntfPtr->hIOCP_;
     TapFd tapFd = TapDevPtr->getFd();
-    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    SockFd udpRecvFd = static_cast<SockFd>(*udpSockPtr_);
 
     if (!CreateIoCompletionPort(tapFd, hIOCP, (ULONG_PTR)this, 0)) {
         errMsg = getErrMsg(GetLastError());
@@ -514,7 +514,7 @@ void TapLan::aioWrk()
     }
     if (g_cfgData.swPortIntvl) {
         for (int i = 0; i < 4; ++i) {
-            SocketFd udpFd = static_cast<SocketFd>(*udpSockPtrs_[i]);
+            SockFd udpFd = static_cast<SockFd>(*udpSockPtrs_[i]);
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP, (ULONG_PTR)this, 0)) {
                 errMsg = getErrMsg(GetLastError());
                 LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
@@ -593,7 +593,7 @@ void TapLan::aioWrk()
 {
     io_uring* ring = &AioIntfPtr->ring_;
     TapFd tapFd = TapDevPtr->getFd();
-    SocketFd udpRecvFd = static_cast<SocketFd>(*udpSockPtr_);
+    SockFd udpRecvFd = static_cast<SockFd>(*udpSockPtr_);
 
     AioIntfPtr->reqTapReadMultishot(tapFd);
     AioIntfPtr->reqUdpRecvMultishot(udpRecvFd);

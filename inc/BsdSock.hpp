@@ -39,15 +39,15 @@ inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
     return std::string(ipv6str);
 }
 
-class BsdSocket {
+class BsdSock {
 public:
-    BsdSocket();
-    BsdSocket(BsdSocket&& other) noexcept;
-    BsdSocket(const BsdSocket&) = delete;
-    BsdSocket& operator=(const BsdSocket&) = delete;
-    BsdSocket& operator=(BsdSocket&& other) noexcept;
-    explicit operator SocketFd() { return fd_; };
-    ~BsdSocket();
+    BsdSock();
+    BsdSock(BsdSock&& other) noexcept;
+    BsdSock(const BsdSock&) = delete;
+    BsdSock& operator=(const BsdSock&) = delete;
+    BsdSock& operator=(BsdSock&& other) noexcept;
+    explicit operator SockFd() { return fd_; };
+    ~BsdSock();
     bool isFdValid() { return (fd_ != INVALID_SOCKET); };
     bool close();
     uint16_t getBindPort() { return bindPort_; };
@@ -63,7 +63,7 @@ public:
     void incDropped(uint64_t v) { dropped_ += v; };
 
 protected:
-    SocketFd fd_;
+    SockFd fd_;
     bool fdValid_;
     uint16_t bindPort_;
     uint64_t sendBytes_;
@@ -81,18 +81,18 @@ protected:
     std::string getErrStr();
 };
 
-class TcpSocket: public BsdSocket {
+class TcpSock: public BsdSock {
 public:
-    // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, SocketFd sock, void* respBuf, size_t& respLen)> CbRecvFunc;
-    TcpSocket(uint16_t localPort);                              // for listen
-    TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr);     // for connect
-    TcpSocket(SocketFd fd, sockaddr_in6 remoteAddr);            // for accept
-    TcpSocket(TcpSocket&& other) noexcept;
-    ~TcpSocket();
-    TcpSocket& operator=(TcpSocket&& other) noexcept;
+    // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, SockFd sock, void* respBuf, size_t& respLen)> CbRecvFunc;
+    TcpSock(uint16_t localPort);                              // for listen
+    TcpSock(uint16_t localPort, sockaddr_in6 serverAddr);     // for connect
+    TcpSock(SockFd fd, sockaddr_in6 remoteAddr);            // for accept
+    TcpSock(TcpSock&& other) noexcept;
+    ~TcpSock();
+    TcpSock& operator=(TcpSock&& other) noexcept;
     bool connect();
     bool listen(int backlog);
-    bool accept(SocketFd& fd, sockaddr_in6& addr);
+    bool accept(SockFd& fd, sockaddr_in6& addr);
     ssize_t send(const void* buf, size_t bufLen);
     ssize_t recv(void* buf, size_t bufLen);
     // bool recv(CbRecvFunc& cbRecv);
@@ -108,10 +108,10 @@ private:
     bool open();
 };
 
-class UdpSocket: public BsdSocket {
+class UdpSock: public BsdSock {
 public:
-    UdpSocket(uint16_t port);
-    ~UdpSocket();
+    UdpSock(uint16_t port);
+    ~UdpSock();
     ssize_t sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr, socklen_t addrLen);
     ssize_t recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen);
 
