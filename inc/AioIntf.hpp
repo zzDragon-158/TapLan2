@@ -6,7 +6,7 @@
 #include    <stack>
 #include    "Common.hpp"
 #include    "LogMgr.hpp"
-#include    "Socket.hpp"
+#include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 
 #define     AioIntfPtr      AioIntf::ptr()

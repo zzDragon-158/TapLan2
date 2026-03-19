@@ -86,7 +86,7 @@ public:
     // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, SocketFd sock, void* respBuf, size_t& respLen)> CbRecvFunc;
     TcpSocket(uint16_t localPort);                              // for listen
     TcpSocket(uint16_t localPort, sockaddr_in6 serverAddr);     // for connect
-    TcpSocket(SocketFd fd, sockaddr_in6 remoteAddr);        // for accept
+    TcpSocket(SocketFd fd, sockaddr_in6 remoteAddr);            // for accept
     TcpSocket(TcpSocket&& other) noexcept;
     ~TcpSocket();
     TcpSocket& operator=(TcpSocket&& other) noexcept;
@@ -97,10 +97,13 @@ public:
     ssize_t recv(void* buf, size_t bufLen);
     // bool recv(CbRecvFunc& cbRecv);
     void getRemoteAddr(sockaddr_in6* addr);
+    uint64_t getMac() { return remoteMac_; };
+    void setMac(uint64_t macNum) { remoteMac_ = macNum; };
 
 private:
     bool isPassive_;
     sockaddr_in6 remoteAddr_;
+    Mac remoteMac_;
 
     bool open();
 };

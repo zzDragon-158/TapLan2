@@ -4,7 +4,7 @@
 #include    <pthread.h>
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
-#include    "Socket.hpp"
+#include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 #include    "AioIntf.hpp"
 #include    "SioIntf.hpp"

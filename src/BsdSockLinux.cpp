@@ -1,11 +1,10 @@
-#include "Socket.hpp"
+#include "BsdSock.hpp"
 #include "LogMgr.hpp"
 
 static const char* TAG = "[Socket]";
-const int udpBufferSize = 1024 * 1024 * 8;
-bool BsdSocket::s_isWsaInitialized_ = false;
+const int udpBufferSize = 1024 * 1024 * 128;
 
-BsdSocket::BsdSocket(): fd_(INVALID_SOCKET), fdValid_(false), bindPort_(0),
+BsdSocket::BsdSocket(): fd_(INVALID_SOCKET), bindPort_(0),
                           sendBytes_(0), recvBytes_(0),
                           sendErrs_(0), recvErrs_(0),
                           dropped_(0)
@@ -26,21 +25,6 @@ BsdSocket::~BsdSocket()
     close();
 }
 
-bool BsdSocket::initWsa()
-{
-    if (!s_isWsaInitialized_) {
-        WSADATA wsaData;
-        if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-            LOGE(TAG, "WSAStartup failed. %s", getErrStr().c_str());
-            s_isWsaInitialized_ =  false;
-        } else {
-            s_isWsaInitialized_ = true;
-        }
-    }
-
-    return s_isWsaInitialized_;
-}
-
 bool BsdSocket::open()
 {
     // TODO: maybe for open raw socket?
@@ -49,24 +33,21 @@ bool BsdSocket::open()
     return true;
 }
 
+std::string BsdSocket::getErrStr()
+{
+    return "[Error " + std::to_string(errno) + "] " + strerror(errno);
+}
+
 bool BsdSocket::close()
 {
     if (fd_ != INVALID_SOCKET) {
         LOGT(TAG, "close fd_[%ld]", fd_);
-        shutdown(fd_, SD_BOTH);
-        closesocket(fd_);
+        ::shutdown(fd_, SHUT_RDWR);
+        ::close(fd_);
         fd_ = INVALID_SOCKET;
     }
 
     return true;
-}
-
-std::string BsdSocket::getErrStr()
-{
-    int errCode = WSAGetLastError();
-    std::string errMsg = getErrMsg(errCode);
-
-    return errMsg;
 }
 
 BsdSocket& BsdSocket::operator=(BsdSocket&& other) noexcept
@@ -125,12 +106,9 @@ TcpSocket& TcpSocket::operator=(TcpSocket&& other) noexcept
 
 bool TcpSocket::open()
 {
-    if (!initWsa())
-        return false;
-
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
     if (fd_ == INVALID_SOCKET) {
-        LOGE(TAG, "Can not create tcp socket. %s", getErrStr().c_str());
+        LOGE(TAG, "Can not create tcp socket.");
         return false;
     }
 
@@ -144,7 +122,7 @@ bool TcpSocket::open()
 
     /* allow reuse addr and port */ {
         int optval = 1;
-        int optlevel = (SO_REUSEADDR);
+        int optlevel = (SO_REUSEADDR | SO_REUSEPORT);
         if (setsockopt(fd_, SOL_SOCKET, optlevel, (char*)&optval, sizeof(optval))) {
             LOGE(TAG, "TCP setsockopt(SO_REUSEADDR) failed. %s", getErrStr().c_str());
             return false;
@@ -163,12 +141,14 @@ bool TcpSocket::open()
         }
     }
 
-    /* set timeout */ {
-        DWORD timeoutMs = 3000;
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMs, sizeof(timeoutMs))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lu ms. %s", timeoutMs, getErrStr().c_str());
-        }
-    }
+    // /* set timeout */ {
+    //     timeval timeout;
+    //     timeout.tv_sec = 3;
+    //     timeout.tv_usec = 0;
+    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+    //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
+    //     }
+    // }
 
     return true;
 }
@@ -176,7 +156,7 @@ bool TcpSocket::open()
 bool TcpSocket::connect()
 {
     if (::connect(fd_, reinterpret_cast<const sockaddr *>(&remoteAddr_), sizeof(remoteAddr_))) {
-        LOGE(TAG, "TCP connect failed. %s", strerror(WSAGetLastError()));
+        LOGE(TAG, "TCP connect failed. %s", getErrStr().c_str());
         return false;
     }
     isPassive_ = false;
@@ -200,7 +180,6 @@ bool TcpSocket::accept(SocketFd& fd, sockaddr_in6& addr)
     socklen_t addrLen = sizeof(sockaddr_in6);
     fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);
     if (fd == INVALID_SOCKET) {
-        LOGW(TAG, "Accept connection failed. %s", getErrStr().c_str());
         return false;
     }
 
@@ -223,9 +202,8 @@ ssize_t TcpSocket::send(const void* buf, size_t bufLen)
 ssize_t TcpSocket::recv(void* buf, size_t bufLen)
 {
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
-    int errorCode = WSAGetLastError();
-    if (recvBytes == -1 && errorCode != WSAETIMEDOUT) {
-        if (errorCode == WSAECONNRESET) {
+    if (recvBytes == -1 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT)) {
+        if (errno == ECONNRESET) {
             recvBytes = 0;
         } else {
             ++recvErrs_;
@@ -233,10 +211,6 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
         }
     } else {
         recvBytes_ += recvBytes;
-    }
-
-    if (recvBytes == 0) {
-        close();
     }
 
     return recvBytes;
@@ -260,9 +234,6 @@ UdpSocket::~UdpSocket()
 
 bool UdpSocket::open()
 {
-    if (!initWsa())
-        return false;
-
     fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
     if (fd_ == -1) {
         LOGE(TAG, "Can not create udp socket. %s", getErrStr().c_str());
@@ -289,28 +260,21 @@ bool UdpSocket::open()
         }
     }
 
-    // /* set timeout */ {
-    //     DWORD timeoutMs = 3000;
-    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMs, sizeof(timeoutMs))) {
-    //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lu ms. %s", timeoutMs, getErrStr().c_str());
-    //     }
-    // }
-
-    /* set udp buffer size */ {
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
-        }
-        if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
+    /* set timeout */ {
+        timeval timeout;
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
         }
     }
 
-    /* windows bug: udp socket 10054 */ {
-        BOOL bEnalbeConnRestError = FALSE;
-        DWORD dwBytesReturned = 0;
-        if (WSAIoctl(fd_, _WSAIOW(IOC_VENDOR, 12), &bEnalbeConnRestError, sizeof(bEnalbeConnRestError), nullptr, 0, &dwBytesReturned, nullptr, nullptr)) {
-            LOGE(TAG, "UDP WSAIoctl(_WSAIOW(IOC_VENDOR, 12)) failed. %s", getErrStr().c_str());
-            return false;
+    /* set udp buffer size */ {
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
+            LOGE(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
+        }
+        if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
+            LOGE(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
         }
     }
 
@@ -322,7 +286,7 @@ ssize_t UdpSocket::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAdd
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
         ++sendErrs_;
-        LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %d", sendBytes, bufLen, getErrStr().c_str());
+        LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
     } else {
         sendBytes_ += sendBytes;
     }
@@ -334,7 +298,7 @@ ssize_t UdpSocket::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen
 {
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
-        if (WSAGetLastError() != WSAETIMEDOUT) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
             ++recvErrs_;
             LOGE(TAG, "UDP receiving from UDP socket failed. %s", getErrStr().c_str());
         }
