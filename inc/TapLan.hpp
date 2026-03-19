@@ -27,7 +27,7 @@ private:
     std::thread     syncThread_, aioWrkThread_, sioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
-    void syncNodeStatus();
+    void syncWrk();
 
     void handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
     void handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx);

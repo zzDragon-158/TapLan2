@@ -32,43 +32,42 @@ enum OP_TYPE {
     OP_MOD,
 };
 
-// TODO: maybe need this in future
-// typedef enum {
-//     NODE_CONNECTED = 0,
-//     NODE_DISCONNECTED,
-//     NODE_INFO_UPDATED,
-// } NodeEvent;
-
 #pragma pack(push, 1)
-struct SyncMessage {
-    Mac         mac;
-    uint8_t     op;         // 1: reqIP; 2: respIP; 3: reqNodeStatus; 4: respNodeStatus;
-    uint8_t     reserved[1];
-    uint8_t     key[16];
-};
-
-struct RespIpMessage {
-    in_addr     ipv4Addr;
-    uint8_t     netIDLen;
-    uint8_t     reserved[3];
-};
-
-struct RespNodeStatusMessage {
-    uint32_t    verNum;
-    uint32_t    numsOfNode;
-};
-
 struct Node {
     time_t      lastSeen;
     Mac         mac;
-    uint8_t     reserved[2];
+    uint8_t     resv[2];
     // 16 bytes    
     in6_addr    ipv6Addr;
     in_addr     ipv4Addr;
     uint16_t    ipv6Port;
     uint8_t     status;
-    uint8_t     reserved1[1];
+    uint8_t     resv1[1];
     // 24 bytes
+};
+
+struct SyncMsgHdr {
+    Mac         mac;
+    uint16_t    op;         // 1: reqIP; 2: respIP; 3: reqNodeStatus; 4: respNodeStatus;
+    // 8 bytes
+    uint8_t     key[16];
+    // 16 bytes
+    uint16_t    msgLen;
+    uint8_t     resv[6];
+    // 24 bytes
+    uint8_t     msgBody[];
+};
+
+struct IPMsg {
+    in_addr     ipv4Addr;
+    uint8_t     netIDLen;
+    uint8_t     resv[3];
+};
+
+struct SyncNodeMsg {
+    uint32_t    verNum;
+    uint32_t    numsOfNode;
+    Node        nodes[];
 };
 #pragma pack(pop)
 
@@ -114,11 +113,16 @@ private:
     std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
     std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
 
-    bool handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr);
-    bool syncNodeStatus();
-    bool handleResponse(uint8_t* rcvBuf, size_t bufLen);
+    void reset();
 
     bool connectToServer();
-    bool reqIPv4FromServer();
+    bool reqIPFromServer();
     bool syncNodeFromServer();
+    bool syncNodeToClients();
+
+    bool handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSocket& srcSock);
+    bool handleIPReq(uint8_t* reqMsg, TcpSocket& client);
+    bool handleIPMsg(uint8_t* respMsg);
+    bool handleSyncNodeReq(uint8_t* reqMsg, TcpSocket& client);
+    bool handleSyncNodeMsg(uint8_t* respMsg);
 };

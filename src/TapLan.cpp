@@ -206,7 +206,7 @@ void TapLan::tapWrk()
     LOGI(TAG, "tapWrk has exited.");
 }
 
-void TapLan::syncNodeStatus()
+void TapLan::syncWrk()
 {
     if (g_cfgData.runMode == RunMode_Server) {
         nodeMgrPtr_->server();
@@ -325,7 +325,7 @@ bool TapLan::run()
     }
 
     if (!g_cfgData.noSync) {
-        syncThread_ = std::thread(&TapLan::syncNodeStatus, this);
+        syncThread_ = std::thread(&TapLan::syncWrk, this);
         pthread_setname_np(syncThread_.native_handle(), "syncWrk");
     }
 
