@@ -235,6 +235,10 @@ ssize_t TcpSocket::recv(void* buf, size_t bufLen)
         recvBytes_ += recvBytes;
     }
 
+    if (recvBytes == 0) {
+        close();
+    }
+
     return recvBytes;
 }
 

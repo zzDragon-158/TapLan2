@@ -4,9 +4,15 @@
 
 const char* TAG = "[NodeMgr]";
 
-NodeMgr::NodeMgr(): netNum_(g_cfgData.netNum), netNumLen_(g_cfgData.netNumLen),
+NodeMgr::NodeMgr(): serverAddr_{}, connStatus_(NOT_CONNECTED), 
+                    netNum_(g_cfgData.netNum),
+                    netNumLen_(g_cfgData.netNumLen),
                     verNum_(0), tcpSockPtr_(nullptr)
 {
+    serverAddr_.sin6_family = AF_INET6;
+    memcpy(&serverAddr_.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
+    serverAddr_.sin6_port = g_cfgData.remotePort;
+
     addrPool_.set(0);
     addrPool_.set(addrPool_.size() - 1);
 }
@@ -273,112 +279,34 @@ void NodeMgr::client()
     std::memcpy(&serverAddr.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
     serverAddr.sin6_port = g_cfgData.remotePort;
 
-    bool isConnected = false;
     bool hasIPv4Addr = false;
     bool isSync = false;
     uint8_t sndBuf[65536];
-    uint8_t rcvBuf[65536];
 
-    auto retryConnect = [&]() {
-        if (isConnected) {
-            return isConnected;
+    while (g_cfgData.isRunning) {
+        bool ok;
+
+        switch (connStatus_) {
+        case NOT_CONNECTED:
+            ok = connectToServer();
+            break;
+
+        case CONNECTED:
+            ok = reqIPv4FromServer();
+            break;
+
+        case GOT_IP:
+        case SYNCED:
+            ok = syncNodeFromServer();
+            break;
+
+        default:
+            LOGE(TAG, "Unknown status[%u].", connStatus_);
         }
 
-        delete tcpSockPtr_;
-        tcpSockPtr_ = new TcpSocket(g_cfgData.localPort, serverAddr);
-        if (!tcpSockPtr_->isFdValid()) {
-            LOGE(TAG, "create tcp socket failed.");
-            std::this_thread::sleep_for(std::chrono::seconds(3));
-            return isConnected;
-        }
-
-        while (!isConnected && g_cfgData.isRunning) {
-            if (!tcpSockPtr_->connect()) {
-                LOGE(TAG, "Can not connect to server, retrying ...");
-                std::this_thread::sleep_for(std::chrono::seconds(3));
-                continue;
-            }
-            isConnected = true;
-        }
-
-        return isConnected;
-    };
-
-    auto getAndSetIPv4Addr = [&]() {
-        if (hasIPv4Addr)
-            return hasIPv4Addr;
-
-        SyncMessage reqMsgHdr{};
-        reqMsgHdr.op = OP_REQ_IP;
-        reqMsgHdr.mac = g_cfgData.mac;
-        while (!hasIPv4Addr && g_cfgData.isRunning) {
-            tcpSockPtr_->send(&reqMsgHdr, sizeof(SyncMessage));
-
-            ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
-            if (recvBytes == 0) {
-                LOGW(TAG, "server has close, retrying to connect...");
-                isConnected = false;
-                while (!retryConnect() && g_cfgData.isRunning);
-                continue;
-            } else if (recvBytes < sizeof(SyncMessage)) {
-                LOGE(TAG, "recvBytes[%ld] is not correct.", recvBytes);
-                std::this_thread::sleep_for(std::chrono::seconds(3));
-                continue;
-            }
-
-            hasIPv4Addr = handleResponse(rcvBuf, recvBytes);
-        }
-
-        return hasIPv4Addr;
-    };
-
-    auto getNodeStatus = [&]() {
-        SyncMessage reqMsgHdr{};
-        reqMsgHdr.op = OP_REQ_SYNC_NODE;
-        reqMsgHdr.mac = g_cfgData.mac;
-
-        while (!isSync && g_cfgData.isRunning) {
-            tcpSockPtr_->send(&reqMsgHdr, sizeof(SyncMessage));
-
-            ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
-            if (recvBytes == 0) {
-                LOGW(TAG, "server has close, retrying to connect...");
-                isConnected = false;
-                while (!retryConnect() && g_cfgData.isRunning);
-                hasIPv4Addr = false;
-                while (!getAndSetIPv4Addr() && g_cfgData.isRunning);
-                continue;
-            } else if (recvBytes < sizeof(SyncMessage)) {
-                LOGE(TAG, "recvBytes[%ld] is not correct.", recvBytes);
-                std::this_thread::sleep_for(std::chrono::seconds(3));
-                continue;
-            }
-
-            macToNode_.clear();
-            addrPool_.reset();
-            isSync = handleResponse(rcvBuf, recvBytes);
-            if (isSync)
-                LOGI(TAG, "success to sync node status.");
-        }
-
-        return isSync;
-    };
-
-    do {
-        while (!retryConnect() && g_cfgData.isRunning);
-        while (!getAndSetIPv4Addr() && g_cfgData.isRunning);
-        while (!getNodeStatus() && g_cfgData.isRunning);
-        ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
-        if (recvBytes == 0) {
-            isConnected = false;
-            hasIPv4Addr = false;
-            isSync = false;
-        } else if (recvBytes < 0) {
-            continue;
-        }
-        handleResponse(rcvBuf, recvBytes);
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    } while (g_cfgData.isRunning);
+        if (!ok)
+            std::this_thread::sleep_for(std::chrono::seconds(IO_WAIT_TIME));
+    }
 }
 
 bool NodeMgr::handleResponse(uint8_t* rcvBuf, size_t recvbytes)
@@ -424,5 +352,86 @@ bool NodeMgr::handleResponse(uint8_t* rcvBuf, size_t recvbytes)
         break;
     }
 
+    return true;
+}
+
+bool NodeMgr::connectToServer()
+{
+    if (!tcpSockPtr_ || !tcpSockPtr_->isFdValid()) {
+        delete tcpSockPtr_;
+        tcpSockPtr_ = new TcpSocket(g_cfgData.localPort, serverAddr_);
+        if (!tcpSockPtr_->isFdValid()) {
+            LOGE(TAG, "Failed to create tcp socket.");
+            return false;
+        }
+    }
+
+    if (!tcpSockPtr_->connect()) {
+        LOGE(TAG, "Failed to connect.");
+        return false;
+    }
+
+    connStatus_ = CONNECTED;
+    return true;
+}
+
+bool NodeMgr::reqIPv4FromServer()
+{
+    uint8_t rcvBuf[65536];
+
+    SyncMessage reqMsgHdr{};
+    reqMsgHdr.op = OP_REQ_IP;
+    TapDevPtr->getMacAddr(reqMsgHdr.mac);
+
+    tcpSockPtr_->send(&reqMsgHdr, sizeof(SyncMessage));
+    ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
+    if (recvBytes == 0) {
+        LOGW(TAG, "server has closed the connection.");
+        connStatus_ = NOT_CONNECTED;
+        return false;
+    } else if (recvBytes < sizeof(SyncMessage)) {
+        LOGE(TAG, "recvBytes[%ld] is unexpected.", recvBytes);
+        return false;
+    }
+
+    if (!handleResponse(rcvBuf, recvBytes)) {
+        LOGE(TAG, "Failed to parse OP_RESQ_IP.");
+        return false;
+    }
+
+    connStatus_ = GOT_IP;
+    return true;
+}
+
+bool NodeMgr::syncNodeFromServer()
+{
+    uint8_t rcvBuf[65536];
+
+    if (connStatus_ != SYNCED) {
+        SyncMessage reqMsgHdr{};
+        reqMsgHdr.op = OP_REQ_SYNC_NODE;
+        reqMsgHdr.mac = g_cfgData.mac;
+
+        tcpSockPtr_->send(&reqMsgHdr, sizeof(SyncMessage));
+    }
+
+    ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
+    if (recvBytes == 0) {
+        LOGW(TAG, "server has closed the connection.");
+        connStatus_ = NOT_CONNECTED;
+        return false;
+    } else if (recvBytes < sizeof(SyncMessage)) {
+        LOGE(TAG, "recvBytes[%ld] is unexpected.", recvBytes);
+        return false;
+    }
+
+    macToNode_.clear();
+    addrPool_.reset();
+    if(!handleResponse(rcvBuf, recvBytes)) {
+        LOGE(TAG, "Failed to parse OP_RESP_SYNC_NODE.");
+        return false;
+    }
+
+    connStatus_ = SYNCED;
     return true;
 }

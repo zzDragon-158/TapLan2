@@ -12,10 +12,17 @@
 #include    "Socket.hpp"
 #include    "Common.hpp"
 
-typedef enum {
+enum NodeStatus {
     NODE_ONLINE = 0,
     NODE_OFFLINE,
-} NodeStatus;
+};
+
+enum ConnStatus {
+    NOT_CONNECTED = 0,
+    CONNECTED,
+    GOT_IP,
+    SYNCED,
+};
 
 enum OP_TYPE {
     OP_REQ_IP = 0,
@@ -92,6 +99,8 @@ public:
     void client();
 
 private:
+    sockaddr_in6 serverAddr_;
+    uint8_t connStatus_;
     uint32_t netNum_;
     uint8_t netNumLen_;
     std::bitset<256> addrPool_;
@@ -108,4 +117,8 @@ private:
     bool handleRequest(TcpSocket& client, const SyncMessage& reqMsgHdr);
     bool syncNodeStatus();
     bool handleResponse(uint8_t* rcvBuf, size_t bufLen);
+
+    bool connectToServer();
+    bool reqIPv4FromServer();
+    bool syncNodeFromServer();
 };

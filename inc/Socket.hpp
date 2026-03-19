@@ -48,7 +48,7 @@ public:
     BsdSocket& operator=(BsdSocket&& other) noexcept;
     explicit operator SocketFd() { return fd_; };
     ~BsdSocket();
-    bool isFdValid() { return fdValid_; };
+    bool isFdValid() { return (fd_ != INVALID_SOCKET); };
     bool close();
     uint16_t getBindPort() { return bindPort_; };
     uint64_t getSendBytes() { return sendBytes_; };
