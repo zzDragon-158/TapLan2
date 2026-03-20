@@ -9,18 +9,18 @@ static std::string getErrStr()
     return getErrMsg(errno);
 }
 
-BsdSock::BsdSock()
+BsdSock::BsdSock() noexcept
 {
-    // open();
+    ;
 }
 
-BsdSock::BsdSock(uint16_t localPort)
-    : bindPort_(localPort)
+BsdSock::BsdSock(uint16_t port) noexcept
+    : bindPort_(port)
 {
-    // open();
+    ;
 }
 
-BsdSock::BsdSock(uint16_t port, SockFd fd)
+BsdSock::BsdSock(uint16_t port, SockFd fd) noexcept
     : fd_(fd)
     , bindPort_(port)
 {
@@ -62,7 +62,7 @@ bool BsdSock::open()
 bool BsdSock::close()
 {
     if (fd_ != INVALID_SOCKET) {
-        ::shutdown(fd_, SHUT_RDWR);
+        shutdown(fd_, SHUT_RDWR);
         ::close(fd_);
         fd_ = INVALID_SOCKET;
     }
@@ -70,14 +70,14 @@ bool BsdSock::close()
     return true;
 }
 
-TcpSock::TcpSock(uint16_t port)
+TcpSock::TcpSock(uint16_t port) noexcept
     : BsdSock(port)
     , isPassive_(true)
 {
     open();
 }
 
-TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr)
+TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr) noexcept
     : BsdSock(port)
     , isPassive_(false)
     , remoteAddr_(addr)
@@ -85,7 +85,7 @@ TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr)
     open();
 }
 
-TcpSock::TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr)
+TcpSock::TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr) noexcept
     : BsdSock(port, fd)
     , isPassive_(false)
     , remoteAddr_(addr)
@@ -120,7 +120,7 @@ bool TcpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
     if (fd_ == INVALID_SOCKET) {
-        LOGE(TAG, "Can not create tcp socket.");
+        LOGE(TAG, "Can not create tcp socket.[%s]", getErrStr().c_str());
         return false;
     }
 
@@ -153,9 +153,7 @@ bool TcpSock::open()
     }
 
     /* set timeout */ {
-        timeval timeout;
-        timeout.tv_sec = 3;
-        timeout.tv_usec = 0;
+        timeval timeout = { IO_WAIT_TIME, 0 };
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
             LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
         }
@@ -221,16 +219,15 @@ ssize_t TcpSock::send(const void* buf, size_t bufLen)
 ssize_t TcpSock::recv(void* buf, size_t bufLen)
 {
     ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
-    if (recvBytes == -1 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT)) {
-        if (errno == ECONNRESET) {
-            recvBytes = 0;
-        }
+    int err = errno;
+    if (recvBytes == -1 && err == ECONNRESET) {
+        recvBytes = 0;
     }
 
     return recvBytes;
 }
 
-UdpSock::UdpSock(uint16_t port)
+UdpSock::UdpSock(uint16_t port) noexcept
     : BsdSock(port)
 {
     open();
@@ -269,9 +266,7 @@ bool UdpSock::open()
     }
 
     // /* set timeout */ {
-    //     timeval timeout;
-    //     timeout.tv_sec = 3;
-    //     timeout.tv_usec = 0;
+    //     timeval timeout = { WAIT_IO_TIME, 0 };
     //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
     //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
     //     }
@@ -279,10 +274,10 @@ bool UdpSock::open()
 
     /* set udp buffer size */ {
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGE(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
         }
         if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGE(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
+            LOGW(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", udpBufferSize, getErrStr().c_str());
         }
     }
 

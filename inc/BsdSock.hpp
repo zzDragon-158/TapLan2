@@ -41,9 +41,9 @@ inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
 
 class BsdSock {
 public:
-    BsdSock();
-    BsdSock(uint16_t port);
-    BsdSock(uint16_t port, SockFd fd);
+    BsdSock() noexcept;
+    BsdSock(uint16_t port) noexcept;
+    BsdSock(uint16_t port, SockFd fd) noexcept;
     BsdSock(BsdSock&& other) noexcept;
     BsdSock(const BsdSock&) = delete;
     BsdSock& operator=(const BsdSock&) = delete;
@@ -69,9 +69,9 @@ protected:
 
 class TcpSock: public BsdSock {
 public:
-    TcpSock(uint16_t port);                                     // for listen
-    TcpSock(uint16_t port, sockaddr_in6& addr);                 // for connect
-    TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr);      // for accept
+    TcpSock(uint16_t port) noexcept;                                     // for listen
+    TcpSock(uint16_t port, sockaddr_in6& addr) noexcept;                 // for connect
+    TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr) noexcept;      // for accept
     TcpSock(TcpSock&& other) noexcept;
     ~TcpSock();
     TcpSock& operator=(TcpSock&& other) noexcept;
@@ -94,7 +94,7 @@ private:
 
 class UdpSock: public BsdSock {
 public:
-    UdpSock(uint16_t port);
+    UdpSock(uint16_t port) noexcept;
     ~UdpSock();
     ssize_t sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr, socklen_t addrLen);
     ssize_t recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen);
