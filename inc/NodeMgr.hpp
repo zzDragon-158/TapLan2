@@ -108,8 +108,7 @@ private:
     std::shared_mutex rwMutex_;
     TcpSock* tcpSockPtr_;
     std::vector<TapLanPollFd> pfds_;
-    std::vector<TcpSock> clients_;
-    std::map<SockFd, uint64_t> sockToMac_;
+    std::vector<TcpSock*> clients_;
     std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
     std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
 
@@ -120,9 +119,9 @@ private:
     bool syncNodeFromServer();
     bool syncNodeToClients();
 
-    bool handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock& srcSock);
-    bool handleIPReq(uint8_t* reqMsg, TcpSock& client);
+    bool handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock* srcSock);
+    bool handleIPReq(uint8_t* reqMsg, TcpSock* client);
     bool handleIPMsg(uint8_t* respMsg);
-    bool handleSyncNodeReq(uint8_t* reqMsg, TcpSock& client);
+    bool handleSyncNodeReq(uint8_t* reqMsg, TcpSock* client);
     bool handleSyncNodeMsg(uint8_t* respMsg);
 };

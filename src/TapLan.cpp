@@ -105,7 +105,7 @@ void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
                 nodeMgrPtr_->setSockaddr(ctx->addr, n);
                 sioIntf.udpSend(udpSendFd, ctx);
             } else {
-                udpSockPtr->incDropped(1);
+                // udpSockPtr->incDropped(1);
             }
         } else {
             size_t sendCnt = 0;
@@ -120,7 +120,7 @@ void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
             });
 
             if (sendCnt == 0) {
-                udpSockPtr->incDropped(1);
+                // udpSockPtr->incDropped(1);
             }
         }
     }
@@ -249,6 +249,7 @@ void TapLan::showNodeStatus()
     });
 }
 
+#if 0
 void TapLan::showStats()
 {
     uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
@@ -307,6 +308,7 @@ void TapLan::showStats()
     LOGR("╟── read  bytes:    %lu\n", TapDevPtr->getReadBytes());
     LOGR("╙── read  errors:   %lu\n", TapDevPtr->getReadErrs());
 }
+#endif
 
 bool TapLan::run()
 {

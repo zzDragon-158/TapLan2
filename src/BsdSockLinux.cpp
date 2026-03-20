@@ -4,20 +4,46 @@
 static const char* TAG = "[Socket]";
 const int udpBufferSize = 1024 * 1024 * 128;
 
-BsdSock::BsdSock(): fd_(INVALID_SOCKET), bindPort_(0),
-                          sendBytes_(0), recvBytes_(0),
-                          sendErrs_(0), recvErrs_(0),
-                          dropped_(0)
+static std::string getErrStr()
 {
-    // nothing to do
+    return getErrMsg(errno);
 }
 
-BsdSock::BsdSock(BsdSock&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
-                                                                    sendBytes_(other.sendBytes_), recvBytes_(other.recvBytes_),
-                                                                    sendErrs_(other.sendErrs_), recvErrs_(other.sendErrs_),
-                                                                    dropped_(other.dropped_)
+BsdSock::BsdSock()
+{
+    // open();
+}
+
+BsdSock::BsdSock(uint16_t localPort)
+    : bindPort_(localPort)
+{
+    // open();
+}
+
+BsdSock::BsdSock(uint16_t port, SockFd fd)
+    : fd_(fd)
+    , bindPort_(port)
+{
+    ;
+}
+
+BsdSock::BsdSock(BsdSock&& other) noexcept
+    : fd_(other.fd_)
+    , bindPort_(other.bindPort_)
 {
     other.fd_ = INVALID_SOCKET;
+}
+
+BsdSock& BsdSock::operator=(BsdSock&& other) noexcept
+{
+    if (this != &other) {
+        close();
+        fd_ = other.fd_;
+        other.fd_ = INVALID_SOCKET;
+        bindPort_ = other.bindPort_;
+    }
+
+    return *this;
 }
 
 BsdSock::~BsdSock()
@@ -33,15 +59,9 @@ bool BsdSock::open()
     return true;
 }
 
-std::string BsdSock::getErrStr()
-{
-    return "[Error " + std::to_string(errno) + "] " + strerror(errno);
-}
-
 bool BsdSock::close()
 {
     if (fd_ != INVALID_SOCKET) {
-        LOGT(TAG, "close fd_[%ld]", fd_);
         ::shutdown(fd_, SHUT_RDWR);
         ::close(fd_);
         fd_ = INVALID_SOCKET;
@@ -50,58 +70,50 @@ bool BsdSock::close()
     return true;
 }
 
-BsdSock& BsdSock::operator=(BsdSock&& other) noexcept
+TcpSock::TcpSock(uint16_t port)
+    : BsdSock(port)
+    , isPassive_(true)
 {
-    if (this != &other) {
-        close();
-        fd_ = other.fd_;
-        other.fd_ = -1;
-    }
-
-    return *this;
+    open();
 }
 
-TcpSock::TcpSock(uint16_t localPort): BsdSock(), isPassive_(true)
+TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr)
+    : BsdSock(port)
+    , isPassive_(false)
+    , remoteAddr_(addr)
 {
-    bindPort_ = localPort;
-    memset(&remoteAddr_, 0, sizeof(sockaddr_in6));
-    fdValid_ = open();
+    open();
 }
 
-TcpSock::TcpSock(uint16_t localPort, sockaddr_in6 serverAddr): BsdSock(), isPassive_(false)
+TcpSock::TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr)
+    : BsdSock(port, fd)
+    , isPassive_(false)
+    , remoteAddr_(addr)
 {
-    bindPort_ = localPort;
-    memcpy(&remoteAddr_, &serverAddr, sizeof(sockaddr_in6));
-    fdValid_ = open();
+    ;
 }
 
-TcpSock::TcpSock(SockFd fd, sockaddr_in6 sa): BsdSock(), isPassive_(false)
+TcpSock::TcpSock(TcpSock&& other) noexcept
+    : BsdSock(std::move(other))
+    , isPassive_(other.isPassive_)
+    , remoteAddr_(other.remoteAddr_)
 {
-    fd_ = fd;
-    memcpy(&remoteAddr_, &sa, sizeof(sa));
-    fdValid_ = (fd != INVALID_SOCKET);
-}
-
-TcpSock::TcpSock(TcpSock&& other) noexcept: BsdSock(std::move(other)), isPassive_(other.isPassive_)
-{
-    LOGT(TAG, "move construction fd_[%ld]", fd_);
-    memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
-}
-
-TcpSock::~TcpSock()
-{
-    // nothing to do
+    ;
 }
 
 TcpSock& TcpSock::operator=(TcpSock&& other) noexcept
 {
     if (this != &other) {
         BsdSock::operator=(std::move(other));
-        memcpy(&remoteAddr_, &other.remoteAddr_, sizeof(sockaddr_in6));
-        memset(&other.remoteAddr_, 0, sizeof(sockaddr_in6));
+        remoteAddr_ = other.remoteAddr_;
     }
 
     return *this;
+}
+
+TcpSock::~TcpSock()
+{
+    ;
 }
 
 bool TcpSock::open()
@@ -130,33 +142,36 @@ bool TcpSock::open()
     }
 
     /* bind tcp socket */ {
-        sockaddr_in6 sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sin6_family = AF_INET6;
-        sa.sin6_addr = in6addr_any;
-        sa.sin6_port = htons(bindPort_);
-        if (bind(fd_, (sockaddr*)(&sa), sizeof(sockaddr_in6))) {
+        sockaddr_in6 addr{};
+        addr.sin6_family = AF_INET6;
+        addr.sin6_addr = in6addr_any;
+        addr.sin6_port = htons(bindPort_);
+        if (bind(fd_, (sockaddr*)(&addr), sizeof(addr))) {
             LOGE(TAG, "TCP can not bind to [::]:%u. %s", bindPort_, getErrStr().c_str());
             return false;
         }
     }
 
-    // /* set timeout */ {
-    //     timeval timeout;
-    //     timeout.tv_sec = 3;
-    //     timeout.tv_usec = 0;
-    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-    //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
-    //     }
-    // }
+    /* set timeout */ {
+        timeval timeout;
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
+        }
+    }
 
     return true;
 }
 
 bool TcpSock::connect()
 {
-    if (::connect(fd_, reinterpret_cast<const sockaddr *>(&remoteAddr_), sizeof(remoteAddr_))) {
-        LOGE(TAG, "TCP connect failed. %s", getErrStr().c_str());
+    if (::connect(
+        fd_,
+        reinterpret_cast<const sockaddr *>(&remoteAddr_),
+        sizeof(remoteAddr_)
+    )) {
+        LOGE(TAG, "Failed to connect.[%s]", getErrStr().c_str());
         return false;
     }
     isPassive_ = false;
@@ -167,7 +182,7 @@ bool TcpSock::connect()
 bool TcpSock::listen(int backlog)
 {
     if (::listen(fd_, backlog)) {
-        LOGE(TAG, "TCP listen failed. %s", getErrStr().c_str());
+        LOGE(TAG, "Failed to listen.[%s]", getErrStr().c_str());
         return false;
     }
     isPassive_ = true;
@@ -175,25 +190,29 @@ bool TcpSock::listen(int backlog)
     return true;
 }
 
-bool TcpSock::accept(SockFd& fd, sockaddr_in6& addr)
+TcpSock* TcpSock::accept()
 {
-    socklen_t addrLen = sizeof(sockaddr_in6);
-    fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addrLen);
-    if (fd == INVALID_SOCKET) {
-        return false;
+    TcpSock* client = nullptr;
+    sockaddr_in6 addr{};
+    socklen_t addrLen = sizeof(addr);
+
+    SockFd fd = ::accept(
+        fd_,
+        reinterpret_cast<sockaddr*>(&addr),
+        &addrLen
+    );
+    if (fd != INVALID_SOCKET) {
+        client = new TcpSock(bindPort_, fd, addr);
     }
 
-    return true;
+    return client;
 }
 
 ssize_t TcpSock::send(const void* buf, size_t bufLen)
 {
     ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
     if (sendBytes < bufLen) {
-        ++sendErrs_;
         LOGW(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
-    } else {
-        sendBytes_ += sendBytes;
     }
 
     return sendBytes;
@@ -205,26 +224,16 @@ ssize_t TcpSock::recv(void* buf, size_t bufLen)
     if (recvBytes == -1 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != ETIMEDOUT)) {
         if (errno == ECONNRESET) {
             recvBytes = 0;
-        } else {
-            ++recvErrs_;
-            LOGE(TAG, "TCP receiving from TCP socket[%ld] failed. %s", fd_, getErrStr().c_str());
         }
-    } else {
-        recvBytes_ += recvBytes;
     }
 
     return recvBytes;
 }
 
-void TcpSock::getRemoteAddr(sockaddr_in6* addr)
+UdpSock::UdpSock(uint16_t port)
+    : BsdSock(port)
 {
-    memcpy(addr, &remoteAddr_, sizeof(sockaddr_in6));
-}
-
-UdpSock::UdpSock(uint16_t port): BsdSock()
-{
-    bindPort_ = port;
-    fdValid_ = open();
+    open();
 }
 
 UdpSock::~UdpSock()
@@ -249,25 +258,24 @@ bool UdpSock::open()
     }
 
     /* bind udp socket */ {
-        sockaddr_in6 sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sin6_family = AF_INET6;
-        sa.sin6_addr = in6addr_any;
-        sa.sin6_port = htons(bindPort_);
-        if (bind(fd_, (sockaddr*)(&sa), sizeof(sockaddr_in6))) {
+        sockaddr_in6 addr{};
+        addr.sin6_family = AF_INET6;
+        addr.sin6_addr = in6addr_any;
+        addr.sin6_port = htons(bindPort_);
+        if (bind(fd_, (sockaddr*)(&addr), sizeof(sockaddr_in6))) {
             LOGE(TAG, "UDP can not bind to [::]:%u. %s", bindPort_, getErrStr().c_str());
             return false;
         }
     }
 
-    /* set timeout */ {
-        timeval timeout;
-        timeout.tv_sec = 3;
-        timeout.tv_usec = 0;
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
-        }
-    }
+    // /* set timeout */ {
+    //     timeval timeout;
+    //     timeout.tv_sec = 3;
+    //     timeout.tv_usec = 0;
+    //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
+    //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %ld s. %s", timeout.tv_sec, getErrStr().c_str());
+    //     }
+    // }
 
     /* set udp buffer size */ {
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
@@ -285,10 +293,7 @@ ssize_t UdpSock::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr,
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        ++sendErrs_;
         LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
-    } else {
-        sendBytes_ += sendBytes;
     }
 
     return sendBytes;
@@ -299,11 +304,8 @@ ssize_t UdpSock::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            ++recvErrs_;
             LOGE(TAG, "UDP receiving from UDP socket failed. %s", getErrStr().c_str());
         }
-    } else {
-        recvBytes_ += recvBytes;
     }
 
     return recvBytes;

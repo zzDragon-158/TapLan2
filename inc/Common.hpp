@@ -40,14 +40,23 @@ static std::string getErrMsg(DWORD errorCode)
 }
 
 #elif       __linux__
+#include    <cstring>           // for strerror
 #include    <arpa/inet.h>
 #include    <sys/socket.h>
 #include    <sys/uio.h>
 #include    <liburing.h>
 
-#define     INVALID_SOCKET      -1
+#define     INVALID_SOCKET      (int)(~0)
 
 typedef     int                 SockFd;
+
+static std::string getErrMsg(int errCode)
+{
+    if (errCode == 0)
+        return "Success";
+
+    return strerror(errCode);
+}
 
 #endif
 

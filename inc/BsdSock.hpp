@@ -42,35 +42,22 @@ inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
 class BsdSock {
 public:
     BsdSock();
+    BsdSock(uint16_t port);
+    BsdSock(uint16_t port, SockFd fd);
     BsdSock(BsdSock&& other) noexcept;
     BsdSock(const BsdSock&) = delete;
     BsdSock& operator=(const BsdSock&) = delete;
     BsdSock& operator=(BsdSock&& other) noexcept;
     explicit operator SockFd() { return fd_; };
     ~BsdSock();
-    bool isFdValid() { return (fd_ != INVALID_SOCKET); };
     bool close();
     uint16_t getBindPort() { return bindPort_; };
-    uint64_t getSendBytes() { return sendBytes_; };
-    uint64_t getSendErrors() { return sendErrs_; };
-    uint64_t getRecvBytes() { return recvBytes_; };
-    uint64_t getRecvErrors() { return recvErrs_; };
-    uint64_t getDropped() { return dropped_; };
-    void incSendBytes(uint64_t v) { sendBytes_ += v; };
-    void incSendErrs(uint64_t v) { sendErrs_ += v; };
-    void incRecvBytes(uint64_t v) { recvBytes_ += v; };
-    void incRecvErrs(uint64_t v) { recvErrs_ += v; };
-    void incDropped(uint64_t v) { dropped_ += v; };
+    SockFd getFd() { return fd_; };
+    bool isFdValid() { return (fd_ != INVALID_SOCKET); };
 
 protected:
-    SockFd fd_;
-    bool fdValid_;
-    uint16_t bindPort_;
-    uint64_t sendBytes_;
-    uint64_t recvBytes_;
-    uint64_t sendErrs_;
-    uint64_t recvErrs_;
-    uint64_t dropped_;
+    uint16_t bindPort_ = 0;
+    SockFd fd_ = INVALID_SOCKET;
 #ifdef _WIN32
     static bool s_isWsaInitialized_;
 
@@ -78,32 +65,29 @@ protected:
 #endif
 
     virtual bool open();
-    std::string getErrStr();
 };
 
 class TcpSock: public BsdSock {
 public:
-    // typedef std::function<bool(const void* reqBuf, const size_t& reqLen, const sockaddr_in6* addr, SockFd sock, void* respBuf, size_t& respLen)> CbRecvFunc;
-    TcpSock(uint16_t localPort);                              // for listen
-    TcpSock(uint16_t localPort, sockaddr_in6 serverAddr);     // for connect
-    TcpSock(SockFd fd, sockaddr_in6 remoteAddr);            // for accept
+    TcpSock(uint16_t port);                                     // for listen
+    TcpSock(uint16_t port, sockaddr_in6& addr);                 // for connect
+    TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr);      // for accept
     TcpSock(TcpSock&& other) noexcept;
     ~TcpSock();
     TcpSock& operator=(TcpSock&& other) noexcept;
+    sockaddr_in6& getRemoteAddr() { return remoteAddr_; };
+    Mac& getMac() { return remoteMac_; };
+    void setMac(uint64_t macNum) { remoteMac_ = macNum; };
     bool connect();
     bool listen(int backlog);
-    bool accept(SockFd& fd, sockaddr_in6& addr);
+    TcpSock* accept();
     ssize_t send(const void* buf, size_t bufLen);
     ssize_t recv(void* buf, size_t bufLen);
-    // bool recv(CbRecvFunc& cbRecv);
-    void getRemoteAddr(sockaddr_in6* addr);
-    uint64_t getMac() { return remoteMac_; };
-    void setMac(uint64_t macNum) { remoteMac_ = macNum; };
 
 private:
     bool isPassive_;
-    sockaddr_in6 remoteAddr_;
-    Mac remoteMac_;
+    sockaddr_in6 remoteAddr_{};
+    Mac remoteMac_{};
 
     bool open();
 };

@@ -10,7 +10,7 @@ BsdSock::BsdSock(): fd_(INVALID_SOCKET), fdValid_(false), bindPort_(0),
                           sendErrs_(0), recvErrs_(0),
                           dropped_(0)
 {
-    // nothing to do
+    ;
 }
 
 BsdSock::BsdSock(BsdSock&& other) noexcept: fd_(other.fd_), fdValid_(other.fdValid_), bindPort_(other.bindPort_),
@@ -240,11 +240,6 @@ ssize_t TcpSock::recv(void* buf, size_t bufLen)
     }
 
     return recvBytes;
-}
-
-void TcpSock::getRemoteAddr(sockaddr_in6* addr)
-{
-    memcpy(addr, &remoteAddr_, sizeof(sockaddr_in6));
 }
 
 UdpSock::UdpSock(uint16_t port): BsdSock()

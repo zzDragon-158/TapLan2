@@ -137,43 +137,42 @@ void NodeMgr::server()
         if (pollCnt < 0) {
             LOGE(TAG, "TapLanPoll failed.");
             continue;
+        } else if (pollCnt == 0) {
+            continue;
         }
 
         size_t pfdsLen = pfds_.size();
         if (pfds_.begin()->revents != 0) {
             --pollCnt;
-            SockFd tcpFd = INVALID_SOCKET;
-            sockaddr_in6 addr;
-            if (tcpSockPtr_->accept(tcpFd, addr)) {
-                pfds_.push_back({ tcpFd, POLLIN, 0 });
-                clients_.push_back({ tcpFd, addr });
+            TcpSock* client = tcpSockPtr_->accept();
+            if (client) {
+                pfds_.push_back({client->getFd(), POLLIN, 0});
+                clients_.push_back(client);
             } else {
                 LOGE(TAG, "accept failed.");
             }
         }
         for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
-            if (pfds_[i].revents != 0) {
-                --pollCnt;
-                uint8_t recvBuf[65536];
-                uint8_t sendBuf[65536];
-                TcpSock& client = clients_[i - 1];
-                ssize_t recvBytes = client.recv(recvBuf, sizeof(recvBuf));
-                if (recvBytes == 0) {   // 对方关闭连接
-                    auto it = sockToMac_.find(static_cast<SockFd>(client));
-                    if (it != sockToMac_.end()) {
-                        if (!setNodeStatus(it->second, NODE_OFFLINE))
-                            LOGW(TAG, "set node status failed.");
-                        sockToMac_.erase(it->first);
-                    }
-                    pfds_.erase(pfds_.begin() + i);
-                    clients_.erase(clients_.begin() + i - 1);
-                    continue;
-                } else if (recvBytes < 0) {  // 接收消息格式不对
-                    continue;
-                }
-
-                handleSyncMsg(recvBuf, recvBytes, client);
+            if (pfds_[i].revents & POLLIN == 0) {
+                continue;
             }
+
+            --pollCnt;
+            uint8_t recvBuf[65536];
+            uint8_t sendBuf[65536];
+            TcpSock* client = clients_[i - 1];
+            ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
+            if (recvBytes == 0) {
+                uint64_t macNum = client->getMac();
+                setNodeStatus(macNum, NODE_OFFLINE);
+                pfds_.erase(pfds_.begin() + i);
+                clients_.erase(clients_.begin() + i - 1);
+                continue;
+            } else if (recvBytes < 0) {
+                continue;
+            }
+
+            handleSyncMsg(recvBuf, recvBytes, client);
         }
 
         syncNodeToClients();
@@ -247,7 +246,7 @@ bool NodeMgr::reqIPFromServer()
         return false;
     }
 
-    if (!handleSyncMsg(rcvBuf, recvBytes, *tcpSockPtr_)) {
+    if (!handleSyncMsg(rcvBuf, recvBytes, tcpSockPtr_)) {
         LOGE(TAG, "Failed to parse OP_RESQ_IP.");
         return false;
     }
@@ -278,7 +277,7 @@ bool NodeMgr::syncNodeFromServer()
         return false;
     }
 
-    if(!handleSyncMsg(rcvBuf, recvBytes, *tcpSockPtr_)) {
+    if(!handleSyncMsg(rcvBuf, recvBytes, tcpSockPtr_)) {
         LOGE(TAG, "Failed to parse OP_RESP_SYNC_NODE.");
         return false;
     }
@@ -317,16 +316,16 @@ bool NodeMgr::syncNodeToClients()
     processingBuffer_.clear();
 
     for (auto& client: clients_) {
-        if (sockToMac_.find(static_cast<SockFd>(client)) != sockToMac_.end()) {
+        if (client->getMac() != 0) {
             syncMsgHdr.msgLen = sendBytes;
-            client.send(sndBuf, sendBytes);
+            client->send(sndBuf, sendBytes);
         }
     }
 
     return true;
 }
 
-bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock& srcSock)
+bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock* srcSock)
 {
     bool ok;
     SyncMsgHdr& msgHdr = reinterpret_cast<SyncMsgHdr&>(*msg);
@@ -363,7 +362,7 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock& srcSock)
     return ok;
 }
 
-bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock& client)
+bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock* client)
 {
     uint8_t sndBuf[65536];
     size_t sendBytes = 0;
@@ -373,8 +372,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock& client)
     respMsgHdr.op = OP_RESP_IP;
     sendBytes += sizeof(SyncMsgHdr);
 
-    sockaddr_in6 addr;
-    client.getRemoteAddr(&addr);
+    sockaddr_in6 addr = client->getRemoteAddr();
     NodeSPtr n = addNode(&addr, static_cast<uint64_t>(respMsgHdr.mac));
     if (!n) {
         LOGE(TAG, "add node failed.");
@@ -392,7 +390,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock& client)
     sendBytes += sizeof(IPMsg);
 
     respMsgHdr.msgLen = sendBytes;
-    if (client.send(sndBuf, sendBytes) <= 0) {
+    if (client->send(sndBuf, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send IPMsg.");
         return false;
     }
@@ -412,7 +410,7 @@ bool NodeMgr::handleIPMsg(uint8_t* respMsg)
     return TapDevPtr->setIPv4Addr(&ipMsg.ipv4Addr, ipMsg.netIDLen);
 }
 
-bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSock& client)
+bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSock* client)
 {
     uint8_t sndBuf[65536];
     size_t sendBytes = 0;
@@ -422,7 +420,7 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSock& client)
     sendBytes += sizeof(SyncMsgHdr);
 
     respMsgHdr.op = OP_RESP_SYNC_NODE;
-    sockToMac_[static_cast<SockFd>(client)] = respMsgHdr.mac;
+    client->setMac(respMsgHdr.mac);
 
     SyncNodeMsg& respMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
     respMsg.verNum = verNum_;
@@ -436,7 +434,7 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSock& client)
     });
 
     respMsgHdr.msgLen = sendBytes;
-    if (client.send(sndBuf, sendBytes) <= 0) {
+    if (client->send(sndBuf, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send SyncNodeMsg.");
         return false;
     }
