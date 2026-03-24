@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(TapLan)
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 # use c++17 standard
 set(CMAKE_CXX_STANDARD 17)
@@ -14,6 +14,7 @@ include_directories(inc)
 # INTERFACE: 给别人用，自己不用
 add_library(NodeMgr src/NodeMgr.cpp)
 add_library(LogMgr src/LogMgr.cpp)
+
 if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
     add_library(BsdSock src/BsdSockWin.cpp)
@@ -35,8 +36,10 @@ endif()
 
 add_executable(TapLan src/main.cpp src/TapLan.cpp)
 target_link_libraries(TapLan NodeMgr TapDev BsdSock LogMgr AioIntf SioIntf)
+
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)
+
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     set(MY_URING_STATIC_PATH "/usr/local/lib/liburing.a")
     add_library(uring_static UNKNOWN IMPORTED)
