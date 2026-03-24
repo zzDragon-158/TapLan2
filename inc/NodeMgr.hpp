@@ -108,7 +108,7 @@ private:
     std::shared_mutex rwMutex_;
     TcpSock* tcpSockPtr_;
     std::vector<TapLanPollFd> pfds_;
-    std::vector<TcpSock*> clients_;
+    std::vector<TcpSockSPtr> clients_;
     std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
     std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
 

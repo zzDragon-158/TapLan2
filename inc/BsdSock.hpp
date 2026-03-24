@@ -1,6 +1,7 @@
 #pragma     once
 #include    <cstdint>
 #include    <string>
+#include    <memory>
 #include    "Common.hpp"
 
 #ifdef      _WIN32
@@ -25,7 +26,9 @@
 
 #endif
 
-typedef pollfd TapLanPollFd;
+using TapLanPollFd = pollfd;
+class TcpSock;
+using TcpSockSPtr = std::shared_ptr<TcpSock>;
 
 inline std::string IPv4_NTOP(const in_addr& ipv4addr) {
     char ipv4str[INET_ADDRSTRLEN];
@@ -49,7 +52,7 @@ public:
     BsdSock& operator=(const BsdSock&) = delete;
     BsdSock& operator=(BsdSock&& other) noexcept;
     explicit operator SockFd() { return fd_; };
-    ~BsdSock();
+    virtual ~BsdSock();
     bool close();
     uint16_t getBindPort() { return bindPort_; };
     SockFd getFd() { return fd_; };
@@ -80,7 +83,7 @@ public:
     void setMac(uint64_t macNum) { remoteMac_ = macNum; };
     bool connect();
     bool listen(int backlog);
-    TcpSock* accept();
+    TcpSockSPtr accept();
     ssize_t send(const void* buf, size_t bufLen);
     ssize_t recv(void* buf, size_t bufLen);
 

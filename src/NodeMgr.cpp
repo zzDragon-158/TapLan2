@@ -126,30 +126,27 @@ void NodeMgr::server()
 {
     tcpSockPtr_ = new TcpSock(g_cfgData.localPort);
     if (!tcpSockPtr_->isFdValid() || !tcpSockPtr_->listen(5)) {
-        LOGF(TAG, "Trying to run in server mode failed.");
         g_cfgData.isRunning = false;
         return ;
     }
 
-    pfds_.push_back({ static_cast<SockFd>(*tcpSockPtr_), POLLIN, 0 });
+    pfds_.push_back({ tcpSockPtr_->getFd(), POLLIN, 0 });
     while (g_cfgData.isRunning) {
         int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
         if (pollCnt < 0) {
-            LOGE(TAG, "TapLanPoll failed.");
-            continue;
+            LOGE(TAG, "Failed to poll.");
+            break;
         } else if (pollCnt == 0) {
             continue;
         }
 
         size_t pfdsLen = pfds_.size();
-        if (pfds_.begin()->revents != 0) {
+        if (pfds_.begin()->revents & POLLIN == 0) {
             --pollCnt;
-            TcpSock* client = tcpSockPtr_->accept();
+            TcpSockSPtr client = tcpSockPtr_->accept();
             if (client) {
                 pfds_.push_back({client->getFd(), POLLIN, 0});
                 clients_.push_back(client);
-            } else {
-                LOGE(TAG, "accept failed.");
             }
         }
         for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
@@ -159,20 +156,22 @@ void NodeMgr::server()
 
             --pollCnt;
             uint8_t recvBuf[65536];
-            uint8_t sendBuf[65536];
-            TcpSock* client = clients_[i - 1];
+            TcpSockSPtr client = clients_[i - 1];
             ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
             if (recvBytes == 0) {
                 uint64_t macNum = client->getMac();
                 setNodeStatus(macNum, NODE_OFFLINE);
-                pfds_.erase(pfds_.begin() + i);
-                clients_.erase(clients_.begin() + i - 1);
+
+                std::swap(pfds_[i], pfds_.back());
+                pfds_.pop_back();
+                std::swap(clients_[i - 1], clients_.back());
+                clients_.pop_back();
                 continue;
             } else if (recvBytes < 0) {
                 continue;
             }
 
-            handleSyncMsg(recvBuf, recvBytes, client);
+            handleSyncMsg(recvBuf, recvBytes, client.get());
         }
 
         syncNodeToClients();

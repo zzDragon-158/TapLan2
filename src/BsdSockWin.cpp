@@ -207,9 +207,9 @@ bool TcpSock::listen(int backlog)
     return true;
 }
 
-TcpSock* TcpSock::accept()
+TcpSockSPtr TcpSock::accept()
 {
-    TcpSock* client = nullptr;
+    TcpSockSPtr client = nullptr;
     sockaddr_in6 addr{};
     socklen_t addrLen = sizeof(addr);
 
@@ -219,7 +219,7 @@ TcpSock* TcpSock::accept()
         &addrLen
     );
     if (fd != INVALID_SOCKET) {
-        client = new TcpSock(bindPort_, fd, addr);
+        client = std::make_shared<TcpSock>(bindPort_, fd, addr);
     }
 
     return client;
