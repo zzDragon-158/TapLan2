@@ -32,8 +32,13 @@ void NodeMgr::reset()
 NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
 {
     NodeSPtr n = findNode(macNum);
-    if (n)
+    if (n) {
+        n->ipv6Addr = addr->sin6_addr;
+        n->ipv6Port = addr->sin6_port;
+        activeDeltaBuffer_[macNum] = n;
+
         return n;
+    }
 
     uint32_t hostNum = 0;
     for (size_t i = 1; i < addrPool_.size() - 1; ++i) {

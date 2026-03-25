@@ -48,7 +48,7 @@ struct Node {
 
 struct SyncMsgHdr {
     Mac         mac;
-    uint16_t    op;         // 1: reqIP; 2: respIP; 3: reqNodeStatus; 4: respNodeStatus;
+    uint16_t    op;
     // 8 bytes
     uint8_t     key[16];
     // 16 bytes
