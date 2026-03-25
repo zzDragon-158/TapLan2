@@ -52,8 +52,9 @@ struct SyncMsgHdr {
     // 8 bytes
     uint8_t     key[16];
     // 16 bytes
+    uint16_t    port;
     uint16_t    msgLen;
-    uint8_t     resv[6];
+    uint8_t     resv[4];
     // 24 bytes
     uint8_t     msgBody[];
 };

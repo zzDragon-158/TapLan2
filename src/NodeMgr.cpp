@@ -209,7 +209,7 @@ void NodeMgr::client()
 bool NodeMgr::connectToServer()
 {
     if (!tcpSockSPtr_ || !tcpSockSPtr_->isFdValid()) {
-        tcpSockSPtr_ = std::make_shared<TcpSock>(g_cfgData.localPort, serverAddr_);
+        tcpSockSPtr_ = std::make_shared<TcpSock>(0, serverAddr_);
         if (!tcpSockSPtr_->isFdValid()) {
             return false;
         }
@@ -228,11 +228,12 @@ bool NodeMgr::reqIPFromServer()
     uint8_t rcvBuf[65536];
 
     SyncMsgHdr reqMsgHdr{};
-    reqMsgHdr.op = OP_REQ_IP;
     TapDevPtr->getMacAddr(reqMsgHdr.mac);
-
+    reqMsgHdr.op = OP_REQ_IP;
+    reqMsgHdr.port = htons(g_cfgData.localPort);
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
     tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
+
     ssize_t recvBytes = tcpSockSPtr_->recv(rcvBuf, sizeof(rcvBuf));
     if (recvBytes == -2) {
         LOGE(TAG, "Wait IPMsg timeout.");
@@ -259,9 +260,8 @@ bool NodeMgr::syncNodeFromServer()
 
     if (connStatus_ != SYNCED) {
         SyncMsgHdr reqMsgHdr{};
-        reqMsgHdr.op = OP_REQ_SYNC_NODE;
         reqMsgHdr.mac = g_cfgData.mac;
-
+        reqMsgHdr.op = OP_REQ_SYNC_NODE;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
         tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
     }
@@ -373,6 +373,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     sendBytes += sizeof(SyncMsgHdr);
 
     sockaddr_in6 addr = client->getRemoteAddr();
+    addr.sin6_port = respMsgHdr.port;
     NodeSPtr n = addNode(&addr, static_cast<uint64_t>(respMsgHdr.mac));
     if (!n) {
         LOGE(TAG, "Failed to add node.");
