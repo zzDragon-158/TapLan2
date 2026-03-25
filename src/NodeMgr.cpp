@@ -41,21 +41,23 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     }
 
     uint32_t hostNum = 0;
-    for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
-        if (!addrPool_.test(i)) {
-            hostNum = i;
-            break;
+    if (!g_cfgData.noSync) {
+        for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
+            if (!addrPool_.test(i)) {
+                hostNum = i;
+                break;
+            }
         }
-    }
-    if (hostNum == 0) {
-        LOGE(TAG, "No enough addr for allocating.");
-        return nullptr;
+        if (hostNum == 0) {
+            LOGE(TAG, "No enough addr for allocating.");
+            return nullptr;
+        }
     }
 
     n = std::make_shared<Node>();
     n->ipv6Addr = addr->sin6_addr;
     n->ipv6Port = addr->sin6_port;
-    n->ipv4Addr.s_addr = htonl(netNum_ + hostNum);
+    n->ipv4Addr.s_addr = g_cfgData.noSync? UINT32_MAX: htonl(netNum_ + hostNum);
     n->mac = macNum;
     n->status = NODE_ONLINE;
     n->lastSeen = time(nullptr);
