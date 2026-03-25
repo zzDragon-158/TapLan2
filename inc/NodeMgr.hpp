@@ -81,11 +81,7 @@ public:
     NodeMgr();
     ~NodeMgr();
     NodeSPtr    addNode(const sockaddr_in6* addr, uint64_t macNum);
-    NodeSPtr    addNode(uint64_t macNum, Node& node);
-    NodeSPtr    delNode(uint64_t macNum);
     NodeSPtr    findNode(uint64_t macNum);
-    bool        setNodeStatus(uint64_t macNum, uint8_t status);
-    size_t      getNodeNums() { return macToNode_.size(); };
     void        setSockaddr(sockaddr_in6& addr, NodeSPtr n);
     template<typename Func>
     void forEach(Func&& f)
@@ -114,6 +110,9 @@ private:
     std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
 
     void reset();
+    NodeSPtr addNode(uint64_t macNum, Node& node);
+    NodeSPtr delNode(uint64_t macNum);
+    bool setNodeStatus(uint64_t macNum, uint8_t status);
 
     bool connectToServer();
     bool reqIPFromServer();

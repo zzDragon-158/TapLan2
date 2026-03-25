@@ -19,13 +19,15 @@ NodeMgr::NodeMgr(): serverAddr_{}, connStatus_(NOT_CONNECTED),
 
 NodeMgr::~NodeMgr()
 {
-    // pass
+    ;
 }
 
 void NodeMgr::reset()
 {
     WLock lock;
     macToNode_.clear();
+    activeDeltaBuffer_.clear();
+    processingBuffer_.clear();
     addrPool_.reset();
 }
 
@@ -35,7 +37,11 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     if (n) {
         n->ipv6Addr = addr->sin6_addr;
         n->ipv6Port = addr->sin6_port;
-        activeDeltaBuffer_[macNum] = n;
+
+        if (!g_cfgData.noSync) {
+            WLock wLock(rwMutex_);
+            activeDeltaBuffer_[macNum] = n;
+        }
 
         return n;
     }
@@ -44,6 +50,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     if (!g_cfgData.noSync) {
         for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
             if (!addrPool_.test(i)) {
+                addrPool_.set(hostNum);
                 hostNum = i;
                 break;
             }
@@ -62,10 +69,11 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     n->status = NODE_ONLINE;
     n->lastSeen = time(nullptr);
 
-    WLock wLock(rwMutex_);
-    addrPool_.set(hostNum);
-    macToNode_[macNum] = n;
-    activeDeltaBuffer_[macNum] = n;
+    {
+        WLock wLock(rwMutex_);
+        macToNode_[macNum] = n;
+        activeDeltaBuffer_[macNum] = n;
+    }
 
     return n;
 }
@@ -75,11 +83,14 @@ NodeSPtr NodeMgr::addNode(uint64_t macNum, Node& node)
     std::shared_ptr n = std::make_shared<Node>();
     *n.get() = node;
 
-    WLock wLock(rwMutex_);
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
     uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
     addrPool_.set(hostNum);
-    macToNode_[macNum] = n;
+
+    {
+        WLock wLock(rwMutex_);
+        macToNode_[macNum] = n;
+    }
 
     return n;
 }
@@ -90,11 +101,16 @@ NodeSPtr NodeMgr::delNode(uint64_t macNum)
     if (!n)
         return nullptr;
 
-    WLock wLock(rwMutex_);
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
     uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
     addrPool_.reset(hostNum);
-    macToNode_.erase(macNum);
+
+    {
+        WLock wLock(rwMutex_);
+        macToNode_.erase(macNum);
+        // FIXME: not support notify client.
+        activeDeltaBuffer_[macNum] = n;
+    }
 
     return n;
 }
@@ -115,15 +131,18 @@ bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
     if (!n)
         return false;
 
-    WLock wLock(rwMutex_);
     n->status = status;
-    activeDeltaBuffer_[macNum] = n;
+    {
+        WLock wLock(rwMutex_);
+        activeDeltaBuffer_[macNum] = n;
+    }
 
     return true;
 }
 
 void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
 {
+    addr = {};
     addr.sin6_family = AF_INET6;
     addr.sin6_addr = n->ipv6Addr;
     addr.sin6_port = n->ipv6Port;
