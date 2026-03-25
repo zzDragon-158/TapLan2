@@ -44,6 +44,11 @@ static std::string getSockErr()
     return getErrMsg(WSAGetLastError());
 }
 
+static std::string getIoErr()
+{
+    return getErrMsg(GetLastError());
+}
+
 #elif       __linux__
 #include    <cstring>           // for strerror
 #include    <arpa/inet.h>
@@ -64,6 +69,11 @@ static std::string getErrMsg(int errCode)
 }
 
 static std::string getSockErr()
+{
+    return getErrMsg(errno);
+}
+
+static std::string getIoErr()
 {
     return getErrMsg(errno);
 }
