@@ -4,10 +4,13 @@
 
 const char* TAG = "[NodeMgr]";
 
-NodeMgr::NodeMgr(): serverAddr_{}, connStatus_(NOT_CONNECTED), 
-                    netNum_(g_cfgData.netNum),
-                    netNumLen_(g_cfgData.netNumLen),
-                    verNum_(0), tcpSockSPtr_(nullptr)
+NodeMgr::NodeMgr()
+    : netNum_(g_cfgData.netNum)
+    , netNumLen_(g_cfgData.netNumLen)
+    , verNum_(0)
+    , serverAddr_{}
+    , connStatus_(NOT_CONNECTED)
+    , tcpSockSPtr_(nullptr)
 {
     serverAddr_.sin6_family = AF_INET6;
     serverAddr_.sin6_addr = g_cfgData.remoteAddr;
@@ -171,8 +174,8 @@ void NodeMgr::server()
             --pollCnt;
             TcpSockSPtr client = tcpSockSPtr_->accept();
             if (client) {
-                pfds_.push_back({client->getFd(), POLLIN, 0});
                 clients_.push_back(client);
+                pfds_.push_back({ client->getFd(), POLLIN, 0 });
             }
         }
         for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
@@ -185,6 +188,7 @@ void NodeMgr::server()
             TcpSockSPtr client = clients_[i - 1];
             ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
             if (recvBytes == -2) {
+                LOGW(TAG, "poll but recv timeout.");
                 continue;
             } else if (recvBytes == -1 || recvBytes == 0) {
                 uint64_t macNum = client->getMac();

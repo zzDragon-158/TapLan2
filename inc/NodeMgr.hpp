@@ -95,19 +95,21 @@ public:
     void client();
 
 private:
-    sockaddr_in6 serverAddr_;
-    uint8_t connStatus_;
     uint32_t netNum_;
     uint8_t netNumLen_;
     std::bitset<256> addrPool_;
-    std::map<uint64_t, NodeSPtr> macToNode_;
-    uint32_t verNum_;
+
     std::shared_mutex rwMutex_;
+    std::map<uint64_t, NodeSPtr> macToNode_;
+    std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
+    std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
+    uint32_t verNum_;
+
+    sockaddr_in6 serverAddr_;
+    uint8_t connStatus_;
     TcpSockSPtr tcpSockSPtr_;
     std::vector<TapLanPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
-    std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
-    std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
 
     void reset();
     NodeSPtr addNode(uint64_t macNum, Node& node);
