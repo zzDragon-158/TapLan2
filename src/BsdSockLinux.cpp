@@ -140,11 +140,11 @@ bool UdpSock::open()
     // }
 
     /* set udp buffer size */ {
-        if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", udpBufferSize, getSockErr().c_str());
+        if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&UDP_BUF_SIZE, sizeof(UDP_BUF_SIZE))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", UDP_BUF_SIZE, getSockErr().c_str());
         }
-        if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&udpBufferSize, sizeof(udpBufferSize))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", udpBufferSize, getSockErr().c_str());
+        if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&UDP_BUF_SIZE, sizeof(UDP_BUF_SIZE))) {
+            LOGW(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", UDP_BUF_SIZE, getSockErr().c_str());
         }
     }
 

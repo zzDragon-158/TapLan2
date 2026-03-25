@@ -61,7 +61,6 @@ public:
 
 protected:
     const char* TAG = "[BsdSock]";
-    const int udpBufferSize = 1024 * 1024 * 128;
     uint16_t bindPort_ = 0;
     SockFd fd_ = INVALID_SOCKET;
 #ifdef _WIN32
@@ -106,5 +105,7 @@ public:
     ssize_t recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t* addrLen);
 
 private:
+    const int UDP_BUF_SIZE = 1024 * 1024 * 128;
+
     bool open();
 };
