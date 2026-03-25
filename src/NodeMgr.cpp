@@ -48,7 +48,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     }
 
     n = std::make_shared<Node>();
-    memcpy(&n->ipv6Addr, &addr->sin6_addr, sizeof(in6_addr));
+    n->ipv6Addr = addr->sin6_addr;
     n->ipv6Port = addr->sin6_port;
     n->ipv4Addr.s_addr = htonl(netNum_ + hostNum);
     n->mac = macNum;
@@ -66,7 +66,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
 NodeSPtr NodeMgr::addNode(uint64_t macNum, Node& node)
 {
     std::shared_ptr n = std::make_shared<Node>();
-    std::memcpy(n.get(), &node, sizeof(Node));
+    *n.get() = node;
 
     WLock wLock(rwMutex_);
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
@@ -118,7 +118,7 @@ bool NodeMgr::setNodeStatus(uint64_t macNum, uint8_t status)
 void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
 {
     addr.sin6_family = AF_INET6;
-    memcpy(&addr.sin6_addr, &n->ipv6Addr, sizeof(n->ipv6Addr));
+    addr.sin6_addr = n->ipv6Addr;
     addr.sin6_port = n->ipv6Port;
 }
 
@@ -309,9 +309,8 @@ bool NodeMgr::syncNodeToClients()
     syncMsg.numsOfNode = 0;
     syncMsg.verNum = ++verNum_;
     for (auto& [k, v]: processingBuffer_) {
-        std::memcpy(sndBuf + sendBytes, v.get(), sizeof(Node));
+        syncMsg.nodes[syncMsg.numsOfNode++] = *v.get();
         sendBytes += sizeof(Node);
-        ++syncMsg.numsOfNode;
     }
     processingBuffer_.clear();
 
@@ -368,7 +367,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     size_t sendBytes = 0;
 
     SyncMsgHdr& respMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
-    memcpy(&respMsgHdr, reqMsg, sizeof(respMsgHdr));
+    std::memcpy(&respMsgHdr, reqMsg, sizeof(respMsgHdr));
     respMsgHdr.op = OP_RESP_IP;
     sendBytes += sizeof(SyncMsgHdr);
 
@@ -417,7 +416,7 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     size_t sendBytes = 0;
 
     SyncMsgHdr& respMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
-    memcpy(&respMsgHdr, reqMsg, sizeof(respMsgHdr));
+    std::memcpy(&respMsgHdr, reqMsg, sizeof(respMsgHdr));
     sendBytes += sizeof(SyncMsgHdr);
 
     respMsgHdr.op = OP_RESP_SYNC_NODE;
@@ -429,9 +428,8 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     sendBytes += sizeof(SyncNodeMsg);
 
     forEach([&](uint64_t k, NodeSPtr v) {
-        std::memcpy(sndBuf + sendBytes, v.get(), sizeof(Node));
+        respMsg.nodes[respMsg.numsOfNode++] = *v.get();
         sendBytes += sizeof(Node);
-        ++respMsg.numsOfNode;
     });
 
     respMsgHdr.msgLen = sendBytes;
@@ -464,7 +462,8 @@ bool NodeMgr::handleSyncNodeMsg(uint8_t* respMsg)
     for (int i = 0; i < numsOfNode; ++i) {
         Node& n = msgBody.nodes[i];
         if (IN6_IS_ADDR_UNSPECIFIED(&n.ipv6Addr)) {
-            std::memcpy(&n.ipv6Addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
+            n.ipv6Addr = g_cfgData.remoteAddr;
+            n.ipv6Port = g_cfgData.remotePort;
         }
         addNode(n.mac, n);
     }
