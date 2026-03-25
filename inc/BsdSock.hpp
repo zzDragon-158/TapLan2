@@ -7,9 +7,10 @@
 
 #ifdef      _WIN32
 
-#define     TapLanPoll          WSAPoll
+using PollFunc = int(*)(pollfd*, ULONG, INT);
+constexpr PollFunc TapLanPoll = WSAPoll;
 
-#elif __linux__
+#elif       __linux__
 #include    <poll.h>            // for poll
 #include    <unistd.h>          // for close
 #include    <cstring>           // for memset
@@ -20,7 +21,8 @@
 #include    <liburing.h>        // for io_uring
 #include    <sys/mman.h>        // for mmap
 
-#define     TapLanPoll          poll
+using PollFunc = int(*)(pollfd*, nfds_t, int);
+constexpr PollFunc TapLanPoll = poll;
 
 #else
 #error      "unsupported platform!"
