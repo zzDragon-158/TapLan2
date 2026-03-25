@@ -129,7 +129,8 @@ TcpSock& TcpSock::operator=(TcpSock&& other) noexcept
 
 TcpSock::~TcpSock()
 {
-    ;
+    if (remoteAddr_.sin6_port)
+        LOGI(TAG, "Client[%s][%s] is offline.", IPv6_NTOP(remoteAddr_.sin6_addr).c_str(), remoteMac_.getMacStr());
 }
 
 bool TcpSock::open()
@@ -227,9 +228,21 @@ TcpSockSPtr TcpSock::accept()
 
 ssize_t TcpSock::send(const void* buf, size_t bufLen)
 {
-    ssize_t sendBytes = ::send(fd_, (const char*)buf, bufLen, 0);
-    if (sendBytes < bufLen) {
-        LOGW(TAG, "TCP sendBytes[%ld] is less than expected[%ld]. %s", sendBytes, bufLen, getErrStr().c_str());
+    size_t sendBytes = 0;
+
+    while (g_cfgData.isRunning && sendBytes < bufLen) {
+        ssize_t res = ::send(
+            fd_,
+            reinterpret_cast<const char*>(buf) + sendBytes,
+            bufLen - sendBytes,
+            0
+        );
+        if (res == SOCKET_ERROR) {
+            LOGE(TAG, "Failed to send.[%s]", getErrStr().c_str());
+            break;
+        }
+
+        sendBytes += res;
     }
 
     return sendBytes;
@@ -237,13 +250,28 @@ ssize_t TcpSock::send(const void* buf, size_t bufLen)
 
 ssize_t TcpSock::recv(void* buf, size_t bufLen)
 {
-    ssize_t recvBytes = ::recv(fd_, (char*)buf, bufLen, 0);
-    int err = WSAGetLastError();
-    if (recvBytes == -1 && err == WSAECONNRESET) {
-        recvBytes = 0;
+    while (g_cfgData.isRunning) {
+        ssize_t res = ::recv(
+            fd_,
+            reinterpret_cast<char*>(buf),
+            bufLen,
+            0
+        );
+
+        if (res != SOCKET_ERROR) {
+            return res;
+        }
+
+        int err = WSAGetLastError();
+        if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK) {
+            return -2;
+        }
+
+        LOGE(TAG, "Failed to recv.[%s]", getErrMsg(err).c_str());
+        break;
     }
 
-    return recvBytes;
+    return -1;
 }
 
 UdpSock::UdpSock(uint16_t port) noexcept

@@ -7,10 +7,10 @@ const char* TAG = "[NodeMgr]";
 NodeMgr::NodeMgr(): serverAddr_{}, connStatus_(NOT_CONNECTED), 
                     netNum_(g_cfgData.netNum),
                     netNumLen_(g_cfgData.netNumLen),
-                    verNum_(0), tcpSockPtr_(nullptr)
+                    verNum_(0), tcpSockSPtr_(nullptr)
 {
     serverAddr_.sin6_family = AF_INET6;
-    memcpy(&serverAddr_.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
+    serverAddr_.sin6_addr = g_cfgData.remoteAddr;
     serverAddr_.sin6_port = g_cfgData.remotePort;
 
     addrPool_.set(0);
@@ -43,7 +43,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
         }
     }
     if (hostNum == 0) {
-        LOGE(TAG, "no enough addr for allocating.");
+        LOGE(TAG, "No enough addr for allocating.");
         return nullptr;
     }
 
@@ -124,13 +124,13 @@ void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
 
 void NodeMgr::server()
 {
-    tcpSockPtr_ = new TcpSock(g_cfgData.localPort);
-    if (!tcpSockPtr_->isFdValid() || !tcpSockPtr_->listen(5)) {
+    tcpSockSPtr_ = std::make_shared<TcpSock>(g_cfgData.localPort);
+    if (!tcpSockSPtr_->isFdValid() || !tcpSockSPtr_->listen(5)) {
         g_cfgData.isRunning = false;
         return ;
     }
 
-    pfds_.push_back({ tcpSockPtr_->getFd(), POLLIN, 0 });
+    pfds_.push_back({ tcpSockSPtr_->getFd(), POLLIN, 0 });
     while (g_cfgData.isRunning) {
         int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
         if (pollCnt < 0) {
@@ -141,16 +141,16 @@ void NodeMgr::server()
         }
 
         size_t pfdsLen = pfds_.size();
-        if (pfds_.begin()->revents & POLLIN == 0) {
+        if (pfds_.begin()->revents) {
             --pollCnt;
-            TcpSockSPtr client = tcpSockPtr_->accept();
+            TcpSockSPtr client = tcpSockSPtr_->accept();
             if (client) {
                 pfds_.push_back({client->getFd(), POLLIN, 0});
                 clients_.push_back(client);
             }
         }
         for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
-            if (pfds_[i].revents & POLLIN == 0) {
+            if (!pfds_[i].revents) {
                 continue;
             }
 
@@ -158,7 +158,9 @@ void NodeMgr::server()
             uint8_t recvBuf[65536];
             TcpSockSPtr client = clients_[i - 1];
             ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
-            if (recvBytes == 0) {
+            if (recvBytes == -2) {
+                continue;
+            } else if (recvBytes == -1 || recvBytes == 0) {
                 uint64_t macNum = client->getMac();
                 setNodeStatus(macNum, NODE_OFFLINE);
 
@@ -167,11 +169,9 @@ void NodeMgr::server()
                 std::swap(clients_[i - 1], clients_.back());
                 clients_.pop_back();
                 continue;
-            } else if (recvBytes < 0) {
-                continue;
             }
 
-            handleSyncMsg(recvBuf, recvBytes, client.get());
+            handleSyncMsg(recvBuf, recvBytes, client);
         }
 
         syncNodeToClients();
@@ -208,17 +208,14 @@ void NodeMgr::client()
 
 bool NodeMgr::connectToServer()
 {
-    if (!tcpSockPtr_ || !tcpSockPtr_->isFdValid()) {
-        delete tcpSockPtr_;
-        tcpSockPtr_ = new TcpSock(g_cfgData.localPort, serverAddr_);
-        if (!tcpSockPtr_->isFdValid()) {
-            LOGE(TAG, "Failed to create tcp socket.");
+    if (!tcpSockSPtr_ || !tcpSockSPtr_->isFdValid()) {
+        tcpSockSPtr_ = std::make_shared<TcpSock>(g_cfgData.localPort, serverAddr_);
+        if (!tcpSockSPtr_->isFdValid()) {
             return false;
         }
     }
 
-    if (!tcpSockPtr_->connect()) {
-        LOGE(TAG, "Failed to connect.");
+    if (!tcpSockSPtr_->connect()) {
         return false;
     }
 
@@ -235,17 +232,19 @@ bool NodeMgr::reqIPFromServer()
     TapDevPtr->getMacAddr(reqMsgHdr.mac);
 
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
-    tcpSockPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
-    ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
-    if (recvBytes == 0) {
-        LOGW(TAG, "server has closed the connection.");
-        connStatus_ = NOT_CONNECTED;
+    tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
+    ssize_t recvBytes = tcpSockSPtr_->recv(rcvBuf, sizeof(rcvBuf));
+    if (recvBytes == -2) {
+        LOGE(TAG, "Wait IPMsg timeout.");
         return false;
-    } else if (recvBytes < 0) {
+    } else if (recvBytes == -1 || recvBytes == 0) {
+        LOGE(TAG, "Failed to recv IPMsg.");
+        connStatus_ = NOT_CONNECTED;
+        tcpSockSPtr_->close();
         return false;
     }
 
-    if (!handleSyncMsg(rcvBuf, recvBytes, tcpSockPtr_)) {
+    if (!handleSyncMsg(rcvBuf, recvBytes, tcpSockSPtr_)) {
         LOGE(TAG, "Failed to parse OP_RESQ_IP.");
         return false;
     }
@@ -264,19 +263,21 @@ bool NodeMgr::syncNodeFromServer()
         reqMsgHdr.mac = g_cfgData.mac;
 
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
-        tcpSockPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
+        tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
     }
 
-    ssize_t recvBytes = tcpSockPtr_->recv(rcvBuf, sizeof(rcvBuf));
-    if (recvBytes == 0) {
-        LOGW(TAG, "server has closed the connection.");
+    ssize_t recvBytes = tcpSockSPtr_->recv(rcvBuf, sizeof(rcvBuf));
+    if (recvBytes == -2) {
+        // LOGT(TAG, "Wait sync timeout.");
+        return false;
+    } else if (recvBytes == -1 || recvBytes == 0) {
+        LOGE(TAG, "Failed to sync node.");
         connStatus_ = NOT_CONNECTED;
-        return false;
-    } else if (recvBytes < 0) {
+        tcpSockSPtr_->close();
         return false;
     }
 
-    if(!handleSyncMsg(rcvBuf, recvBytes, tcpSockPtr_)) {
+    if(!handleSyncMsg(rcvBuf, recvBytes, tcpSockSPtr_)) {
         LOGE(TAG, "Failed to parse OP_RESP_SYNC_NODE.");
         return false;
     }
@@ -324,7 +325,7 @@ bool NodeMgr::syncNodeToClients()
     return true;
 }
 
-bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock* srcSock)
+bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSockSPtr srcSock)
 {
     bool ok;
     SyncMsgHdr& msgHdr = reinterpret_cast<SyncMsgHdr&>(*msg);
@@ -361,7 +362,7 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSock* srcSock)
     return ok;
 }
 
-bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock* client)
+bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
 {
     uint8_t sndBuf[65536];
     size_t sendBytes = 0;
@@ -374,7 +375,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSock* client)
     sockaddr_in6 addr = client->getRemoteAddr();
     NodeSPtr n = addNode(&addr, static_cast<uint64_t>(respMsgHdr.mac));
     if (!n) {
-        LOGE(TAG, "add node failed.");
+        LOGE(TAG, "Failed to add node.");
         return false;
     }
 
@@ -409,7 +410,7 @@ bool NodeMgr::handleIPMsg(uint8_t* respMsg)
     return TapDevPtr->setIPv4Addr(&ipMsg.ipv4Addr, ipMsg.netIDLen);
 }
 
-bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSock* client)
+bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
 {
     uint8_t sndBuf[65536];
     size_t sendBytes = 0;

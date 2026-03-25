@@ -88,6 +88,18 @@ struct Mac {
         addr[4] = (seed >> 8) & 0xFF;
         addr[5] = seed & 0xFF;
     }
+    std::string getMacStr() {
+        char buf[18];
+    
+        std::snprintf(
+            buf,
+            sizeof(buf),
+            "%02X:%02X:%02X:%02X:%02X:%02X",
+            addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
+        );
+        
+        return std::string(buf);
+    }
 };
 
 enum {
