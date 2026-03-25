@@ -53,7 +53,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     if (!g_cfgData.noSync) {
         for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
             if (!addrPool_.test(i)) {
-                addrPool_.set(hostNum);
+                addrPool_.set(i);
                 hostNum = i;
                 break;
             }
