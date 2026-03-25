@@ -3,6 +3,7 @@
 #include    <string>
 #include    <memory>
 #include    "Common.hpp"
+#include    "LogMgr.hpp"
 
 #ifdef      _WIN32
 
@@ -59,6 +60,8 @@ public:
     bool isFdValid() { return (fd_ != INVALID_SOCKET); };
 
 protected:
+    const char* TAG = "[BsdSock]";
+    const int udpBufferSize = 1024 * 1024 * 128;
     uint16_t bindPort_ = 0;
     SockFd fd_ = INVALID_SOCKET;
 #ifdef _WIN32

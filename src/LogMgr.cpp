@@ -57,7 +57,7 @@ void LogMgr::logOutput(const char* format, ...)
     logCv_.notify_one();
 }
 
-void LogMgr::logOutput(int level, const char* tag, const char* format, ...)
+void LogMgr::logOutput(char level, const char* tag, const char* format, ...)
 {
     if (!running_ || level > logLevel_)
         return ;

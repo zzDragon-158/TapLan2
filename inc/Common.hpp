@@ -39,6 +39,11 @@ static std::string getErrMsg(DWORD errorCode)
     return msg;
 }
 
+static std::string getSockErr()
+{
+    return getErrMsg(WSAGetLastError());
+}
+
 #elif       __linux__
 #include    <cstring>           // for strerror
 #include    <arpa/inet.h>
@@ -56,6 +61,11 @@ static std::string getErrMsg(int errCode)
         return "Success";
 
     return strerror(errCode);
+}
+
+static std::string getSockErr()
+{
+    return getErrMsg(errno);
 }
 
 #endif

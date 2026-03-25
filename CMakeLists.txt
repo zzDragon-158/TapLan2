@@ -17,7 +17,7 @@ add_library(LogMgr src/LogMgr.cpp)
 
 if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
-    add_library(BsdSock src/BsdSockWin.cpp)
+    add_library(BsdSock src/BsdSock.cpp src/BsdSockWin.cpp)
     add_library(AioIntf src/AioIntfWin.cpp)
     add_library(SioIntf src/SioIntfWin.cpp)
 
@@ -25,7 +25,7 @@ if(WIN32)
 
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     add_library(TapDev src/TapDevLinux.cpp)
-    add_library(BsdSock src/BsdSockLinux.cpp)
+    add_library(BsdSock src/BsdSock.cpp src/BsdSockLinux.cpp)
     add_library(AioIntf src/AioIntfLinux.cpp)
     add_library(SioIntf src/SioIntfLinux.cpp)
 

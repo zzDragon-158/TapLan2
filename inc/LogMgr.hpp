@@ -19,7 +19,7 @@
 #define     LOGD(TAG, fmt, ...)         LogMgrPtr->logOutput(LOG_DEBUG, TAG, fmt, ##__VA_ARGS__)
 #define     LOGT(TAG, fmt, ...)         LogMgrPtr->logOutput(LOG_TRACE, TAG, fmt, ##__VA_ARGS__)
 
-typedef enum {
+enum LogLevel {
     LOG_FATAL = 0,
     LOG_ERROR,
     LOG_WARN,
@@ -27,21 +27,21 @@ typedef enum {
     LOG_DEBUG,
     LOG_TRACE,
     NUMS_OF_LEVEL,
-} LogLevel;
+};
 
 class LogMgr {
 public:
     bool run();
     bool terminate();
-    void setLogLevel(LogLevel level) { logLevel_ = level; };
+    void setLogLevel(char level) { logLevel_ = level; };
     bool isRunning() { return running_; };
     void logOutput(const char* format, ...);
-    void logOutput(int level, const char* tag, const char* format, ...);
+    void logOutput(char level, const char* tag, const char* format, ...);
     static LogMgr* ptr();
 
 private:
     std::ofstream logFile_;
-    uint8_t logLevel_;
+    char logLevel_;
     std::queue<std::string> logQueue_;
     std::mutex logMutex_;
     std::condition_variable logCv_;
