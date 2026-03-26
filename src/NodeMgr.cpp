@@ -15,9 +15,6 @@ NodeMgr::NodeMgr()
     serverAddr_.sin6_family = AF_INET6;
     serverAddr_.sin6_addr = g_cfgData.remoteAddr;
     serverAddr_.sin6_port = g_cfgData.remotePort;
-
-    addrPool_.set(0);
-    addrPool_.set(addrPool_.size() - 1);
 }
 
 NodeMgr::~NodeMgr()
