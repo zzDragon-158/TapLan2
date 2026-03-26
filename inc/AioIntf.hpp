@@ -6,7 +6,7 @@
 #include    <stack>
 #include    "Common.hpp"
 #include    "LogMgr.hpp"
-#include    "Socket.hpp"
+#include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 
 #define     AioIntfPtr      AioIntf::ptr()
@@ -51,14 +51,14 @@ public:
     int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
     int reqTapReadMultishot(TapFd fd);
     int reqTapWrite(TapFd fd, Ctx* ctx);
-    int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
-    int reqUdpRecvMultishot(SocketFd fd);
-    int reqUdpSend(SocketFd fd, Ctx* ctx);
+    int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);
+    int reqUdpRecvMultishot(SockFd fd);
+    int reqUdpSend(SockFd fd, Ctx* ctx);
 
 private:
     uint8_t* dataBufs_;
     TapFd tapFd_;
-    SocketFd udpFd_;
+    SockFd udpFd_;
     std::vector<Ctx*> ioCtxs_;
     std::stack<Ctx*> freeStack_;
 };
@@ -100,15 +100,15 @@ public:
     int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
     int reqTapReadMultishot(TapFd fd);
     int reqTapWrite(TapFd fd, Ctx* ctx);
-    int reqUdpRecv(SocketFd fd, Ctx* ctx = nullptr);
-    int reqUdpRecvMultishot(SocketFd fd);
-    int reqUdpSend(SocketFd fd, Ctx* ctx);
+    int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);
+    int reqUdpRecvMultishot(SockFd fd);
+    int reqUdpSend(SockFd fd, Ctx* ctx);
     void submitAioReq() { io_uring_submit(&ring_); };
 
 private:
     uint8_t* dataBufs_;
     TapFd tapFd_;
-    SocketFd udpFd_;
+    SockFd udpFd_;
     std::vector<Ctx*> ioCtxs_;
     std::stack<Ctx*> freeStack_;
 };

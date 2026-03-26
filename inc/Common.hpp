@@ -10,7 +10,7 @@
 #include    <ws2tcpip.h>
 #include    <windows.h>
 
-typedef     SOCKET              SocketFd;
+typedef     SOCKET              SockFd;
 
 static std::string getErrMsg(DWORD errorCode)
 {
@@ -39,15 +39,44 @@ static std::string getErrMsg(DWORD errorCode)
     return msg;
 }
 
+static std::string getSockErr()
+{
+    return getErrMsg(WSAGetLastError());
+}
+
+static std::string getIoErr()
+{
+    return getErrMsg(GetLastError());
+}
+
 #elif       __linux__
+#include    <cstring>           // for strerror
 #include    <arpa/inet.h>
 #include    <sys/socket.h>
 #include    <sys/uio.h>
 #include    <liburing.h>
 
-#define     INVALID_SOCKET      -1
+#define     INVALID_SOCKET      (int)(~0)
 
-typedef     int                 SocketFd;
+typedef     int                 SockFd;
+
+static std::string getErrMsg(int errCode)
+{
+    if (errCode == 0)
+        return "Success";
+
+    return strerror(errCode);
+}
+
+static std::string getSockErr()
+{
+    return getErrMsg(errno);
+}
+
+static std::string getIoErr()
+{
+    return getErrMsg(errno);
+}
 
 #endif
 
@@ -78,6 +107,18 @@ struct Mac {
         addr[3] = (seed >> 16) & 0xFF;
         addr[4] = (seed >> 8) & 0xFF;
         addr[5] = seed & 0xFF;
+    }
+    std::string getMacStr() {
+        char buf[18];
+    
+        std::snprintf(
+            buf,
+            sizeof(buf),
+            "%02X:%02X:%02X:%02X:%02X:%02X",
+            addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
+        );
+        
+        return std::string(buf);
     }
 };
 

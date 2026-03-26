@@ -130,7 +130,7 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
     return 0;
 }
 
-int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
+int AioIntf::reqUdpRecv(SockFd fd, Ctx* ctx)
 {
     if (!ctx)
         ctx = acquireAioCtx();
@@ -163,7 +163,7 @@ int AioIntf::reqUdpRecv(SocketFd fd, Ctx* ctx)
     return ret;
 }
 
-int AioIntf::reqUdpRecvMultishot(SocketFd fd)
+int AioIntf::reqUdpRecvMultishot(SockFd fd)
 {
     udpFd_ = fd;
 
@@ -175,7 +175,7 @@ int AioIntf::reqUdpRecvMultishot(SocketFd fd)
     return 0;
 }
 
-int AioIntf::reqUdpSend(SocketFd fd, Ctx* ctx)
+int AioIntf::reqUdpSend(SockFd fd, Ctx* ctx)
 {
     ctx->token = TOKEN_UDP_SEND;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));

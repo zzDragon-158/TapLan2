@@ -2,7 +2,7 @@
 #include    "LogMgr.hpp"
 
 static const char* TAG = "[TapDev]";
-static SocketFd tapSock = -1;
+static SockFd tapSock = -1;
 static ifreq ifr{};
 
 TapDev::TapDev(): fdValid_(false), mac_{},

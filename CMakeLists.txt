@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(TapLan)
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 # use c++17 standard
 set(CMAKE_CXX_STANDARD 17)
@@ -14,17 +14,18 @@ include_directories(inc)
 # INTERFACE: 给别人用，自己不用
 add_library(NodeMgr src/NodeMgr.cpp)
 add_library(LogMgr src/LogMgr.cpp)
+
 if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
-    add_library(Socket src/SocketWin.cpp)
+    add_library(BsdSock src/BsdSock.cpp src/BsdSockWin.cpp)
     add_library(AioIntf src/AioIntfWin.cpp)
     add_library(SioIntf src/SioIntfWin.cpp)
 
-    target_link_libraries(Socket PUBLIC ws2_32)
+    target_link_libraries(BsdSock PUBLIC ws2_32)
 
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     add_library(TapDev src/TapDevLinux.cpp)
-    add_library(Socket src/SocketLinux.cpp)
+    add_library(BsdSock src/BsdSock.cpp src/BsdSockLinux.cpp)
     add_library(AioIntf src/AioIntfLinux.cpp)
     add_library(SioIntf src/SioIntfLinux.cpp)
 
@@ -34,9 +35,11 @@ else()
 endif()
 
 add_executable(TapLan src/main.cpp src/TapLan.cpp)
-target_link_libraries(TapLan NodeMgr TapDev Socket LogMgr AioIntf SioIntf)
+target_link_libraries(TapLan NodeMgr TapDev BsdSock LogMgr AioIntf SioIntf)
+
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)
+
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     set(MY_URING_STATIC_PATH "/usr/local/lib/liburing.a")
     add_library(uring_static UNKNOWN IMPORTED)

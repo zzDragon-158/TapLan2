@@ -4,7 +4,7 @@
 #include    <pthread.h>
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
-#include    "Socket.hpp"
+#include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 #include    "AioIntf.hpp"
 #include    "SioIntf.hpp"
@@ -17,17 +17,17 @@ public:
     bool stop();
     void showNodeStatus();
     void showStats();
-    UdpSocket* getUdpSockPtr();
+    UdpSock* getUdpSockPtr();
 
 private:
     sockaddr_in6    serverAddr_;
-    UdpSocket*      udpSockPtr_;
-    UdpSocket*      udpSockPtrs_[4];
+    UdpSock*      udpSockPtr_;
+    UdpSock*      udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
     std::thread     syncThread_, aioWrkThread_, sioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
-    void syncNodeStatus();
+    void syncWrk();
 
     void handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
     void handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
