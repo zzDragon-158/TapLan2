@@ -2,10 +2,10 @@
 
 bool BsdSock::close()
 {
-    if (fd_ != INVALID_SOCKET) {
+    if (fd_ != INVALID_SOCKFD) {
         shutdown(fd_, SHUT_RDWR);
         ::close(fd_);
-        fd_ = INVALID_SOCKET;
+        fd_ = INVALID_SOCKFD;
     }
 
     return true;
@@ -14,7 +14,7 @@ bool BsdSock::close()
 bool TcpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
-    if (fd_ == INVALID_SOCKET) {
+    if (!isFdValid()) {
         LOGE(TAG, "Can not create tcp socket.[%s]", getSockErr().c_str());
         return false;
     }
@@ -108,7 +108,7 @@ ssize_t TcpSock::recv(void* buf, size_t bufLen)
 bool UdpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (fd_ == -1) {
+    if (!isFdValid()) {
         LOGE(TAG, "Can not create udp socket. %s", getSockErr().c_str());
         return false;
     }

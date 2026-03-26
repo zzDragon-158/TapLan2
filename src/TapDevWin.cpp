@@ -4,16 +4,28 @@
 
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles
-#define     ADAPTER_KEY                             "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
-#define     NETWORK_CONNECTIONS_KEY                 "SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
-#define     TAP_INSTALL                             ".\\tapinstall.exe"
-#define     USERMODEDEVICEDIR                       "\\\\.\\Global\\"
-#define     TAPSUFFIX                               ".tap"
 #define     TAP_CONTROL_CODE(request, method)       CTL_CODE(FILE_DEVICE_UNKNOWN, request, method, FILE_ANY_ACCESS)
 #define     TAP_IOCTL_GET_MAC                       TAP_CONTROL_CODE(1, METHOD_BUFFERED)
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
-static NetAdaptInfo tapInfo;
+constexpr LPCSTR ADAPTER_KEY = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
+constexpr LPCSTR NETWORK_CONNECTIONS_KEY = "SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
+constexpr LPCSTR TAP_INSTALL = ".\\tapinstall.exe";
+constexpr LPCSTR USERMODEDEVICEDIR = "\\\\.\\Global\\";
+constexpr LPCSTR TAPSUFFIX = ".tap";
+
+TapDev::NetAdaptInfo::NetAdaptInfo() noexcept
+    : netCfgInstId{}
+    , netInstIdLen(REG_BUF_SIZE)
+    , devInstId{}
+    , devInstIdLen(REG_BUF_SIZE)
+    , name{}
+    , nameLen(REG_BUF_SIZE)
+    , mediaStatus(TRUE)
+    , mediaStatusLen(sizeof(mediaStatusLen))
+{
+    ;
+}
 
 static std::string getCurrentWorkDir()
 {
@@ -25,7 +37,109 @@ static std::string getCurrentWorkDir()
     }
 }
 
-static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
+TapDev::TapDev()
+    : fd_(INVALID_TAPFD)
+    , mac_{}
+    , writeBytes_(0)
+    , writeErrs_(0)
+    , readBytes_(0)
+    , readErrs_(0)
+    , tapInfo_()
+{
+    if (!open()) {
+        close();
+    }
+}
+
+TapDev::~TapDev()
+{
+    close();
+    // use tapInfo_.DeviceInstanceID to remove
+    // if (system(TAP_INSTALL " remove TAP0901"))
+    //     LOGE(TAG, "Removing tap device failed.");
+}
+
+bool TapDev::open()
+{
+    WINBOOL ok;
+    std::string errMsg;
+
+    if (!findExistingTap() && !createNewTap())
+        return false;
+
+    std::stringstream tapName;
+    tapName << USERMODEDEVICEDIR << tapInfo_.netCfgInstId << TAPSUFFIX;
+    fd_ = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
+    if (!isFdValid()) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to open TAP device.[%s]", errMsg.c_str());
+        return false;
+    }
+
+    ok = DeviceIoControl(
+        fd_,
+        TAP_IOCTL_SET_MEDIA_STATUS,
+        &tapInfo_.mediaStatus,
+        tapInfo_.mediaStatusLen,
+        &tapInfo_.mediaStatus,
+        tapInfo_.mediaStatusLen,
+        &tapInfo_.mediaStatusLen,
+        nullptr
+    );
+    if (!ok) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to set status to up.[%s]", errMsg.c_str());
+        return false;
+    }
+
+    mac_ = {};
+    DWORD macLen = sizeof(mac_);
+    ok = DeviceIoControl(
+        fd_,
+        TAP_IOCTL_GET_MAC,
+        mac_.addr,
+        6,
+        mac_.addr,
+        6,
+        &macLen,
+        nullptr
+    );
+    if (!ok) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to get MAC address.[%s]", errMsg.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+bool TapDev::close()
+{
+    if (isFdValid()) {
+        CloseHandle(fd_);
+        fd_ = INVALID_TAPFD;
+    }
+
+    return true;
+}
+
+bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
+{
+    std::stringstream cidr;
+    cidr << inet_ntoa(*ipv4Addr) << "/" << +netIdLen;
+
+    std::stringstream cmd;
+    cmd << "netsh interface ip set address \"" << TAP_NAME << "\" static " << cidr.str();
+    if (system(cmd.str().c_str())) {
+        LOGE(TAG, "Failed to exec [%s].", cmd.str().c_str());
+        return false;
+    }
+    LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
+
+    return true;
+}
+
+bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
 {
     LONG err;
     std::string errMsg;
@@ -36,15 +150,15 @@ static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
         "DeviceInstanceID",
         RRF_RT_REG_SZ,
         nullptr,
-        tapInfo.devInstId,
-        &tapInfo.devInstIdLen
+        tapInfo_.devInstId,
+        &tapInfo_.devInstIdLen
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
         LOGF(TAG, "Failed to get DeviceInstanceID from %s.[%s]", adaptIdx, errMsg.c_str());
         return false;
     }
-    LOGT(TAG, "DeviceInstanceID: [%s]", tapInfo.devInstId);
+    LOGT(TAG, "DeviceInstanceID: [%s]", tapInfo_.devInstId);
 
     err = RegGetValueA(
         adaptKey,
@@ -52,18 +166,18 @@ static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
         "NetCfgInstanceId",
         RRF_RT_REG_SZ,
         nullptr,
-        tapInfo.netCfgInstId,
-        &tapInfo.netInstIdLen
+        tapInfo_.netCfgInstId,
+        &tapInfo_.netInstIdLen
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
         LOGF(TAG, "Failed to get NetCfgInstanceId from %s.[%s]", adaptIdx, errMsg.c_str());
         return false;
     }
-    LOGT(TAG, "NetCfgInstanceId: [%s]", tapInfo.netCfgInstId);
+    LOGT(TAG, "NetCfgInstanceId: [%s]", tapInfo_.netCfgInstId);
 
     std::stringstream connKeyPath;
-    connKeyPath << NETWORK_CONNECTIONS_KEY << "\\" << tapInfo.netCfgInstId << "\\Connection";
+    connKeyPath << NETWORK_CONNECTIONS_KEY << "\\" << tapInfo_.netCfgInstId << "\\Connection";
 
     HKEY connKey;
     err = RegOpenKeyExA(
@@ -86,8 +200,8 @@ static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
         "Name",
         RRF_RT_REG_SZ,
         nullptr,
-        tapInfo.name,
-        &tapInfo.nameLen
+        tapInfo_.name,
+        &tapInfo_.nameLen
     );
     RegCloseKey(connKey);
     if (err) {
@@ -96,22 +210,22 @@ static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
         return false;
     }
 
-    if (0 != strcmp(TAP_NAME, tapInfo.name)) {
+    if (0 != strcmp(TAP_NAME, tapInfo_.name)) {
         char cmd[256];
-        snprintf(cmd, REG_BUF_SIZE, "netsh interface set interface name=\"%s\" newname=\"%s\"", tapInfo.name, TAP_NAME);
+        snprintf(cmd, REG_BUF_SIZE, "netsh interface set interface name=\"%s\" newname=\"%s\"", tapInfo_.name, TAP_NAME);
         if (system(cmd)) {
             LOGE(TAG, "Failed to exec [%s].", cmd);
             return false;
         }
 
-        strcpy((char*)tapInfo.name, TAP_NAME);
-        tapInfo.nameLen = strlen(TAP_NAME) + 1;
+        strcpy((char*)tapInfo_.name, TAP_NAME);
+        tapInfo_.nameLen = strlen(TAP_NAME) + 1;
     }
 
     return true;
 }
 
-static bool findExistingTap()
+bool TapDev::findExistingTap()
 {
     bool ret = false;
     LONG err;
@@ -179,7 +293,7 @@ static bool findExistingTap()
     return ret;
 }
 
-static bool createNewTap()
+bool TapDev::createNewTap()
 {
     bool ret = false;
     LONG err;
@@ -194,7 +308,7 @@ static bool createNewTap()
     DWORD attributes = GetFileAttributesA(TAP_INSTALL);
     if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
         snprintf(cmd, REG_BUF_SIZE, "%s install OemVista.inf TAP0901", TAP_INSTALL);
-        if (system(TAP_INSTALL " install OemVista.inf TAP0901")) {
+        if (system(cmd)) {
             LOGE(TAG, "Failed to exec [%s].", cmd);
             return ret;
         }
@@ -337,86 +451,4 @@ static bool createNewTap()
 
     RegCloseKey(adaptKey);
     return ret;
-}
-
-TapDev::TapDev()
-    : fdValid_(false)
-    , mac_{}
-    , writeErrs_(0)
-    , readErrs_(0)
-{
-    fdValid_ = open();
-}
-
-TapDev::~TapDev()
-{
-    close();
-    // use tapInfo.DeviceInstanceID to remove
-    // if (system(TAP_INSTALL " remove TAP0901"))
-    //     LOGE(TAG, "Removing tap device failed.");
-}
-
-bool TapDev::open()
-{
-    std::string errMsg;
-
-    if (!findExistingTap() && !createNewTap())
-        return false;
-
-    std::stringstream tapName;
-    tapName << USERMODEDEVICEDIR << tapInfo.netCfgInstId << TAPSUFFIX;
-    fd_ = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
-    if (fd_ == INVALID_HANDLE_VALUE) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to open TAP device.[%s]", errMsg.c_str());
-        return false;
-    }
-
-    if (!DeviceIoControl(fd_, TAP_IOCTL_SET_MEDIA_STATUS,
-                         &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
-                         &tapInfo.mediaStatus, tapInfo.mediaStatusLen,
-                         &tapInfo.mediaStatusLen, nullptr)) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to set status to up.[%s]", errMsg.c_str());
-        return false;
-    }
-
-    memset(mac_.addr, 0, 6);
-    DWORD macLen = sizeof(mac_);
-    if (!DeviceIoControl(fd_, TAP_IOCTL_GET_MAC,
-                         mac_.addr, 6,
-                         mac_.addr, 6,
-                         &macLen, nullptr)) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to get MAC address.[%s]", errMsg.c_str());
-        return false;
-    }
-
-    return true;
-}
-
-bool TapDev::close()
-{
-    if (fd_ != INVALID_HANDLE_VALUE) {
-        CloseHandle(fd_);
-        fd_ = INVALID_HANDLE_VALUE;
-    }
-
-    return true;
-}
-
-bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
-{
-    std::stringstream cidr;
-    cidr << inet_ntoa(*ipv4Addr) << "/" << +netIdLen;
-
-    std::stringstream cmd;
-    cmd << "netsh interface ip set address \"" << TAP_NAME << "\" static " << cidr.str();
-    if (system(cmd.str().c_str())) {
-        LOGE(TAG, "Failed to exec [%s].", cmd.str().c_str());
-        return false;
-    }
-    LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
-
-    return true;
 }

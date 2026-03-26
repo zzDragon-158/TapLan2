@@ -59,12 +59,12 @@ public:
     bool close();
     uint16_t getBindPort() { return bindPort_; };
     SockFd getFd() { return fd_; };
-    bool isFdValid() { return (fd_ != INVALID_SOCKET); };
+    bool isFdValid() { return (fd_ != INVALID_SOCKFD); };
 
 protected:
-    const char* TAG = "[BsdSock]";
+    static constexpr const char* TAG = "[BsdSock]";
     uint16_t bindPort_ = 0;
-    SockFd fd_ = INVALID_SOCKET;
+    SockFd fd_ = INVALID_SOCKFD;
 #ifdef _WIN32
     static bool s_isWsaInitialized_;
 

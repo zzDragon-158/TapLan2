@@ -10,7 +10,10 @@
 #include    <ws2tcpip.h>
 #include    <windows.h>
 
-typedef     SOCKET              SockFd;
+using SockFd = SOCKET;
+constexpr SockFd INVALID_SOCKFD = INVALID_SOCKET;
+using TapFd = HANDLE;
+inline const TapFd INVALID_TAPFD = INVALID_HANDLE_VALUE;
 
 static std::string getErrMsg(DWORD errorCode)
 {
@@ -56,9 +59,10 @@ static std::string getIoErr()
 #include    <sys/uio.h>
 #include    <liburing.h>
 
-#define     INVALID_SOCKET      (int)(~0)
-
-typedef     int                 SockFd;
+using SockFd = int;
+constexpr SockFd INVALID_SOCKFD = -1;
+using TapFd = int;
+constexpr TapFd INVALID_TAPFD = -1;
 
 static std::string getErrMsg(int errCode)
 {
@@ -96,6 +100,9 @@ struct Mac {
         __builtin_memcpy(&this->addr, &m, 6);
         return *this;
     }
+    uint8_t& operator [](uint8_t i) {
+        return addr[i];
+    }
     void generateMac() {
         addr[0] = 0x02;
         addr[1] = 0x34;
@@ -120,6 +127,12 @@ struct Mac {
         
         return std::string(buf);
     }
+};
+
+struct EthHdr {
+    Mac dst;
+    Mac src;
+    uint16_t type;
 };
 
 enum {

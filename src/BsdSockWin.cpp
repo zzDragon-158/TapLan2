@@ -21,10 +21,10 @@ bool BsdSock::initWsa()
 
 bool BsdSock::close()
 {
-    if (fd_ != INVALID_SOCKET) {
+    if (fd_ != INVALID_SOCKFD) {
         shutdown(fd_, SD_BOTH);
         closesocket(fd_);
-        fd_ = INVALID_SOCKET;
+        fd_ = INVALID_SOCKFD;
     }
 
     return true;
@@ -36,7 +36,7 @@ bool TcpSock::open()
         return false;
 
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
-    if (fd_ == INVALID_SOCKET) {
+    if (!isFdValid()) {
         LOGE(TAG, "Can not create tcp socket.[%s]", getSockErr().c_str());
         return false;
     }
@@ -133,7 +133,7 @@ bool UdpSock::open()
         return false;
 
     fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (fd_ == -1) {
+    if (!isFdValid()) {
         LOGE(TAG, "Can not create udp socket. %s", getSockErr().c_str());
         return false;
     }

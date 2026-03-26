@@ -22,7 +22,7 @@ BsdSock::BsdSock(BsdSock&& other) noexcept
     : fd_(other.fd_)
     , bindPort_(other.bindPort_)
 {
-    other.fd_ = INVALID_SOCKET;
+    other.fd_ = INVALID_SOCKFD;
 }
 
 BsdSock& BsdSock::operator=(BsdSock&& other) noexcept
@@ -30,7 +30,7 @@ BsdSock& BsdSock::operator=(BsdSock&& other) noexcept
     if (this != &other) {
         close();
         fd_ = other.fd_;
-        other.fd_ = INVALID_SOCKET;
+        other.fd_ = INVALID_SOCKFD;
         bindPort_ = other.bindPort_;
     }
 
@@ -54,7 +54,9 @@ TcpSock::TcpSock(uint16_t port) noexcept
     : BsdSock(port)
     , isPassive_(true)
 {
-    open();
+    if (!open()) {
+        close();
+    }
 }
 
 TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr) noexcept
@@ -62,7 +64,9 @@ TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr) noexcept
     , isPassive_(false)
     , remoteAddr_(addr)
 {
-    open();
+    if (!open()) {
+        close();
+    }
 }
 
 TcpSock::TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr) noexcept
@@ -134,7 +138,7 @@ TcpSockSPtr TcpSock::accept()
         reinterpret_cast<sockaddr*>(&addr),
         &addrLen
     );
-    if (fd != INVALID_SOCKET) {
+    if (fd != INVALID_SOCKFD) {
         client = std::make_shared<TcpSock>(bindPort_, fd, addr);
     }
 
@@ -144,7 +148,9 @@ TcpSockSPtr TcpSock::accept()
 UdpSock::UdpSock(uint16_t port) noexcept
     : BsdSock(port)
 {
-    open();
+    if (!open()) {
+        close();
+    }
 }
 
 UdpSock::~UdpSock()

@@ -14,7 +14,7 @@ TapLan::TapLan()
         serverAddr_.sin6_family = AF_INET6;
         serverAddr_.sin6_port = htons(g_cfgData.localPort);
 
-        g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdVaild();
+        g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdValid();
 
         if (g_cfgData.isRunning) {
             TapDevPtr->getMacAddr(g_cfgData.mac);
@@ -30,7 +30,7 @@ TapLan::TapLan()
         memcpy(&serverAddr_.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
         serverAddr_.sin6_port = g_cfgData.remotePort;
 
-        g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdVaild();
+        g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdValid();
 
         if (g_cfgData.isRunning) {
             TapDevPtr->getMacAddr(g_cfgData.mac);
@@ -95,8 +95,8 @@ void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
     SockFd udpSendFd = static_cast<SockFd>(*udpSockPtr);
 
     EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
-    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+    Mac& dstMac = eh.dst;
+    Mac& srcMac = eh.src;
     bool needBroadcast = eh.dst[0] & 0x01;
 
     if (g_cfgData.runMode == RunMode_Server) {
@@ -146,8 +146,8 @@ void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
     TapFd tapFd = TapDevPtr->getFd();
 
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
-    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+    Mac& dstMac = eh.dst;
+    Mac& srcMac = eh.src;
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
 
@@ -377,8 +377,8 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
     char* payload = ctx->buf->payload;
 
     EthHdr& eh = reinterpret_cast<EthHdr&>(*payload);
-    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
-    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
+    Mac& dstMac = eh.dst;
+    Mac& srcMac = eh.src;
     bool needBroadcast = eh.dst[0] & 0x01;
 
     if (g_cfgData.runMode == RunMode_Server) {
@@ -442,8 +442,8 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
     char* payload = ctx->buf->payload;
 
     EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
-    Mac& srcMac = reinterpret_cast<Mac&>(eh.src);
-    Mac& dstMac = reinterpret_cast<Mac&>(eh.dst);
+    Mac& dstMac = eh.dst;
+    Mac& srcMac = eh.src;
     bool needBroadcast = eh.dst[0] & 0x01;
     bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
 
