@@ -14,7 +14,6 @@
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
 static NetAdaptInfo tapInfo;
-static const char* TAG = "[TapDev]";
 
 static std::string getCurrentWorkDir()
 {
@@ -112,7 +111,8 @@ static bool initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     return true;
 }
 
-static bool findExistingTap() {
+static bool findExistingTap()
+{
     bool ret = false;
     LONG err;
     std::string errMsg;
@@ -179,7 +179,8 @@ static bool findExistingTap() {
     return ret;
 }
 
-static bool createNewTap() {
+static bool createNewTap()
+{
     bool ret = false;
     LONG err;
     std::string errMsg;
@@ -338,19 +339,25 @@ static bool createNewTap() {
     return ret;
 }
 
-TapDev::TapDev(): fdValid_(false), mac_{},
-                    writeErrs_(0), readErrs_(0) {
+TapDev::TapDev()
+    : fdValid_(false)
+    , mac_{}
+    , writeErrs_(0)
+    , readErrs_(0)
+{
     fdValid_ = open();
 }
 
-TapDev::~TapDev() {
+TapDev::~TapDev()
+{
     close();
     // use tapInfo.DeviceInstanceID to remove
     // if (system(TAP_INSTALL " remove TAP0901"))
     //     LOGE(TAG, "Removing tap device failed.");
 }
 
-bool TapDev::open() {
+bool TapDev::open()
+{
     std::string errMsg;
 
     if (!findExistingTap() && !createNewTap())
@@ -388,17 +395,14 @@ bool TapDev::open() {
     return true;
 }
 
-bool TapDev::close() {
+bool TapDev::close()
+{
     if (fd_ != INVALID_HANDLE_VALUE) {
         CloseHandle(fd_);
         fd_ = INVALID_HANDLE_VALUE;
     }
 
     return true;
-}
-
-void TapDev::getMacAddr(Mac& mac) {
-    memcpy(mac.addr, mac_.addr, sizeof(mac_));
 }
 
 bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)

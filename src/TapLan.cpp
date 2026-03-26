@@ -1,9 +1,10 @@
 #include    "TapLan.hpp"
 
-static const char* TAG = "[TapLan]";
-
-TapLan::TapLan(): serverAddr_{}, udpSockPtr_(nullptr), udpSockPtrs_{},
-                  nodeMgrPtr_(nullptr)
+TapLan::TapLan()
+    : serverAddr_{}
+    , udpSockPtr_(nullptr)
+    , udpSockPtrs_{}
+    , nodeMgrPtr_(nullptr)
 {
     if (g_cfgData.runMode == RunMode_Server) {
         LOGI(TAG, "We are running in server mode.");

@@ -2,8 +2,6 @@
 #include "LogMgr.hpp"
 #include "TapLan.hpp"
 
-const char* TAG = "[NodeMgr]";
-
 NodeMgr::NodeMgr()
     : netNum_(g_cfgData.netNum)
     , netNumLen_(g_cfgData.netNumLen)

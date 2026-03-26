@@ -78,7 +78,7 @@ public:
     TapFd           getFd() { return fd_; };
     bool            isFdVaild() { return fdValid_; };
     bool            close();
-    void            getMacAddr(Mac& mac);
+    void            getMacAddr(Mac& mac) { mac = mac_; };
     bool            setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen);
     uint64_t        getWriteBytes() { return writeBytes_; };
     uint64_t        getWriteErrs() { return writeErrs_; };
@@ -90,6 +90,7 @@ public:
     void            incReadErrs(uint64_t v) { readErrs_ += v; };
 
 private:
+    const char*     TAG = "[TapDev]";
     TapFd           fd_;
     bool            fdValid_;
     Mac             mac_;

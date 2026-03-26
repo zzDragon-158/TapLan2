@@ -95,6 +95,8 @@ public:
     void client();
 
 private:
+    const char* TAG = "[NodeMgr]";
+
     uint32_t netNum_;
     uint8_t netNumLen_;
     std::bitset<256> addrPool_;

@@ -1,20 +1,25 @@
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
 
-static const char* TAG = "[TapDev]";
 static SockFd tapSock = -1;
 static ifreq ifr{};
 
-TapDev::TapDev(): fdValid_(false), mac_{},
-                    writeErrs_(0), readErrs_(0) {
+TapDev::TapDev()
+    : fdValid_(false)
+    , mac_{}
+    , writeErrs_(0)
+    , readErrs_(0)
+{
     fdValid_ = open();
 }
 
-TapDev::~TapDev() {
+TapDev::~TapDev()
+{
     close();
 }
 
-bool TapDev::open() {
+bool TapDev::open()
+{
     bool isExisting = (if_nametoindex(TAP_NAME) != 0);
 
     fd_ = ::open("/dev/net/tun", O_RDWR);
@@ -82,7 +87,8 @@ bool TapDev::open() {
     return true;
 }
 
-bool TapDev::close() {
+bool TapDev::close()
+{
     if (fd_ != -1) {
         ::close(fd_);
         fd_ = -1;
@@ -94,10 +100,6 @@ bool TapDev::close() {
     // system("ip link del dev " TAP_NAME);
 
     return true;
-}
-
-void TapDev::getMacAddr(Mac& mac) {
-    mac = mac_;
 }
 
 bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
