@@ -4,5 +4,5 @@ RUN echo "\n\
 "\
 # install packages
 && pacman -Syu\
-&& pacman -S tcpdump iperf3 iperf gdb nvim liburing\
-&& echo "docker image bulid complete."
+&& pacman -S tcpdump iperf3 iperf gdb nvim\
+&& echo "docker image for testing already build complete."

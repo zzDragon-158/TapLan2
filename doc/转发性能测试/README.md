@@ -5,9 +5,11 @@ $ git checkout 6a78bd4d187783f5252baca4ec2494aec9cfe6bc
 ```
 
 ## 1. 搭建测试环境
-我的CPU是12th Gen Intel(R) Core(TM) i5-12400。  
-使用Docker Desktop创建两个archlinux容器，容器共享winch wsl的linux内核。  
-在两个容器中分别运行下面两条命令来启动程序的服务端和客户端。
+<ul>
+<li>我的CPU是12th Gen Intel(R) Core(TM) i5-12400。  
+<li>使用Docker Desktop创建两个archlinux容器，容器共享winch wsl的linux内核。  
+<li>在两个容器中分别运行下面两条命令来启动程序的服务端和客户端。
+
 ```shell
 # 启动服务端
 $ sudo TapLan --aio
@@ -129,5 +131,14 @@ iperf Done.
 
 ## 3. 结论
 <ol>
+<li>增大网卡qlen，可以有效减少发送方丢包，目前程序设置qlen为5000。
+
+```shell
+ip -s link show <接口名称> # 查看指定网卡丢包
+```
 <li>增大UDP缓冲区大小对带宽的提升很大，使用大页内存好像没什么提升。
+
+```shell
+nstat -az | grep -i udp # 查看系统UDP数据包统计
+```
 <li>对比使用同步IO的API，使用异步IO的API提升很大。
