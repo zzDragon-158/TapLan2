@@ -1,0 +1,44 @@
+interface=wlan0
+bridge=br0
+driver=nl80211
+ssid=TapLan_Bridge
+country_code=CN
+ieee80211d=1
+ieee80211h=1
+
+# 5GHz 模式
+hw_mode=a
+channel=149
+
+# --- 80MHz 核心设置 ---
+
+# Wi-Fi 4 (HT) 设置
+ieee80211n=1
+# 保持 HT40+ 以兼容旧设备
+ht_capab=[HT40+][SHORT-GI-40][DSSS_CCK-40]
+
+# Wi-Fi 5 (VHT) 设置
+ieee80211ac=1
+# vht_oper_chwidth: 1 代表 80MHz
+vht_oper_chwidth=1
+# 155 是 149-161 这一组 80MHz 信道的中心点
+vht_oper_centr_freq_seg0_idx=155
+vht_capab=[SHORT-GI-80][MAX-MPDU-11454]
+
+# Wi-Fi 6 (HE) 设置 (MT7921 支持 AX)
+ieee80211ax=1
+# he_oper_chwidth: 1 代表 80MHz
+he_oper_chwidth=1
+he_oper_centr_freq_seg0_idx=155
+
+# 基础优化
+wmm_enabled=1
+auth_algs=1
+macaddr_acl=0
+ignore_broadcast_ssid=0
+
+# 安全设置
+wpa=2
+wpa_passphrase=123321a.
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP

@@ -1,0 +1,41 @@
+interface=wlan1
+bridge=br0
+driver=nl80211
+ssid=TapLan_Bridge
+country_code=CN
+ieee80211d=1
+ieee80211h=1
+
+# 5GHz 满血模式
+# --- 尝试 40MHz 兼容模式 ---
+hw_mode=a
+channel=149
+
+# 关闭 80MHz 相关索引
+# vht_oper_chwidth=1
+# he_oper_chwidth=1
+
+# 开启 Wi-Fi 4/5/6 的 40MHz 支持
+ieee80211n=1
+# HT40+ 表示使用 149+153 信道
+ht_capab=[HT40+][SHORT-GI-40]
+
+ieee80211ac=1
+vht_oper_chwidth=0
+vht_oper_centr_freq_seg0_idx=151
+
+ieee80211ax=1
+he_oper_chwidth=0
+he_oper_centr_freq_seg0_idx=151
+
+# 基础优化
+wmm_enabled=1
+auth_algs=1
+macaddr_acl=0
+ignore_broadcast_ssid=0
+
+# 安全设置
+wpa=2
+wpa_passphrase=123321a.
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
