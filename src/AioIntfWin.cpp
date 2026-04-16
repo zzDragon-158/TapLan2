@@ -116,7 +116,7 @@ int AioIntf::reqTapWrite(TapFd fd, IoCtx* ctx)
     ctx->token = TOKEN_TAP_WRITE;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
 
-    BOOL ok = WriteFile(fd, ctx->buf->payload, ctx->bufLen, nullptr, &ctx->ol);
+    BOOL ok = WriteFile(fd, ctx->buf->payload, ctx->dataLen, nullptr, &ctx->ol);
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
@@ -179,7 +179,7 @@ int AioIntf::reqUdpSend(SockFd fd, IoCtx* ctx)
 {
     ctx->token = TOKEN_UDP_SEND;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
-    ctx->wsaBuf.len = ctx->bufLen;
+    ctx->wsaBuf.len = ctx->dataLen;
 
     int ret = WSASendTo(
         fd,

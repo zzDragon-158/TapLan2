@@ -486,8 +486,8 @@ void TapLan::handleUdpData(IoCtx* ctx)
                 IoCtx* sendCtx = ioIntfPtr_->acquireIoCtx();
                 if (sendCtx) {
                     sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
-                    memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
-                    sendCtx->bufLen = ctx->bufLen;
+                    memcpy(sendCtx->buf->payload, payload, ctx->dataLen);
+                    sendCtx->dataLen = ctx->dataLen;
 
                     nodeMgrPtr_->setSockaddr(sendAddr, n);
 
@@ -547,8 +547,8 @@ void TapLan::handleTapData(IoCtx* ctx)
                 IoCtx* sendCtx = ioIntfPtr_->acquireIoCtx();
                 if (sendCtx) {
                     sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
-                    memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
-                    sendCtx->bufLen = ctx->bufLen;
+                    memcpy(sendCtx->buf->payload, payload, ctx->dataLen);
+                    sendCtx->dataLen = ctx->dataLen;
 
                     nodeMgrPtr_->setSockaddr(sendAddr, n);
 

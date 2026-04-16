@@ -73,7 +73,7 @@ struct IoCtx {
         sockaddr_in6 addr;
         char payload[];
     } *buf;
-    int bufLen;
+    int dataLen;
     msghdr msgHdr;
     iovec iov;
 
