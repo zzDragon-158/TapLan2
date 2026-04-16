@@ -83,16 +83,6 @@ AioIntf::AioIntf()
         g_cfgData.isRunning = false;
         return ;
     }
-
-    io_uring_buf_ring_init(bufRing_);
-    bufRingMask_ = io_uring_buf_ring_mask(MAX_RECV_REQ);
-    for (size_t i = 0; i < MAX_RECV_REQ; ++i) {
-        Ctx* ctx = acquireAioCtx(i);
-        ctx->token = TOKEN_UDP_RECV_MULTISHOT;
-        io_uring_buf_ring_add(bufRing_, ctx->buf, DATA_BUF_SIZE,
-                              ctx->bufId, bufRingMask_, i);
-    }
-    io_uring_buf_ring_advance(bufRing_, MAX_RECV_REQ);
 }
 
 AioIntf::~AioIntf()
@@ -122,21 +112,12 @@ AioIntf::Ctx* AioIntf::acquireAioCtx(size_t idx)
 
 void AioIntf::releaseAioCtx(Ctx* ctx)
 {
-    static unsigned short bufCnt = 0;
     if (ctx->bufId < START_TAP_BUF_IDX) {
-        ctx->token = TOKEN_UDP_RECV_MULTISHOT;
-        io_uring_buf_ring_add(bufRing_, ctx->buf, DATA_BUF_SIZE,
-                              ctx->bufId, bufRingMask_, bufCnt++);
+        reqUdpRecv(udpFd_, ctx);
     } else if (ctx->bufId < UDP_MULTISHOT_BUF_IDX) {
         reqTapRead(tapFd_, ctx);
     } else
         freeStack_.push(ctx);
-
-    if (bufCnt >= MAX_RECV_REQ / 2) {
-        LOGT(TAG, "buf ring advance [%u].", bufCnt);
-        io_uring_buf_ring_advance(bufRing_, bufCnt);
-        bufCnt = 0;
-    }
 }
 
 int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
@@ -195,19 +176,37 @@ int AioIntf::reqUdpRecv(SockFd fd, Ctx* ctx)
         }
     }
 
-    ctx->token = TOKEN_UDP_RECV;
-    ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
-    ctx->iov.iov_len = PAYLOAD_SIZE;
+    if (ctx->bufId < START_TAP_BUF_IDX) {
+        ctx->token = TOKEN_UDP_RECV_MULTISHOT;
+        io_uring_buf_ring_add(bufRing_, ctx->buf, DATA_BUF_SIZE,
+                              ctx->bufId, bufRingMask_, advanceCnt_++);
+        if (advanceCnt_ >= MAX_RECV_REQ / 2) {
+            LOGT(TAG, "buf ring advance [%u].", advanceCnt_);
+            io_uring_buf_ring_advance(bufRing_, advanceCnt_);
+            advanceCnt_ = 0;
+        }
+    } else {
+        ctx->token = TOKEN_UDP_RECV;
+        ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
+        ctx->iov.iov_len = PAYLOAD_SIZE;
 
-    io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
-    sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
-    io_uring_prep_recvmsg(sqe, fd, &ctx->msgHdr, 0);
+        io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
+        sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
+        io_uring_prep_recvmsg(sqe, fd, &ctx->msgHdr, 0);
+    }
 
     return 0;
 }
 
 int AioIntf::reqUdpRecvMultishot(SockFd fd) {
     udpFd_ = fd;
+
+    io_uring_buf_ring_init(bufRing_);
+    bufRingMask_ = io_uring_buf_ring_mask(MAX_RECV_REQ);
+    for (size_t i = 0; i < MAX_RECV_REQ; ++i) {
+        Ctx* ctx = acquireAioCtx(i);
+        reqUdpRecv(fd, ctx);
+    }
 
     Ctx* ctx = acquireAioCtx(UDP_MULTISHOT_BUF_IDX);
     ctx->token = TOKEN_UDP_RECV_MULTISHOT;

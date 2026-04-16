@@ -97,17 +97,24 @@ public:
     Ctx* acquireAioCtx();
     Ctx* acquireAioCtx(size_t idx);
     void releaseAioCtx(Ctx* ctx);
-    int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
-    int reqTapReadMultishot(TapFd fd);
-    int reqTapWrite(TapFd fd, Ctx* ctx);
-    int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);
-    int reqUdpRecvMultishot(SockFd fd);
-    int reqUdpSend(SockFd fd, Ctx* ctx);
+
+    int reqTapRead(TapFd fd, Ctx* ctx = nullptr);   // ++
+    int reqTapReadMultishot(TapFd fd);              //
+    int reqTapWrite(TapFd fd, Ctx* ctx);            // ++ 
+    int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);  // ++
+    int reqUdpRecvMultishot(SockFd fd);             //
+    int reqUdpSend(SockFd fd, Ctx* ctx);            // ++
+
+    int handleTapRead(Ctx* ctx);                    // --
+    int handleTapWrite(Ctx* ctx);                   // --
+    int handleUdpRecv(Ctx* ctx);                    // --
+    int handleUdpSend(Ctx* ctx);                    // --
 
 private:
-    uint8_t* dataBufs_;
-    TapFd tapFd_;
-    SockFd udpFd_;
+    uint8_t* dataBufs_ = nullptr;
+    TapFd tapFd_ = -1;
+    SockFd udpFd_ = -1;
+    uint16_t advanceCnt_ = 0;
     std::vector<Ctx*> ioCtxs_;
     std::stack<Ctx*> freeStack_;
 };
