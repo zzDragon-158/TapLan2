@@ -68,7 +68,7 @@ class AioIntf {
 public:
     struct Buf {
         io_uring_recvmsg_out ro;
-        sockaddr_storage addr;
+        sockaddr_in6 addr;
         char payload[];
     };
     struct Ctx {
@@ -103,7 +103,6 @@ public:
     int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);
     int reqUdpRecvMultishot(SockFd fd);
     int reqUdpSend(SockFd fd, Ctx* ctx);
-    void submitAioReq() { io_uring_submit(&ring_); };
 
 private:
     uint8_t* dataBufs_;

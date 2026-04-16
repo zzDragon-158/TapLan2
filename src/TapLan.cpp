@@ -370,6 +370,7 @@ void TapLan::handleTapRead(AioIntf::Ctx* ctx) {
     if (ctx->bufLen <= 0) {
         ctx->owner->releaseAioCtx(ctx);
         LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->bufLen));
+        return ;
     }
 
     SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
@@ -434,6 +435,7 @@ void TapLan::handleUdpRecv(AioIntf::Ctx* ctx) {
     if (ctx->bufLen < 0) {
         ctx->owner->releaseAioCtx(ctx);
         LOGE(TAG, "Failed to recv udp.[%s]", strerror(-ctx->bufLen));
+        return ;
     }
 
     TapFd tapFd = TapDevPtr->getFd();

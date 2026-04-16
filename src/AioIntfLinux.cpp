@@ -67,7 +67,7 @@ AioIntf::AioIntf()
 
     size_t bufRingSize = MAX_RECV_REQ * sizeof(io_uring_buf);
     posix_memalign((void**)(&bufRing_), 4096, bufRingSize);
-    if (!dataBufs_) {
+    if (!bufRing_) {
         g_cfgData.isRunning = false;
         LOGF(TAG, "Failed to allocate [%u] memory for io_uring_buf_ring.", bufRingSize);
         return ;
