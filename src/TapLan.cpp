@@ -317,7 +317,7 @@ bool TapLan::run()
         return false;
 
     if (g_cfgData.isAioEnable) {
-        aioWrkThread_ = std::thread(&TapLan::aioWrk, this);
+        aioWrkThread_ = std::thread(&AioIntf::aioWrk, AioIntfPtr, TapDevPtr->getFd(), udpSockPtr_->getFd(), this);
         pthread_setname_np(aioWrkThread_.native_handle(), "aioWrk");
     } else {
         udpWrkThread_ = std::thread(&TapLan::udpWrk, this);
@@ -597,7 +597,7 @@ void TapLan::aioWrk()
 void TapLan::aioWrk()
 {
     AioIntfPtr->initAioIntf();
-    io_uring* ring = &AioIntfPtr->ring_;
+    io_uring* ring = AioIntfPtr->ring_;
     TapFd tapFd = TapDevPtr->getFd();
     SockFd udpRecvFd = static_cast<SockFd>(*udpSockPtr_);
 
@@ -673,3 +673,109 @@ void TapLan::aioWrk()
     LOGI(TAG, "aioWrk has exited.");
 }
 #endif
+
+void TapLan::handleUdpData(AioIntf::Ctx* ctx)
+{
+    TapFd tapFd = TapDevPtr->getFd();
+    SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
+    sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    char* payload = ctx->buf->payload;
+
+    EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
+    Mac& dstMac = eh.dst;
+    Mac& srcMac = eh.src;
+    bool needBroadcast = eh.dst[0] & 0x01;
+    bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
+
+    if (g_cfgData.noSync) {
+        nodeMgrPtr_->addNode(&srcAddr, srcMac);
+    }
+
+    if (g_cfgData.runMode == RunMode_Server) {
+        if (needBroadcast) {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
+                if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
+                    return;
+
+                AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
+                if (sendCtx) {
+                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+                    memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
+                    sendCtx->bufLen = ctx->bufLen;
+
+                    nodeMgrPtr_->setSockaddr(sendAddr, n);
+
+                    AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
+                }
+            });
+
+            AioIntfPtr->reqTapWrite(tapFd, ctx);
+            return;
+
+        } else if (!isSendToMe) {
+            auto n = nodeMgrPtr_->findNode(dstMac);
+            if (n) {
+                sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+                nodeMgrPtr_->setSockaddr(dstAddr, n);
+
+                AioIntfPtr->reqUdpSend(udpSendFd, ctx);
+                return;
+            }
+        } else {
+            AioIntfPtr->reqTapWrite(tapFd, ctx);
+            return;
+        }
+    } else if (g_cfgData.runMode == RunMode_Client) {
+        AioIntfPtr->reqTapWrite(tapFd, ctx);
+        return;
+    }
+}
+
+void TapLan::handleTapData(AioIntf::Ctx* ctx)
+{
+    SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
+    sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    char* payload = ctx->buf->payload;
+
+    EthHdr& eh = reinterpret_cast<EthHdr&>(*payload);
+    Mac& dstMac = eh.dst;
+    Mac& srcMac = eh.src;
+    bool needBroadcast = eh.dst[0] & 0x01;
+
+    if (g_cfgData.runMode == RunMode_Server) {
+        if (!needBroadcast) {
+            auto n = nodeMgrPtr_->findNode(dstMac);
+            if (n) {
+                dstAddr.sin6_family = AF_INET6;
+                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                dstAddr.sin6_port = n->ipv6Port;
+
+                AioIntfPtr->reqUdpSend(udpSendFd, ctx);
+                return;
+            }
+        } else {
+            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
+                if (n->status == NODE_OFFLINE || n->mac == srcMac)
+                    return;
+
+                AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
+                if (sendCtx) {
+                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+                    memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
+                    sendCtx->bufLen = ctx->bufLen;
+
+                    nodeMgrPtr_->setSockaddr(sendAddr, n);
+
+                    AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
+                }
+            });
+        }
+    } else if (g_cfgData.runMode == RunMode_Client) {
+        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+            memcpy(&dstAddr, &serverAddr_, sizeof(sockaddr_in6));
+
+            AioIntfPtr->reqUdpSend(udpSendFd, ctx);
+            return;
+        }
+    }
+}

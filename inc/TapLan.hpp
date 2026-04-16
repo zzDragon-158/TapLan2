@@ -19,6 +19,9 @@ public:
     void showStats();
     UdpSock* getUdpSockPtr();
 
+    void handleUdpData(AioIntf::Ctx* ctx);
+    void handleTapData(AioIntf::Ctx* ctx);
+
 private:
     const char*     TAG = "[TapLan]";
     sockaddr_in6    serverAddr_;

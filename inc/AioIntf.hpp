@@ -64,6 +64,7 @@ private:
 };
 
 #elif       __linux__
+class TapLan;
 class AioIntf {
 public:
     struct Buf {
@@ -72,6 +73,7 @@ public:
         char payload[];
     };
     struct Ctx {
+        char ref;
         char token;
         AioIntf* owner;
         io_uring* ring;
@@ -87,7 +89,7 @@ public:
         };
     };
 
-    io_uring ring_;
+    io_uring* ring_;
     io_uring_buf_ring* bufRing_;
     int bufRingMask_;
 
@@ -111,10 +113,13 @@ public:
     int handleUdpRecv(Ctx* ctx);                    // --
     int handleUdpSend(Ctx* ctx);                    // --
 
+    void aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
+
 private:
     uint8_t* dataBufs_ = nullptr;
     TapFd tapFd_ = -1;
     SockFd udpFd_ = -1;
+    TapLan* tapLanPtr_ = nullptr;
     uint16_t advanceCnt_ = 0;
     std::vector<Ctx*> ioCtxs_;
     std::stack<Ctx*> freeStack_;
