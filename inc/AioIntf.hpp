@@ -94,6 +94,7 @@ public:
     static AioIntf* ptr();
     AioIntf();
     ~AioIntf();
+    int initAioIntf();
     Ctx* acquireAioCtx();
     Ctx* acquireAioCtx(size_t idx);
     void releaseAioCtx(Ctx* ctx);

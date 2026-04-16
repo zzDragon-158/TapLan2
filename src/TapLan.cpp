@@ -596,6 +596,7 @@ void TapLan::aioWrk()
 #elif       __linux__
 void TapLan::aioWrk()
 {
+    AioIntfPtr->initAioIntf();
     io_uring* ring = &AioIntfPtr->ring_;
     TapFd tapFd = TapDevPtr->getFd();
     SockFd udpRecvFd = static_cast<SockFd>(*udpSockPtr_);

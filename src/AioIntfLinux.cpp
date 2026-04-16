@@ -12,15 +12,27 @@ const size_t START_FREE_BUF_IDX = UDP_MULTISHOT_BUF_IDX + 1;
 
 AioIntf::AioIntf()
 {
-    int ret;
+    ;
+}
+
+AioIntf::~AioIntf()
+{
+    for (auto ctx: ioCtxs_) delete ctx;
+    // FIXME: cant use "free" to release hugepage memory.
+    // free(dataBufs_);
+}
+
+int AioIntf::initAioIntf()
+{
+    int res;
 
     io_uring_params params{};
     params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
-    ret = io_uring_queue_init_params(IOURING_SIZE, &ring_, &params);
-    if (ret < 0) {
-        LOGF(TAG, "Failed to init queue params.[%s]", strerror(-ret));
+    res = io_uring_queue_init_params(IOURING_SIZE, &ring_, &params);
+    if (res < 0) {
+        LOGF(TAG, "Failed to init queue params.[%s]", strerror(-res));
         g_cfgData.isRunning = false;
-        return ;
+        return -1;
     }
 
     size_t totalDatBufSize = DATA_BUF_NUM * DATA_BUF_SIZE;
@@ -34,7 +46,7 @@ AioIntf::AioIntf()
         if (!dataBufs_) {
             g_cfgData.isRunning = false;
             LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
-            return ;
+            return -1;
         }
     }
 
@@ -58,11 +70,11 @@ AioIntf::AioIntf()
         if (i > START_FREE_BUF_IDX)
             freeStack_.push(ctx);
     }
-    ret = io_uring_register_buffers(&ring_, iovs, DATA_BUF_NUM);
-    if (ret < 0) {
+    res = io_uring_register_buffers(&ring_, iovs, DATA_BUF_NUM);
+    if (res < 0) {
         g_cfgData.isRunning = false;
-        LOGF(TAG, "Failed to register buffers.[%s]", strerror(-ret));
-        return ;
+        LOGF(TAG, "Failed to register buffers.[%s]", strerror(-res));
+        return -1;
     }
 
     size_t bufRingSize = MAX_RECV_REQ * sizeof(io_uring_buf);
@@ -70,26 +82,21 @@ AioIntf::AioIntf()
     if (!bufRing_) {
         g_cfgData.isRunning = false;
         LOGF(TAG, "Failed to allocate [%u] memory for io_uring_buf_ring.", bufRingSize);
-        return ;
+        return -1;
     }
 
     io_uring_buf_reg bufReg{};
     bufReg.ring_addr = reinterpret_cast<uint64_t>(bufRing_);
     bufReg.ring_entries = MAX_RECV_REQ;
     bufReg.bgid = 0;
-    ret = io_uring_register_buf_ring(&ring_, &bufReg, 0);
-    if (ret < 0) {
-        LOGF(TAG, "Failed to register buf ring.[%s]", strerror(-ret));
+    res = io_uring_register_buf_ring(&ring_, &bufReg, 0);
+    if (res < 0) {
+        LOGF(TAG, "Failed to register buf ring.[%s]", strerror(-res));
         g_cfgData.isRunning = false;
-        return ;
+        return -1;
     }
-}
 
-AioIntf::~AioIntf()
-{
-    for (auto ctx: ioCtxs_) delete ctx;
-    // FIXME: cant use "free" to release hugepage memory.
-    // free(dataBufs_);
+    return 0;
 }
 
 AioIntf::Ctx* AioIntf::acquireAioCtx()
@@ -232,5 +239,123 @@ int AioIntf::reqUdpSend(SockFd fd, Ctx* ctx)
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
     io_uring_prep_sendmsg(sqe, fd, &ctx->msgHdr, 0);
 
+    return 0;
+}
+
+int AioIntf::handleTapRead(Ctx* ctx)
+{
+    // SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
+    // sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    // char* payload = ctx->buf->payload;
+
+    // EthHdr& eh = reinterpret_cast<EthHdr&>(*payload);
+    // Mac& dstMac = eh.dst;
+    // Mac& srcMac = eh.src;
+    // bool needBroadcast = eh.dst[0] & 0x01;
+
+    // if (g_cfgData.runMode == RunMode_Server) {
+    //     if (!needBroadcast) {
+    //         auto n = nodeMgrPtr_->findNode(dstMac);
+    //         if (n) {
+    //             dstAddr.sin6_family = AF_INET6;
+    //             memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+    //             dstAddr.sin6_port = n->ipv6Port;
+
+    //             AioIntfPtr->reqUdpSend(udpSendFd, ctx);
+    //             return;
+    //         }
+    //     } else {
+    //         nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
+    //             if (n->status == NODE_OFFLINE || n->mac == srcMac)
+    //                 return;
+
+    //             AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
+    //             if (sendCtx) {
+    //                 sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+    //                 memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
+    //                 sendCtx->bufLen = ctx->bufLen;
+
+    //                 nodeMgrPtr_->setSockaddr(sendAddr, n);
+
+    //                 AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
+    //             }
+    //         });
+    //     }
+    // } else if (g_cfgData.runMode == RunMode_Client) {
+    //     if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+    //         memcpy(&dstAddr, &serverAddr_, sizeof(sockaddr_in6));
+
+    //         AioIntfPtr->reqUdpSend(udpSendFd, ctx);
+    //         return;
+    //     }
+    // }
+    return 0;
+}
+
+int AioIntf::handleTapWrite(Ctx* ctx)
+{
+    return 0;
+}
+
+int AioIntf::handleUdpRecv(Ctx* ctx)
+{
+    // TapFd tapFd = TapDevPtr->getFd();
+    // SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
+    // sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    // char* payload = ctx->buf->payload;
+
+    // EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
+    // Mac& dstMac = eh.dst;
+    // Mac& srcMac = eh.src;
+    // bool needBroadcast = eh.dst[0] & 0x01;
+    // bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
+
+    // if (g_cfgData.noSync) {
+    //     nodeMgrPtr_->addNode(&srcAddr, srcMac);
+    // }
+
+    // if (g_cfgData.runMode == RunMode_Server) {
+    //     if (needBroadcast) {
+    //         nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
+    //             if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
+    //                 return;
+
+    //             AioIntf::Ctx* sendCtx = AioIntfPtr->acquireAioCtx();
+    //             if (sendCtx) {
+    //                 sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+    //                 memcpy(sendCtx->buf->payload, payload, ctx->bufLen);
+    //                 sendCtx->bufLen = ctx->bufLen;
+
+    //                 nodeMgrPtr_->setSockaddr(sendAddr, n);
+
+    //                 AioIntfPtr->reqUdpSend(udpSendFd, sendCtx);
+    //             }
+    //         });
+
+    //         AioIntfPtr->reqTapWrite(tapFd, ctx);
+    //         return;
+
+    //     } else if (!isSendToMe) {
+    //         auto n = nodeMgrPtr_->findNode(dstMac);
+    //         if (n) {
+    //             sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+    //             nodeMgrPtr_->setSockaddr(dstAddr, n);
+
+    //             AioIntfPtr->reqUdpSend(udpSendFd, ctx);
+    //             return;
+    //         }
+    //     } else {
+    //         AioIntfPtr->reqTapWrite(tapFd, ctx);
+    //         return;
+    //     }
+    // } else if (g_cfgData.runMode == RunMode_Client) {
+    //     AioIntfPtr->reqTapWrite(tapFd, ctx);
+    //     return;
+    // }
+    return 0;
+}
+
+int AioIntf::handleUdpSend(Ctx* ctx)
+{
     return 0;
 }
