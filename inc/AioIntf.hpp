@@ -9,8 +9,6 @@
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 
-#define     AioIntfPtr      AioIntf::ptr()
-
 const size_t DATA_BUF_NUM = 1024;
 const int MAX_RECV_REQ = 256;
 const int MAX_READ_REQ = 256;
@@ -26,7 +24,7 @@ public:
         INT addrLen;
         char payload[];
     };
-    struct Ctx {
+    struct IoCtx {
         char token;
         AioIntf* owner;
         unsigned short bufId;
@@ -35,8 +33,8 @@ public:
         OVERLAPPED ol;
         WSABUF wsaBuf;
 
-        Ctx(){
-            memset(this, 0, sizeof(Ctx));
+        IoCtx(){
+            memset(this, 0, sizeof(IoCtx));
         }
     };
 
@@ -45,73 +43,75 @@ public:
     static AioIntf* ptr();
     AioIntf();
     ~AioIntf();
-    Ctx* acquireAioCtx();
-    Ctx* acquireAioCtx(size_t idx);
-    void releaseAioCtx(Ctx* ctx);
-    int reqTapRead(TapFd fd, Ctx* ctx = nullptr);
+    IoCtx* acquireIoCtx();
+    IoCtx* acquireIoCtx(size_t idx);
+    void releaseIoCtx(IoCtx* ctx);
+    int reqTapRead(TapFd fd, IoCtx* ctx = nullptr);
     int reqTapReadMultishot(TapFd fd);
-    int reqTapWrite(TapFd fd, Ctx* ctx);
-    int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);
+    int reqTapWrite(TapFd fd, IoCtx* ctx);
+    int reqUdpRecv(SockFd fd, IoCtx* ctx = nullptr);
     int reqUdpRecvMultishot(SockFd fd);
-    int reqUdpSend(SockFd fd, Ctx* ctx);
+    int reqUdpSend(SockFd fd, IoCtx* ctx);
 
 private:
     uint8_t* dataBufs_;
     TapFd tapFd_;
     SockFd udpFd_;
-    std::vector<Ctx*> ioCtxs_;
-    std::stack<Ctx*> freeStack_;
+    std::vector<IoCtx*> ioCtxs_;
+    std::stack<IoCtx*> freeStack_;
 };
 
 #elif       __linux__
 class TapLan;
-class AioIntf {
-public:
+
+struct IoCtx {
+    char ref;
+    char token;
+    unsigned short bufId;
     struct Buf {
         io_uring_recvmsg_out ro;
         sockaddr_in6 addr;
         char payload[];
+    } *buf;
+    int bufLen;
+    msghdr msgHdr;
+    iovec iov;
+
+    IoCtx() {
+        memset(this, 0, sizeof(*this));
     };
-    struct Ctx {
-        char ref;
-        char token;
-        AioIntf* owner;
-        io_uring* ring;
-        unsigned short bufId;
-        Buf *buf;
-        int bufLen;
-        msghdr msgHdr;
-        iovec iov;
+};
 
-        Ctx() {
-            memset(this, 0, sizeof(Ctx));
-            // bufId = -1;
-        };
-    };
+class IoIntf {
+public:
+    virtual IoCtx* acquireIoCtx() { return nullptr; };
 
-    io_uring* ring_;
-    io_uring_buf_ring* bufRing_;
-    int bufRingMask_;
+    virtual int reqUdpSend(SockFd fd, IoCtx* ctx) { return -1; };
+    virtual int reqTapWrite(TapFd fd, IoCtx* ctx) { return -1; };
+};
 
-    static AioIntf* ptr();
+class AioIntf: public IoIntf {
+public:
+
     AioIntf();
     ~AioIntf();
     int initAioIntf();
-    Ctx* acquireAioCtx();
-    Ctx* acquireAioCtx(size_t idx);
-    void releaseAioCtx(Ctx* ctx);
 
-    int reqTapRead(TapFd fd, Ctx* ctx = nullptr);   // ++
-    int reqTapReadMultishot(TapFd fd);              //
-    int reqTapWrite(TapFd fd, Ctx* ctx);            // ++ 
-    int reqUdpRecv(SockFd fd, Ctx* ctx = nullptr);  // ++
-    int reqUdpRecvMultishot(SockFd fd);             //
-    int reqUdpSend(SockFd fd, Ctx* ctx);            // ++
+    IoCtx* acquireIoCtx();
+    IoCtx* acquireIoCtx(size_t idx);
+    void releaseIoCtx(IoCtx* ctx);
 
-    int handleTapRead(Ctx* ctx);                    // --
-    int handleTapWrite(Ctx* ctx);                   // --
-    int handleUdpRecv(Ctx* ctx);                    // --
-    int handleUdpSend(Ctx* ctx);                    // --
+    int reqTapRead(TapFd fd, IoCtx* ctx = nullptr);
+    int reqTapReadMultishot(TapFd fd);
+    int reqTapWrite(TapFd fd, IoCtx* ctx);
+    int reqUdpRecv(SockFd fd, IoCtx* ctx = nullptr);
+    int reqUdpRecvMultishot(SockFd fd);
+    int reqUdpSend(SockFd fd, IoCtx* ctx);
+
+    int handleTapRead(IoCtx* ctx);
+    int handleTapWrite(IoCtx* ctx);
+    int handleUdpRecv(IoCtx* ctx);
+    int handleUdpSend(IoCtx* ctx);
 
     void aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
 
@@ -121,16 +121,14 @@ private:
     SockFd udpFd_ = -1;
     TapLan* tapLanPtr_ = nullptr;
     uint16_t advanceCnt_ = 0;
-    std::vector<Ctx*> ioCtxs_;
-    std::stack<Ctx*> freeStack_;
+    std::vector<IoCtx*> ioCtxs_;
+    std::stack<IoCtx*> freeStack_;
+
+    io_uring* ring_;
+    io_uring_buf_ring* bufRing_;
+    int bufRingMask_;
 };
 
 #else
 
 #endif
-
-inline AioIntf* AioIntf::ptr()
-{
-    static AioIntf ins;
-    return &ins;
-}

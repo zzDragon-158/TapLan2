@@ -22,7 +22,7 @@ AioIntf::AioIntf()
     }
 
     for (size_t i = 0; i < DATA_BUF_NUM; ++i) {
-        Ctx* ctx = new Ctx();
+        IoCtx* ctx = new IoCtx();
 
         ctx->owner = this;
         ctx->bufId = i;
@@ -49,16 +49,16 @@ AioIntf::~AioIntf()
     _aligned_free(dataBufs_);
 }
 
-AioIntf::Ctx* AioIntf::acquireAioCtx() {
+IoCtx* AioIntf::acquireIoCtx() {
     if (freeStack_.empty())
         return nullptr;
 
-    Ctx* ctx = freeStack_.top();
+    IoCtx* ctx = freeStack_.top();
     freeStack_.pop();
     return ctx;
 }
 
-AioIntf::Ctx* AioIntf::acquireAioCtx(size_t idx)
+IoCtx* AioIntf::acquireIoCtx(size_t idx)
 {
     if (idx >= DATA_BUF_NUM)
         return nullptr;
@@ -66,7 +66,7 @@ AioIntf::Ctx* AioIntf::acquireAioCtx(size_t idx)
     return ioCtxs_[idx];
 }
 
-void AioIntf::releaseAioCtx(Ctx* ctx)
+void AioIntf::releaseIoCtx(IoCtx* ctx)
 {
     if (ctx->bufId < START_TAP_BUF_IDX) {
         reqUdpRecv(udpFd_, ctx);
@@ -77,10 +77,10 @@ void AioIntf::releaseAioCtx(Ctx* ctx)
     }
 }
 
-int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
+int AioIntf::reqTapRead(TapFd fd, IoCtx* ctx)
 {
     if (!ctx)
-        ctx = acquireAioCtx();
+        ctx = acquireIoCtx();
 
     ctx->token = TOKEN_TAP_READ;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
@@ -89,7 +89,7 @@ int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            ctx->owner->releaseAioCtx(ctx);
+            ctx->owner->releaseIoCtx(ctx);
 
             LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
             return -1;
@@ -104,14 +104,14 @@ int AioIntf::reqTapReadMultishot(TapFd fd)
     tapFd_ = fd;
 
     for (int idx = START_TAP_BUF_IDX; idx < START_TAP_BUF_IDX + MAX_READ_REQ; ++idx) {
-        Ctx* ctx = acquireAioCtx(idx);
+        IoCtx* ctx = acquireIoCtx(idx);
         reqTapRead(fd, ctx);
     }
 
     return 0;
 }
 
-int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
+int AioIntf::reqTapWrite(TapFd fd, IoCtx* ctx)
 {
     ctx->token = TOKEN_TAP_WRITE;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
@@ -120,7 +120,7 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            ctx->owner->releaseAioCtx(ctx);
+            ctx->owner->releaseIoCtx(ctx);
 
             LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
             return -1;
@@ -130,10 +130,10 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
     return 0;
 }
 
-int AioIntf::reqUdpRecv(SockFd fd, Ctx* ctx)
+int AioIntf::reqUdpRecv(SockFd fd, IoCtx* ctx)
 {
     if (!ctx)
-        ctx = acquireAioCtx();
+        ctx = acquireIoCtx();
 
     ctx->token = TOKEN_UDP_RECV;
     ctx->buf->addrLen = sizeof(ctx->buf->addr);
@@ -155,7 +155,7 @@ int AioIntf::reqUdpRecv(SockFd fd, Ctx* ctx)
     if (ret == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            ctx->owner->releaseAioCtx(ctx);
+            ctx->owner->releaseIoCtx(ctx);
             LOGE(TAG, "Failed to recv udp.[%s]", getErrMsg(err).c_str());
         }
     }
@@ -168,14 +168,14 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd)
     udpFd_ = fd;
 
     for (int idx = START_UDP_BUF_IDX; idx < START_UDP_BUF_IDX + MAX_RECV_REQ; ++idx) {
-        Ctx* ctx = acquireAioCtx(idx);
+        IoCtx* ctx = acquireIoCtx(idx);
         reqUdpRecv(fd, ctx);
     }
 
     return 0;
 }
 
-int AioIntf::reqUdpSend(SockFd fd, Ctx* ctx)
+int AioIntf::reqUdpSend(SockFd fd, IoCtx* ctx)
 {
     ctx->token = TOKEN_UDP_SEND;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
@@ -196,7 +196,7 @@ int AioIntf::reqUdpSend(SockFd fd, Ctx* ctx)
     if (ret == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            ctx->owner->releaseAioCtx(ctx);
+            ctx->owner->releaseIoCtx(ctx);
             LOGE(TAG, "Failed to send udp.[%s]", getErrMsg(err).c_str());
         }
     }

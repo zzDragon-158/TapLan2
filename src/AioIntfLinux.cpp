@@ -2,7 +2,7 @@
 #include    "TapLan.hpp"
 
 static const char* TAG = "[AioIntf]";
-const size_t PAYLOAD_SIZE = DATA_BUF_SIZE - sizeof(AioIntf::Buf);
+const size_t PAYLOAD_SIZE = DATA_BUF_SIZE - sizeof(IoCtx::Buf);
 /* 0               256             512             768             1024 */
 /* |---------------|---------------|---------------|---------------|    */
 /* |      udp      |      tap      |           freestack           |    */
@@ -54,11 +54,9 @@ int AioIntf::initAioIntf()
 
     iovec iovs[DATA_BUF_NUM];
     for (size_t i = 0; i < DATA_BUF_NUM; ++i) {
-        Ctx* ctx = new Ctx();
-        ctx->owner = this;
-        ctx->ring = ring_;
+        IoCtx* ctx = new IoCtx();
         ctx->bufId = i;
-        ctx->buf = reinterpret_cast<Buf*>(dataBufs_ + i * DATA_BUF_SIZE);
+        ctx->buf = reinterpret_cast<IoCtx::Buf*>(dataBufs_ + i * DATA_BUF_SIZE);
         ctx->msgHdr.msg_name = &ctx->buf->addr;
         ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
         ctx->msgHdr.msg_iov = &ctx->iov;
@@ -101,17 +99,17 @@ int AioIntf::initAioIntf()
     return 0;
 }
 
-AioIntf::Ctx* AioIntf::acquireAioCtx()
+IoCtx* AioIntf::acquireIoCtx()
 {
     if (freeStack_.empty())
         return nullptr;
 
-    Ctx* ctx = freeStack_.top();
+    IoCtx* ctx = freeStack_.top();
     freeStack_.pop();
     return ctx;
 }
 
-AioIntf::Ctx* AioIntf::acquireAioCtx(size_t idx)
+IoCtx* AioIntf::acquireIoCtx(size_t idx)
 {
     if (idx >= DATA_BUF_NUM)
         return nullptr;
@@ -119,7 +117,7 @@ AioIntf::Ctx* AioIntf::acquireAioCtx(size_t idx)
     return ioCtxs_[idx];
 }
 
-void AioIntf::releaseAioCtx(Ctx* ctx)
+void AioIntf::releaseIoCtx(IoCtx* ctx)
 {
     --ctx->ref;
     if (ctx->ref > 0)
@@ -133,10 +131,10 @@ void AioIntf::releaseAioCtx(Ctx* ctx)
         freeStack_.push(ctx);
 }
 
-int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
+int AioIntf::reqTapRead(TapFd fd, IoCtx* ctx)
 {
     if (!ctx) {
-        ctx = acquireAioCtx();
+        ctx = acquireIoCtx();
         if (!ctx) {
             LOGW(TAG, "Failed to acquire aio ctx for reqTapRead.");
             return -1;
@@ -147,7 +145,7 @@ int AioIntf::reqTapRead(TapFd fd, Ctx* ctx)
     ctx->token = TOKEN_TAP_READ;
     ctx->iov.iov_len = PAYLOAD_SIZE;
 
-    io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
+    io_uring_sqe* sqe = io_uring_get_sqe(ring_);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
     io_uring_prep_readv(sqe, fd, ctx->msgHdr.msg_iov, 
                         ctx->msgHdr.msg_iovlen, 0);
@@ -160,20 +158,20 @@ int AioIntf::reqTapReadMultishot(TapFd fd)
     tapFd_ = fd;
 
     for (int idx = START_TAP_BUF_IDX; idx < START_TAP_BUF_IDX + MAX_READ_REQ; ++idx) {
-        Ctx* ctx = acquireAioCtx(idx);
+        IoCtx* ctx = acquireIoCtx(idx);
         reqTapRead(fd, ctx);
     }
 
     return 0;
 }
 
-int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
+int AioIntf::reqTapWrite(TapFd fd, IoCtx* ctx)
 {
     ++ctx->ref;
     ctx->token = TOKEN_TAP_WRITE;
     ctx->iov.iov_len = ctx->bufLen;
 
-    io_uring_sqe *sqe = io_uring_get_sqe(ctx->ring);
+    io_uring_sqe *sqe = io_uring_get_sqe(ring_);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
     io_uring_prep_writev(sqe, fd, ctx->msgHdr.msg_iov,
                          ctx->msgHdr.msg_iovlen, 0);
@@ -181,10 +179,10 @@ int AioIntf::reqTapWrite(TapFd fd, Ctx* ctx)
     return 0;
 }
 
-int AioIntf::reqUdpRecv(SockFd fd, Ctx* ctx)
+int AioIntf::reqUdpRecv(SockFd fd, IoCtx* ctx)
 {
     if (!ctx) {
-        ctx = acquireAioCtx();
+        ctx = acquireIoCtx();
         if (!ctx) {
             LOGW(TAG, "Failed to acquire aio ctx for reqUdpRecv.");
             return -1;
@@ -206,7 +204,7 @@ int AioIntf::reqUdpRecv(SockFd fd, Ctx* ctx)
         ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
         ctx->iov.iov_len = PAYLOAD_SIZE;
 
-        io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
+        io_uring_sqe* sqe = io_uring_get_sqe(ring_);
         sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
         io_uring_prep_recvmsg(sqe, fd, &ctx->msgHdr, 0);
     }
@@ -220,11 +218,11 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd) {
     io_uring_buf_ring_init(bufRing_);
     bufRingMask_ = io_uring_buf_ring_mask(MAX_RECV_REQ);
     for (size_t i = 0; i < MAX_RECV_REQ; ++i) {
-        Ctx* ctx = acquireAioCtx(i);
+        IoCtx* ctx = acquireIoCtx(i);
         reqUdpRecv(fd, ctx);
     }
 
-    Ctx* ctx = acquireAioCtx(UDP_MULTISHOT_BUF_IDX);
+    IoCtx* ctx = acquireIoCtx(UDP_MULTISHOT_BUF_IDX);
     ++ctx->ref;
     ctx->token = TOKEN_UDP_RECV_MULTISHOT;
     memset(&ctx->msgHdr, 0, sizeof(msghdr));
@@ -239,43 +237,43 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd) {
     return 0;
 }
 
-int AioIntf::reqUdpSend(SockFd fd, Ctx* ctx)
+int AioIntf::reqUdpSend(SockFd fd, IoCtx* ctx)
 {
     ++ctx->ref;
     ctx->token = TOKEN_UDP_SEND;
     ctx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
     ctx->iov.iov_len = ctx->bufLen;
 
-    io_uring_sqe* sqe = io_uring_get_sqe(ctx->ring);
+    io_uring_sqe* sqe = io_uring_get_sqe(ring_);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
     io_uring_prep_sendmsg(sqe, fd, &ctx->msgHdr, 0);
 
     return 0;
 }
 
-int AioIntf::handleTapRead(Ctx* ctx)
+int AioIntf::handleTapRead(IoCtx* ctx)
 {
     tapLanPtr_->handleTapData(ctx);
-    releaseAioCtx(ctx);
+    releaseIoCtx(ctx);
     return 0;
 }
 
-int AioIntf::handleTapWrite(Ctx* ctx)
+int AioIntf::handleTapWrite(IoCtx* ctx)
 {
-    releaseAioCtx(ctx);
+    releaseIoCtx(ctx);
     return 0;
 }
 
-int AioIntf::handleUdpRecv(Ctx* ctx)
+int AioIntf::handleUdpRecv(IoCtx* ctx)
 {
     tapLanPtr_->handleUdpData(ctx);
-    releaseAioCtx(ctx);
+    releaseIoCtx(ctx);
     return 0;
 }
 
-int AioIntf::handleUdpSend(Ctx* ctx)
+int AioIntf::handleUdpSend(IoCtx* ctx)
 {
-    releaseAioCtx(ctx);
+    releaseIoCtx(ctx);
     return 0;
 }
 
@@ -305,7 +303,7 @@ void AioIntf::aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
         io_uring_for_each_cqe(ring_, head, cqe) {
             ++cqeCnt;
 
-            AioIntf::Ctx* ctx = reinterpret_cast<AioIntf::Ctx*>(cqe->user_data);
+            IoCtx* ctx = reinterpret_cast<IoCtx*>(cqe->user_data);
             ctx->bufLen = cqe->res;
 
             switch (ctx->token) {
@@ -316,7 +314,7 @@ void AioIntf::aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
                 }
 
                 size_t idx = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-                AioIntf::Ctx* realCtx = acquireAioCtx(idx);
+                IoCtx* realCtx = acquireIoCtx(idx);
                 realCtx->bufLen = cqe->res;
                 handleUdpRecv(realCtx);
 

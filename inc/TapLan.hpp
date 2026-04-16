@@ -19,8 +19,8 @@ public:
     void showStats();
     UdpSock* getUdpSockPtr();
 
-    void handleUdpData(AioIntf::Ctx* ctx);
-    void handleTapData(AioIntf::Ctx* ctx);
+    void handleUdpData(IoCtx* ctx);
+    void handleTapData(IoCtx* ctx);
 
 private:
     const char*     TAG = "[TapLan]";
@@ -28,6 +28,7 @@ private:
     UdpSock*        udpSockPtr_;
     UdpSock*        udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
+    IoIntf*         ioIntfPtr_;
     std::thread     syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
@@ -38,9 +39,9 @@ private:
     void udpWrk();
     void tapWrk();
 
-    void handleTapRead(AioIntf::Ctx* ctx);
-    void handleTapWrite(AioIntf::Ctx* ctx);
-    void handleUdpRecv(AioIntf::Ctx* ctx);
-    void handleUdpSend(AioIntf::Ctx* ctx);
+    void handleTapRead(IoCtx* ctx);
+    void handleTapWrite(IoCtx* ctx);
+    void handleUdpRecv(IoCtx* ctx);
+    void handleUdpSend(IoCtx* ctx);
     void aioWrk();
 };
