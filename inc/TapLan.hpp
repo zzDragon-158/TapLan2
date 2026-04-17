@@ -38,4 +38,6 @@ private:
     void handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx);
     void udpWrk();
     void tapWrk();
+
+    friend void AioIntf::aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
 };
