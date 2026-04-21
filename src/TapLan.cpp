@@ -27,7 +27,7 @@ TapLan::TapLan()
         nodeMgrPtr_ = std::make_shared<NodeMgr>();
 
         serverAddr_.sin6_family = AF_INET6;
-        memcpy(&serverAddr_.sin6_addr, &g_cfgData.remoteAddr, sizeof(in6_addr));
+        serverAddr_.sin6_addr = g_cfgData.remoteAddr;
         serverAddr_.sin6_port = g_cfgData.remotePort;
 
         g_cfgData.isRunning = initUdpSockPtrs() && TapDevPtr->isFdValid();
@@ -84,7 +84,7 @@ bool TapLan::initUdpSockPtrs()
 
     return (udpSockPtr_ && udpSockPtr_->isFdValid());
 }
-
+#if 0
 void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
 {
     if (ctx->dataLen > DATA_BUF_SIZE) {
@@ -180,32 +180,7 @@ void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
         // RunMode_None
     }
 }
-
-void TapLan::udpWrk()
-{
-    SockFd udpRecvFd = static_cast<SockFd>(*udpSockPtr_);
-    SioIntf sioIntf;
-
-    while (g_cfgData.isRunning) {
-        SioIntf::Ctx* ctx = sioIntf.udpRecv(udpRecvFd);
-        handleUdpData(sioIntf, ctx);
-    }
-
-    LOGI(TAG, "udpWrk has exited.");
-}
-
-void TapLan::tapWrk()
-{
-    TapFd tapReadFd = TapDevPtr->getFd();
-    SioIntf sioIntf;
-
-    while (g_cfgData.isRunning) {
-        SioIntf::Ctx* ctx = sioIntf.tapRead(tapReadFd);
-        handleTapData(sioIntf, ctx);
-    }
-
-    LOGI(TAG, "tapWrk has exited.");
-}
+#endif
 
 void TapLan::syncWrk()
 {
@@ -317,14 +292,17 @@ bool TapLan::run()
         return false;
 
     if (g_cfgData.isAioEnable) {
-        ioIntfPtr_ = new AioIntf();
-        aioWrkThread_ = std::thread(&AioIntf::aioWrk, (AioIntf*)ioIntfPtr_, TapDevPtr->getFd(), udpSockPtr_->getFd(), this);
+        ioIntfPtr_ = new AioIntf(TapDevPtr->getFd(), udpSockPtr_->getFd(), this);
+
+        aioWrkThread_ = std::thread(&AioIntf::aioWrk, (AioIntf*)ioIntfPtr_);
         pthread_setname_np(aioWrkThread_.native_handle(), "aioWrk");
     } else {
-        udpWrkThread_ = std::thread(&TapLan::udpWrk, this);
+        ioIntfPtr_ = new SioIntf(TapDevPtr->getFd(), udpSockPtr_->getFd(), this);
+
+        udpWrkThread_ = std::thread(&SioIntf::udpWrk, (SioIntf*)ioIntfPtr_);
         pthread_setname_np(udpWrkThread_.native_handle(), "udpWrk");
 
-        tapWrkThread_ = std::thread(&TapLan::tapWrk, this);
+        tapWrkThread_ = std::thread(&SioIntf::tapWrk, (SioIntf*)ioIntfPtr_);
         pthread_setname_np(tapWrkThread_.native_handle(), "tapWrk");
     }
 
@@ -390,12 +368,14 @@ void TapLan::handleUdpData(IoCtx* ctx)
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return;
 
-                IoCtx* sendCtx = ioIntfPtr_->acquireIoCtx();
-                if (sendCtx) {
-                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+                IoCtx* sendCtx = g_cfgData.isAioEnable? ioIntfPtr_->acquireIoCtx(): ctx;
+                if (g_cfgData.isAioEnable && sendCtx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->dataLen);
                     sendCtx->dataLen = ctx->dataLen;
+                }
 
+                if (sendCtx) {
+                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
                     nodeMgrPtr_->setSockaddr(sendAddr, n);
 
                     ioIntfPtr_->reqUdpSend(udpSendFd, sendCtx);
@@ -440,7 +420,7 @@ void TapLan::handleTapData(IoCtx* ctx)
             auto n = nodeMgrPtr_->findNode(dstMac);
             if (n) {
                 dstAddr.sin6_family = AF_INET6;
-                memcpy(&dstAddr.sin6_addr, &n->ipv6Addr, sizeof(in6_addr));
+                dstAddr.sin6_addr = n->ipv6Addr;
                 dstAddr.sin6_port = n->ipv6Port;
 
                 ioIntfPtr_->reqUdpSend(udpSendFd, ctx);
@@ -451,12 +431,14 @@ void TapLan::handleTapData(IoCtx* ctx)
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return;
 
-                IoCtx* sendCtx = ioIntfPtr_->acquireIoCtx();
-                if (sendCtx) {
-                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
+                IoCtx* sendCtx = g_cfgData.isAioEnable? ioIntfPtr_->acquireIoCtx(): ctx;
+                if (g_cfgData.isAioEnable && sendCtx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->dataLen);
                     sendCtx->dataLen = ctx->dataLen;
+                }
 
+                if (sendCtx) {
+                    sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
                     nodeMgrPtr_->setSockaddr(sendAddr, n);
 
                     ioIntfPtr_->reqUdpSend(udpSendFd, sendCtx);
@@ -465,7 +447,7 @@ void TapLan::handleTapData(IoCtx* ctx)
         }
     } else if (g_cfgData.runMode == RunMode_Client) {
         if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
-            memcpy(&dstAddr, &serverAddr_, sizeof(sockaddr_in6));
+            dstAddr = serverAddr_;
 
             ioIntfPtr_->reqUdpSend(udpSendFd, ctx);
             return;

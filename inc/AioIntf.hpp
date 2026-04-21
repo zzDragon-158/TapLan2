@@ -25,7 +25,7 @@ struct IoCtx {
 #ifdef      _WIN32
     struct Buf {
         sockaddr_in6 addr;
-        INT addrLen;
+        uint8_t resv[2];
         char payload[];
     } *buf;
     INT dataLen;
@@ -37,42 +37,66 @@ struct IoCtx {
         sockaddr_in6 addr;
         char payload[];
     } *buf;
+    socklen_t addrLen;
     int dataLen;
     msghdr msgHdr;
     iovec iov;
 #endif
 
-    IoCtx(){
+    IoCtx() {
         memset(this, 0, sizeof(IoCtx));
     }
 };
 
 class IoIntf {
 public:
+    IoIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
+
     virtual IoCtx* acquireIoCtx() { return nullptr; };
 
     virtual int reqUdpSend(SockFd fd, IoCtx* ctx) { return -1; };
     virtual int reqTapWrite(TapFd fd, IoCtx* ctx) { return -1; };
 
 protected:
-    uint8_t* dataBufs_;
     TapFd tapFd_;
     SockFd udpFd_;
     TapLan* tapLanPtr_;
-    std::vector<IoCtx*> ioCtxs_;
-    std::stack<IoCtx*> freeStack_;
+};
+
+class SioIntf: public IoIntf {
+public:
+    SioIntf() = delete;
+    SioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
+    ~SioIntf();
+
+    void udpWrk();
+    void tapWrk();
+
+private:
+    IoCtx udpIoCtx_;
+    IoCtx tapIoCtx_;
+
+    int tapRead(TapFd fd, IoCtx* ctx = nullptr);
+    int tapWrite(TapFd fd, IoCtx* ctx);
+    int udpRecv(SockFd fd, IoCtx* ctx = nullptr);
+    int udpSend(SockFd fd, IoCtx* ctx);
+
+    int reqUdpSend(SockFd fd, IoCtx* ctx) { return udpSend(fd, ctx); };
+    int reqTapWrite(TapFd fd, IoCtx* ctx) { return tapWrite(fd, ctx); };
 };
 
 class AioIntf: public IoIntf {
 public:
-    AioIntf();
+    AioIntf() = delete;
+    AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
     ~AioIntf();
 
-    IoCtx* acquireIoCtx();
-
-    void aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
+    void aioWrk();
 
 private:
+    uint8_t* dataBufs_;
+    std::vector<IoCtx*> ioCtxs_;
+    std::stack<IoCtx*> freeStack_;
 #ifdef      _WIN32
     HANDLE hIOCP_;
 #elif       __linux__
@@ -83,6 +107,7 @@ private:
 #endif
     int initAioIntf();
 
+    IoCtx* acquireIoCtx();
     IoCtx* acquireIoCtx(size_t idx);
     void releaseIoCtx(IoCtx* ctx);
 
