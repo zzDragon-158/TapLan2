@@ -6,7 +6,7 @@
 #include    "NodeMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
-#include    "AioIntf.hpp"
+#include    "UioIntf.hpp"
 
 class TapLan {
 public:
@@ -18,8 +18,8 @@ public:
     void showStats();
     UdpSock* getUdpSockPtr();
 
-    void handleUdpData(IoCtx* ctx);
-    void handleTapData(IoCtx* ctx);
+    void handleUdpData(UioCtx* ctx);
+    void handleTapData(UioCtx* ctx);
 
 private:
     const char*     TAG = "[TapLan]";
@@ -27,7 +27,7 @@ private:
     UdpSock*        udpSockPtr_;
     UdpSock*        udpSockPtrs_[4];
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
-    IoIntf*         ioIntfPtr_;
+    UioIntf*         ioIntfPtr_;
     std::thread     syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();

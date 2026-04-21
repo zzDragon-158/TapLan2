@@ -84,103 +84,6 @@ bool TapLan::initUdpSockPtrs()
 
     return (udpSockPtr_ && udpSockPtr_->isFdValid());
 }
-#if 0
-void TapLan::handleTapData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
-{
-    if (ctx->dataLen > DATA_BUF_SIZE) {
-        return ;
-    }
-
-    UdpSock* udpSockPtr = getUdpSockPtr();
-    SockFd udpSendFd = static_cast<SockFd>(*udpSockPtr);
-
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf);
-    Mac& dstMac = eh.dst;
-    Mac& srcMac = eh.src;
-    bool needBroadcast = eh.dst[0] & 0x01;
-
-    if (g_cfgData.runMode == RunMode_Server) {
-        if (!needBroadcast) {
-            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
-            if (n) {
-                nodeMgrPtr_->setSockaddr(ctx->addr, n);
-                sioIntf.udpSend(udpSendFd, ctx);
-            } else {
-                // udpSockPtr->incDropped(1);
-            }
-        } else {
-            size_t sendCnt = 0;
-
-            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
-                if (n->status == NODE_OFFLINE || n->mac == srcMac)
-                    return ;
-
-                nodeMgrPtr_->setSockaddr(ctx->addr, n);
-                sioIntf.udpSend(udpSendFd, ctx);
-                ++sendCnt;
-            });
-
-            if (sendCnt == 0) {
-                // udpSockPtr->incDropped(1);
-            }
-        }
-    }
-    else if (g_cfgData.runMode == RunMode_Client) {
-        if (!g_cfgData.noSync || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
-            memcpy(&ctx->addr, &serverAddr_, sizeof(sockaddr_in6));
-            sioIntf.udpSend(udpSendFd, ctx);
-        }
-    } else {
-        // RunMode_None
-    }
-}
-
-void TapLan::handleUdpData(SioIntf& sioIntf, SioIntf::Ctx* ctx)
-{
-    if (ctx->dataLen > DATA_BUF_SIZE) {
-        return ;
-    }
-
-    UdpSock* udpSockPtr = getUdpSockPtr();
-    SockFd udpSendFd = static_cast<SockFd>(*udpSockPtr);
-    TapFd tapFd = TapDevPtr->getFd();
-
-    EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf);
-    Mac& dstMac = eh.dst;
-    Mac& srcMac = eh.src;
-    bool needBroadcast = eh.dst[0] & 0x01;
-    bool isSendToMe = needBroadcast || (dstMac == g_cfgData.mac);
-
-    if (g_cfgData.noSync) {
-        nodeMgrPtr_->addNode(&ctx->addr, srcMac);
-    }
-
-    if (g_cfgData.runMode == RunMode_Server) {
-        if (needBroadcast) {        // broadcast
-            nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
-                if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
-                    return ;
-
-                nodeMgrPtr_->setSockaddr(ctx->addr, n);
-                sioIntf.udpSend(udpSendFd, ctx);
-            });
-            sioIntf.tapWrite(tapFd, ctx);
-        } else if (!isSendToMe) {   // not broadcast && not send to me
-            NodeSPtr n = nodeMgrPtr_->findNode(dstMac);
-            if (n) {
-                nodeMgrPtr_->setSockaddr(ctx->addr, n);
-                sioIntf.udpSend(udpSendFd, ctx);
-            }
-        } else {                    // not broadcast && send to me
-            sioIntf.tapWrite(tapFd, ctx);
-        }
-    } else if (g_cfgData.runMode == RunMode_Client) {
-        sioIntf.tapWrite(tapFd, ctx);
-    } else {
-        // RunMode_None
-    }
-}
-#endif
 
 void TapLan::syncWrk()
 {
@@ -345,7 +248,7 @@ bool TapLan::stop()
     return true;
 }
 
-void TapLan::handleUdpData(IoCtx* ctx)
+void TapLan::handleUdpData(UioCtx* ctx)
 {
     TapFd tapFd = TapDevPtr->getFd();
     SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
@@ -368,7 +271,7 @@ void TapLan::handleUdpData(IoCtx* ctx)
                 if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_cfgData.mac)
                     return;
 
-                IoCtx* sendCtx = g_cfgData.isAioEnable? ioIntfPtr_->acquireIoCtx(): ctx;
+                UioCtx* sendCtx = g_cfgData.isAioEnable? ioIntfPtr_->acquireIoCtx(): ctx;
                 if (g_cfgData.isAioEnable && sendCtx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->dataLen);
                     sendCtx->dataLen = ctx->dataLen;
@@ -404,7 +307,7 @@ void TapLan::handleUdpData(IoCtx* ctx)
     }
 }
 
-void TapLan::handleTapData(IoCtx* ctx)
+void TapLan::handleTapData(UioCtx* ctx)
 {
     SockFd udpSendFd = static_cast<SockFd>(*getUdpSockPtr());
     sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
@@ -431,7 +334,7 @@ void TapLan::handleTapData(IoCtx* ctx)
                 if (n->status == NODE_OFFLINE || n->mac == srcMac)
                     return;
 
-                IoCtx* sendCtx = g_cfgData.isAioEnable? ioIntfPtr_->acquireIoCtx(): ctx;
+                UioCtx* sendCtx = g_cfgData.isAioEnable? ioIntfPtr_->acquireIoCtx(): ctx;
                 if (g_cfgData.isAioEnable && sendCtx) {
                     memcpy(sendCtx->buf->payload, payload, ctx->dataLen);
                     sendCtx->dataLen = ctx->dataLen;

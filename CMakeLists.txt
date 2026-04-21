@@ -15,8 +15,7 @@ include_directories(inc)
 if(WIN32)
     add_library(TapDev src/TapDevWin.cpp)
     add_library(BsdSock src/BsdSock.cpp src/BsdSockWin.cpp)
-    add_library(SioIntf src/SioIntfWin.cpp)
-    add_library(AioIntf src/AioIntfWin.cpp)
+    add_library(UioIntf src/UioIntf.cpp src/UioIntfWin.cpp)
 
     target_link_libraries(BsdSock PUBLIC ws2_32)
 
@@ -51,10 +50,9 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 
     add_library(TapDev src/TapDevLinux.cpp)
     add_library(BsdSock src/BsdSock.cpp src/BsdSockLinux.cpp)
-    add_library(AioIntf src/AioIntfLinux.cpp)
-    add_library(SioIntf src/SioIntfLinux.cpp)
+    add_library(UioIntf src/UioIntf.cpp src/UioIntfLinux.cpp)
 
-    target_link_libraries(AioIntf PUBLIC uring)
+    target_link_libraries(UioIntf PUBLIC uring)
 
 else()
     message(FATAL_ERROR "Unsupported platform")
@@ -65,7 +63,7 @@ add_library(NodeMgr src/NodeMgr.cpp)
 add_library(LogMgr src/LogMgr.cpp)
 
 add_executable(TapLan src/main.cpp src/TapLan.cpp)
-target_link_libraries(TapLan NodeMgr TapDev BsdSock LogMgr AioIntf SioIntf)
+target_link_libraries(TapLan NodeMgr TapDev BsdSock LogMgr UioIntf)
 
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)
