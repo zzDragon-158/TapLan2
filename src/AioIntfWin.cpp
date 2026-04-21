@@ -10,7 +10,212 @@ const size_t START_UDP_BUF_IDX = 0;
 const size_t START_TAP_BUF_IDX = MAX_RECV_REQ;
 const size_t START_FREE_BUF_IDX = MAX_READ_REQ + MAX_RECV_REQ;
 
-AioIntf::AioIntf()
+IoIntf::IoIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
+: tapFd_(tapFd)
+, udpFd_(udpFd)
+, tapLanPtr_(tapLanPtr)
+{
+    ;
+}
+
+SioIntf::SioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
+: IoIntf(tapFd, udpFd, tapLanPtr)
+{
+    tapIoCtx_.buf = reinterpret_cast<IoCtx::Buf*>(new char [DATA_BUF_SIZE]);
+    tapIoCtx_.ol.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+    tapIoCtx_.wsaBuf = { PAYLOAD_SIZE, tapIoCtx_.buf->payload };
+
+    udpIoCtx_.buf = reinterpret_cast<IoCtx::Buf*>(new char [DATA_BUF_SIZE]);
+    udpIoCtx_.ol.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+    udpIoCtx_.wsaBuf = { PAYLOAD_SIZE, udpIoCtx_.buf->payload };
+}
+
+SioIntf::~SioIntf()
+{
+    delete[] tapIoCtx_.buf;
+    CloseHandle(tapIoCtx_.ol.hEvent);
+
+    delete[] udpIoCtx_.buf;
+    CloseHandle(udpIoCtx_.ol.hEvent);
+}
+
+int SioIntf::tapRead(TapFd fd, IoCtx* ctx)
+{
+    DWORD err, res;
+
+    if (ReadFile(fd, ctx->buf->payload, PAYLOAD_SIZE, &ctx->dataLen, &ctx->ol)) {
+        return ctx->dataLen;
+    }
+
+    err = GetLastError();
+    if (err != ERROR_IO_PENDING) {
+        LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
+        return -1;
+    }
+
+    res = WaitForSingleObject(ctx->ol.hEvent, INFINITE);
+    if (res != WAIT_OBJECT_0) {
+        switch (res) {
+        case WAIT_TIMEOUT:
+            LOGE(TAG, "read tap timeout.");
+            break;
+
+        case WAIT_FAILED:
+            err = GetLastError();
+            LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err));
+            break;
+
+        default:
+            LOGE(TAG, "Unknown error[%u].", res);
+            break;
+        }
+        return -1;
+    }
+
+    if (!GetOverlappedResult(fd, &ctx->ol, &ctx->dataLen, FALSE)) {
+        err = GetLastError();
+        if (err != ERROR_OPERATION_ABORTED) {
+            LOGE(TAG, "Failed to get read result.[%s]", getErrMsg(err).c_str());
+        }
+        return -1;
+    }
+
+    return ctx->dataLen;
+}
+
+int SioIntf::tapWrite(TapFd fd, IoCtx* ctx)
+{
+    DWORD err;
+    DWORD writeBytes;
+    DWORD res;
+
+    if (WriteFile(fd, ctx->buf->payload, ctx->dataLen, &writeBytes, &ctx->ol)) {
+        return writeBytes;
+    }
+
+    err = GetLastError();
+    if (err != ERROR_IO_PENDING) {
+        LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
+        return -1;
+    }
+
+    res = WaitForSingleObject(ctx->ol.hEvent, INFINITE);
+    if (res != WAIT_OBJECT_0) {
+        switch (res) {
+        case WAIT_TIMEOUT:
+            LOGE(TAG, "Write tap timeout.");
+            break;
+
+        case WAIT_FAILED:
+            err = GetLastError();
+            LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err));
+            break;
+
+        default:
+            LOGE(TAG, "Unknown error[%u].", res);
+            break;
+        }
+        return -1;
+    }
+
+    if (!GetOverlappedResult(fd, &ctx->ol, &writeBytes, FALSE)) {
+        err = GetLastError();
+        LOGE(TAG, "Failed to get write result.[%s]", getErrMsg(err).c_str());
+        return -1;
+    }
+
+    return writeBytes;
+}
+
+int SioIntf::udpRecv(SockFd fd, IoCtx* ctx)
+{
+    ctx->addrLen = sizeof(ctx->buf->addr);
+    ctx->wsaBuf.len = PAYLOAD_SIZE;
+
+    DWORD flags = 0;
+    DWORD res = WSARecvFrom(fd,
+                      &ctx->wsaBuf,
+                      1,
+                      &ctx->dataLen,
+                      &flags,
+                      reinterpret_cast<sockaddr*>(&ctx->buf->addr),
+                      &ctx->addrLen,
+                      nullptr,
+                      nullptr);
+
+    if (res == SOCKET_ERROR) {
+        DWORD err = WSAGetLastError();
+        if (err != WSAEINTR) {
+            LOGE(TAG, "Failed to recvfrom udp.[%s]", getErrMsg(err).c_str());
+        }
+        return -1;
+    }
+
+    return ctx->dataLen;
+}
+
+int SioIntf::udpSend(SockFd fd, IoCtx* ctx)
+{
+    int res;
+    DWORD err;
+    DWORD sendBytes;
+
+    ctx->wsaBuf.len = ctx->dataLen;
+    res = WSASendTo(fd,
+                    &ctx->wsaBuf,
+                    1,
+                    &sendBytes,
+                    0,
+                    reinterpret_cast<sockaddr*>(&ctx->buf->addr),
+                    sizeof(ctx->buf->addr),
+                    nullptr,
+                    nullptr);
+
+    if (res == SOCKET_ERROR) {
+        err = WSAGetLastError();
+        LOGE(TAG, "Failed to sendto udp.[%s]", getErrMsg(err).c_str());
+        return -1;
+    }
+
+    return sendBytes;
+}
+
+void SioIntf::udpWrk()
+{
+    IoCtx* ctx = &udpIoCtx_;
+    int res;
+
+    while (g_cfgData.isRunning) {
+        res = udpRecv(udpFd_, ctx);
+        if (res == -1) {
+            continue;
+        }
+
+        tapLanPtr_->handleUdpData(ctx);
+    }
+
+    LOGI(TAG, "udpWrk has exited.");
+}
+
+void SioIntf::tapWrk()
+{
+    IoCtx* ctx = &tapIoCtx_;
+    int res;
+
+    while (g_cfgData.isRunning) {
+        res = tapRead(tapFd_, ctx);
+        if (res == -1) {
+            continue;
+        }
+
+        tapLanPtr_->handleTapData(ctx);
+    }
+
+    LOGI(TAG, "tapWrk has exited.");
+}
+
+AioIntf::AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
+: IoIntf(tapFd, udpFd, tapLanPtr)
 {
     ;
 }
@@ -159,7 +364,7 @@ int AioIntf::reqUdpRecv(SockFd fd, IoCtx* ctx)
 
     ++ctx->ref;
     ctx->token = TOKEN_UDP_RECV;
-    ctx->buf->addrLen = sizeof(ctx->buf->addr);
+    ctx->addrLen = sizeof(ctx->buf->addr);
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
     ctx->wsaBuf.len = PAYLOAD_SIZE;
 
@@ -171,7 +376,7 @@ int AioIntf::reqUdpRecv(SockFd fd, IoCtx* ctx)
         nullptr,
         &flags,
         reinterpret_cast<sockaddr *>(&ctx->buf->addr),
-        &ctx->buf->addrLen,
+        &ctx->addrLen,
         &ctx->ol,
         nullptr
     );
@@ -274,23 +479,20 @@ int AioIntf::handleUdpSend(IoCtx* ctx)
     return 0;
 }
 
-void AioIntf::aioWrk(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
+void AioIntf::aioWrk()
 {
     std::string errMsg;
-    tapFd_ = tapFd;
-    udpFd_ = udpFd;
-    tapLanPtr_ = tapLanPtr;
 
     initAioIntf();
 
-    if (!CreateIoCompletionPort(tapFd, hIOCP_, (ULONG_PTR)this, 0)) {
+    if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
         g_cfgData.isRunning = false;
     }
     if (g_cfgData.swPortIntvl) {
         for (int i = 0; i < 4; ++i) {
-            SockFd udpFd = tapLanPtr->udpSockPtrs_[i]->getFd();
+            SockFd udpFd = tapLanPtr_->udpSockPtrs_[i]->getFd();
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
                 errMsg = getErrMsg(GetLastError());
                 LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());

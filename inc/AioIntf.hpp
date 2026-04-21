@@ -28,7 +28,8 @@ struct IoCtx {
         uint8_t resv[2];
         char payload[];
     } *buf;
-    INT dataLen;
+    DWORD dataLen;
+    socklen_t addrLen;
     OVERLAPPED ol;
     WSABUF wsaBuf;
 #elif       __linux__
