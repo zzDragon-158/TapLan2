@@ -1,6 +1,7 @@
 #pragma     once
 #include    <cstdint>
 #include    <ctime>
+#include    <atomic>
 #include    <pthread.h>
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
@@ -16,22 +17,26 @@ public:
     bool stop();
     void showNodeStatus();
     void showStats();
-    UdpSock* getUdpSockPtr();
 
     void handleUdpData(UioCtx* ctx);
     void handleTapData(UioCtx* ctx);
 
 private:
-    const char*     TAG = "[TapLan]";
+    static constexpr char TAG[] = "[TapLan]";
     sockaddr_in6    serverAddr_;
     UdpSock*        udpSockPtr_;
     UdpSock*        udpSockPtrs_[4];
+    std::atomic<UdpSock*>       udpSendSockPtr_;
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
-    UioIntf*         ioIntfPtr_;
-    std::thread     syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
+    UioIntf*        uioIntfPtr_;
+    std::thread     swPortThread_, syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
     void syncWrk();
+    void swPortWrk();
+
+    void unicastData(UioCtx* ctx);
+    void broadcastData(UioCtx* ctx);
 
     friend void SioIntf::udpWrk();
     friend void SioIntf::tapWrk();
