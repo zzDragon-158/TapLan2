@@ -54,11 +54,11 @@ public:
 protected:
     static constexpr size_t DATA_BUF_NUM = 1024;
     static constexpr size_t MAX_RECV_REQ = 256;
-    static constexpr size_t MAX_READ_REQ = 256;
+    static constexpr size_t MAX_READ_REQ = 8;
     static constexpr size_t PAYLOAD_SIZE = DATA_BUF_SIZE - sizeof(UioCtx::Buf);
-    /* 0               256             512             768             1024 */
-    /* |---------------|---------------|---------------|---------------|    */
-    /* |      udp      |      tap      |           freestack           |    */
+    /* START_UDP_BUF_IDX        START_TAP_BUF_IDX        START_FREE_BUF_IDX         */
+    /* |------------------------|------------------------|------------------------| */
+    /* |          udp           |          tap           |        freestack       | */
     static constexpr size_t START_UDP_BUF_IDX = 0;
     static constexpr size_t START_TAP_BUF_IDX = MAX_RECV_REQ;
     static constexpr size_t START_FREE_BUF_IDX = MAX_READ_REQ + MAX_RECV_REQ;
@@ -83,8 +83,10 @@ private:
     UioCtx tapIoCtx_;
 
     int tapRead(TapFd fd, UioCtx* ctx = nullptr);
+    int tapPollRead(TapFd fd, UioCtx* ctx);
     int tapWrite(TapFd fd, UioCtx* ctx);
     int udpRecv(SockFd fd, UioCtx* ctx = nullptr);
+    int udpPollRecv(SockFd fd, UioCtx* ctx);
     int udpSend(SockFd fd, UioCtx* ctx);
 
     int reqUdpSend(SockFd fd, UioCtx* ctx) { return udpSend(fd, ctx); };
@@ -107,7 +109,7 @@ private:
 #ifdef      _WIN32
     HANDLE hIOCP_;
 #elif       __linux__
-    static constexpr size_t IOURING_SIZE = (MAX_READ_REQ + MAX_RECV_REQ) * 2;
+    static constexpr size_t IOURING_SIZE = (MAX_READ_REQ + MAX_RECV_REQ);
     io_uring* ring_;
     io_uring_buf_ring* bufRing_;
     int bufRingMask_;

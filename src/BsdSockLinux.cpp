@@ -107,7 +107,7 @@ ssize_t TcpSock::recv(void* buf, size_t bufLen)
 
 bool UdpSock::open()
 {
-    fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
+    fd_ = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (!isFdValid()) {
         LOGE(TAG, "Can not create udp socket. %s", getSockErr().c_str());
         return false;

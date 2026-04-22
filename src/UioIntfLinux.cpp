@@ -19,10 +19,25 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
     ctx->dataLen = ::read(fd, ctx->buf->payload, PAYLOAD_SIZE);
     if (ctx->dataLen == -1) {
         int err = errno;
-        LOGE(TAG, "Failed to read tap.[%s]", strerror(err));
+        if (err == EAGAIN || err == EWOULDBLOCK) {
+            tapPollRead(fd, ctx);
+        } else {
+            LOGE(TAG, "Failed to read tap.[%s]", strerror(err));
+        }
     }
 
     return ctx->dataLen;
+}
+
+int SioIntf::tapPollRead(TapFd fd, UioCtx* ctx)
+{
+    TapLanPollFd pfd = { fd, POLLIN, 0};
+    int res = TapLanPoll(&pfd, 1, IO_WAIT_TIME * 1000);
+    if (res == -1) {
+        LOGE(TAG, "Failed to poll tap.[%s]", strerror(errno));
+    }
+
+    return res;
 }
 
 int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
@@ -47,10 +62,25 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
                               &ctx->addrLen);
     if (ctx->dataLen == -1) {
         int err = errno;
-        LOGE(TAG, "Failed to recvfrom udp.[%s]", strerror(err));
+        if (err == EAGAIN || err == EWOULDBLOCK) {
+            udpPollRecv(fd, ctx);
+        } else {
+            LOGE(TAG, "Failed to recv udp.[%s]", strerror(err));
+        }
     }
 
     return ctx->dataLen;
+}
+
+int SioIntf::udpPollRecv(SockFd fd, UioCtx* ctx)
+{
+    TapLanPollFd pfd = { fd, POLLIN, 0};
+    int res = TapLanPoll(&pfd, 1, IO_WAIT_TIME * 1000);
+    if (res == -1) {
+        LOGE(TAG, "Failed to poll udp.[%s]", strerror(errno));
+    }
+
+    return res;
 }
 
 int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
@@ -281,11 +311,11 @@ void AioIntf::aioWrk()
 
     io_uring_cqe *cqe;
     __kernel_timespec timeout{IO_WAIT_TIME, 0};
-    size_t maxCqeBatch = std::min(MAX_READ_REQ, MAX_RECV_REQ) / 2;
+    constexpr size_t maxCqeBatch = IOURING_SIZE / 2;
     while (g_cfgData.isRunning) {
-        int ret = io_uring_wait_cqe_timeout(ring_, &cqe, &timeout);
-        if (ret < 0 && ret != -ETIME) {
-            LOGF(TAG, "Failed to wait cqe.[%s]", strerror(-ret));
+        int res = io_uring_wait_cqe_timeout(ring_, &cqe, &timeout);
+        if (res < 0 && res != -ETIME) {
+            LOGF(TAG, "Failed to wait cqe.[%s]", strerror(-res));
             break;
         }
 

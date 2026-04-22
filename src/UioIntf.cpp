@@ -84,7 +84,9 @@ void AioIntf::releaseIoCtx(UioCtx* ctx)
 int AioIntf::handleTapRead(UioCtx* ctx)
 {
     if (ctx->dataLen <= 0) {
-        LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->dataLen));
+        if (ctx->dataLen != -EAGAIN && ctx->dataLen != -EWOULDBLOCK) {
+            LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->dataLen));
+        }
     } else {
         tapLanPtr_->handleTapData(ctx);
     }

@@ -25,7 +25,7 @@ bool TapDev::open()
 {
     bool isExisting = (if_nametoindex(TAP_NAME) != 0);
 
-    fd_ = ::open("/dev/net/tun", O_RDWR);
+    fd_ = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
     if (!isFdValid()) {
         LOGF(TAG, "Failed to open [/dev/net/tun].[%s]", strerror(errno));
         return false;
