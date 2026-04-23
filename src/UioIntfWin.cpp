@@ -171,6 +171,10 @@ AioIntf::~AioIntf()
 
 int AioIntf::initAioIntf()
 {
+    if (isInitialized) {
+        return 0;
+    }
+
     std::string errMsg;
 
     size_t totalDatBufSize = DATA_BUF_NUM * DATA_BUF_SIZE;
@@ -202,6 +206,38 @@ int AioIntf::initAioIntf()
         return -1;
     }
 
+    if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
+        errMsg = getErrMsg(GetLastError());
+        LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
+        g_cfgData.isRunning = false;
+        return -1;
+    }
+
+    if (g_cfgData.swPortIntvl) {
+        for (int i = 0; i < 4; ++i) {
+            UdpSock* udpSockPtr = tapLanPtr_->udpSockPtrs_[i];
+            if (udpSockPtr == nullptr) {
+                continue;
+            }
+
+            SockFd udpFd = udpSockPtr->getFd();
+            if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
+                errMsg = getErrMsg(GetLastError());
+                LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
+                g_cfgData.isRunning = false;
+                return -1;
+            }
+        }
+    } else {
+        if (!CreateIoCompletionPort((HANDLE)udpFd_, hIOCP_, (ULONG_PTR)this, 0)) {
+            errMsg = getErrMsg(GetLastError());
+            LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
+            g_cfgData.isRunning = false;
+            return -1;
+        }
+    }
+
+    isInitialized = true;
     return 0;
 }
 
@@ -348,28 +384,6 @@ void AioIntf::aioWrk()
 
     if (initAioIntf() != 0) {
         return ;
-    }
-
-    if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
-        errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
-        g_cfgData.isRunning = false;
-    }
-    if (g_cfgData.swPortIntvl) {
-        for (int i = 0; i < 4; ++i) {
-            SockFd udpFd = tapLanPtr_->udpSockPtrs_[i]->getFd();
-            if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
-                errMsg = getErrMsg(GetLastError());
-                LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
-                g_cfgData.isRunning = false;
-            }
-        }
-    } else {
-        if (!CreateIoCompletionPort((HANDLE)udpFd_, hIOCP_, (ULONG_PTR)this, 0)) {
-            errMsg = getErrMsg(GetLastError());
-            LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
-            g_cfgData.isRunning = false;
-        }
     }
 
     reqTapReadMultishot(tapFd_);

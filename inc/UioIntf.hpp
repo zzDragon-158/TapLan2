@@ -99,10 +99,12 @@ public:
     AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
     ~AioIntf();
 
+    int initAioIntf();
     void aioWrk();
 
 private:
     static constexpr char TAG[] = "[AioIntf]";
+    bool isInitialized;
     uint8_t* dataBufs_;
     std::vector<UioCtx*> ioCtxs_;
     std::stack<UioCtx*> freeStack_;
@@ -115,8 +117,6 @@ private:
     int bufRingMask_;
     uint16_t advanceCnt_;
 #endif
-    int initAioIntf();
-
     UioCtx* acquireIoCtx();
     UioCtx* acquireIoCtx(size_t idx);
     void releaseIoCtx(UioCtx* ctx);

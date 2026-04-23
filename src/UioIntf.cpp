@@ -45,6 +45,8 @@ void SioIntf::tapWrk()
 
 AioIntf::AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
 : UioIntf(tapFd, udpFd, tapLanPtr)
+, isInitialized(false)
+, dataBufs_(nullptr)
 {
     ;
 }

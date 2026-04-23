@@ -40,5 +40,6 @@ private:
 
     friend void SioIntf::udpWrk();
     friend void SioIntf::tapWrk();
+    friend int AioIntf::initAioIntf();
     friend void AioIntf::aioWrk();
 };

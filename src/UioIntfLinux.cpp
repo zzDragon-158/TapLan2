@@ -108,6 +108,10 @@ AioIntf::~AioIntf()
 
 int AioIntf::initAioIntf()
 {
+    if (isInitialized) {
+        return 0;
+    }
+
     int res;
 
     ring_ = new io_uring;
@@ -179,6 +183,7 @@ int AioIntf::initAioIntf()
         return -1;
     }
 
+    isInitialized = true;
     return 0;
 }
 
