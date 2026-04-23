@@ -1,6 +1,7 @@
 #pragma     once
 #include    <cstdio>
 #include    <cstdarg>
+#include    <cstring>
 #include    <iostream>
 #include    <fstream>
 #include    <queue>
@@ -8,6 +9,7 @@
 #include    <condition_variable>
 #include    <thread>
 #include    <sstream>
+#include    <atomic>
 #include    <pthread.h>
 
 #define     LogMgrPtr                   LogMgr::ptr()
@@ -31,6 +33,17 @@ enum LogLevel {
 
 class LogMgr {
 public:
+    struct LogEntry {
+        std::atomic<int> state;
+        char data[2044];
+    };
+
+    enum EntryState {
+        ENTRY_EMPTY = 0,
+        ENTRY_WRITTING,
+        ENTRY_READY,
+    };
+
     bool run();
     bool terminate();
     void setLogLevel(char level) { logLevel_ = level; };
@@ -40,18 +53,29 @@ public:
     static LogMgr* ptr();
 
 private:
+    static constexpr size_t LOG_BUF_SIZE = 2048;
+    static constexpr size_t LOG_BUF_NUM = 1024;
+    static constexpr size_t LOG_DATA_SIZE = 2044;
+    static constexpr size_t LOG_BUF_RING_MASK = LOG_BUF_NUM - 1;
+    static constexpr size_t TOTAL_LOG_BUF_SIZE = LOG_BUF_SIZE * LOG_BUF_NUM;
+    static constexpr const char* logLevelStr[NUMS_OF_LEVEL] = { "[FATAL]", "[ERROR]", "[WARN]", "[INFO]", "[DEBUG]", "[TRACE]" };
+    static constexpr char logThreadName_[] = "logWrk";
     std::ofstream logFile_;
     char logLevel_;
     std::queue<std::string> logQueue_;
     std::mutex logMutex_;
     std::condition_variable logCv_;
-    const char* logThreadName_;
     std::thread logThread_;
     bool running_;
 
+    LogEntry* logEntryRing_;
+    std::atomic<size_t> rIdx_;
+    std::atomic<size_t> wIdx_;
+
     LogMgr();
     ~LogMgr();
-    void logWorker();
+    int initLogMgr();
+    void logWrk();
 };
 
 inline LogMgr* LogMgr::ptr() {
