@@ -37,8 +37,8 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 
         BUILD_IN_SOURCE     1
         CONFIGURE_COMMAND   ./configure --prefix=${URING_INSTALL_DIR}
-        BUILD_COMMAND       ${CMAKE_MAKE_PROGRAM} -j
-        INSTALL_COMMAND     ${CMAKE_MAKE_PROGRAM} install
+        BUILD_COMMAND       make -j
+        INSTALL_COMMAND     make install
         UPDATE_COMMAND      ""
     )
     add_library(uring STATIC IMPORTED GLOBAL)

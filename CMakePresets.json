@@ -36,7 +36,7 @@
     {
       "name": "Linux Base",
       "hidden": true,
-      "generator": "Unix Makefiles",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build_linux"
     },
     {
