@@ -13,8 +13,9 @@ void delayExit(int code, int64_t delaySeconds = 0);
 
 int main(int argc, char* argv[])
 {
-    LogMgrPtr->run();
-    while (!LogMgrPtr->isRunning());
+    if (!LogMgrPtr->run())
+        delayExit(-1, 3);
+
     parseParams(argc, argv);
 
     TapLanPtr = new TapLan();

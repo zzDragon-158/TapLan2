@@ -46,6 +46,10 @@ bool LogMgr::run()
     if (running_)
         return false;
 
+    running_ = (initLogMgr() == 0);
+    if (!running_)
+        return false;
+
     logThread_ = std::thread(&LogMgr::logWrk, this);
     pthread_setname_np(logThread_.native_handle(), logThreadName_);
 
@@ -77,7 +81,7 @@ void LogMgr::logOutput(LogLevel level, const char* tag, const char* format, ...)
                                                 ENTRY_WRITTING,
                                                 std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
-        // FIXME: drop because buf full
+        std::cerr << "Log Ring Full." << std::endl;
         running_ = false;
         return ;
     }
@@ -118,8 +122,7 @@ void LogMgr::clearLog()
         size_t entryIdx = rIdx_.load(std::memory_order_relaxed);
         LogEntry& logEntry = logEntryRing_[entryIdx & LOG_RING_MASK];
         while (logEntry.state.load(std::memory_order_acquire) != ENTRY_READY) {
-            // FIXME: only support x86;
-            __builtin_ia32_pause();
+            cpuRelax();
         }
 
         std::cout << logEntry.data;
@@ -134,8 +137,6 @@ void LogMgr::clearLog()
 
 void LogMgr::logWrk()
 {
-    running_ = (initLogMgr() == 0);
-
     while (running_) {
         logSem_.try_acquire_for(std::chrono::milliseconds(10));
 
