@@ -22,7 +22,7 @@ LogMgr::~LogMgr()
 int LogMgr::initLogMgr()
 {
 #ifdef  _WIN32
-    logEntryRing_ = _aligned_malloc(LOG_ENTRY_RING_SIZE, 4096);
+    logEntryRing_ = (LogEntry*)_aligned_malloc(LOG_ENTRY_RING_SIZE, 4096);
 #elif   __linux__
     posix_memalign((void**)&logEntryRing_, 4096, LOG_ENTRY_RING_SIZE);
 #endif
