@@ -141,37 +141,37 @@ void parseParams(int argc, char* argv[])
                 }
                 break;
             case 256: {
-                LogLevel level = LOG_INFO;
+                LogLevel level = LogLevel::info;
                 switch (optarg[0])
                 {
                 case 'f':
                 case 'F':
-                    level = LOG_FATAL;
+                    level = LogLevel::fatal;
                     break;
 
                 case 'e':
                 case 'E':
-                    level = LOG_ERROR;
+                    level = LogLevel::error;
                     break;
 
                 case 'w':
                 case 'W':
-                    level = LOG_WARN;
+                    level = LogLevel::warn;
                     break;
 
                 case 'i':
                 case 'I':
-                    level = LOG_INFO;
+                    level = LogLevel::info;
                     break;
 
                 case 'd':
                 case 'D':
-                    level = LOG_DEBUG;
+                    level = LogLevel::debug;
                     break;
 
                 case 't':
                 case 'T':
-                    level = LOG_TRACE;
+                    level = LogLevel::trace;
                     break;
 
                 default:

@@ -1,28 +1,37 @@
 #include "LogMgr.hpp"
 
-LogMgr::LogMgr(): logLevel_(LOG_INFO), running_(false)
+LogMgr::LogMgr()
+: logLevel_(LogLevel::info)
+, running_(false)
+, logEntryRing_(nullptr)
+, logSem_{0}
 {
-    // logFile_.open("TapLan.log", std::ios::out | std::ios::app);
+    // logFile_.open("/tmp/TapLan.log", std::ios::out | std::ios::app);
 }
 
 LogMgr::~LogMgr()
 {
     // logFile_.close();
+#ifdef  _WIN32
+    _aligned_free(logEntryRing_);
+#elif   __linux__
+    free(logEntryRing_);
+#endif
 }
 
 int LogMgr::initLogMgr()
 {
 #ifdef  _WIN32
-    logEntryRing_ = _aligned_malloc(TOTAL_LOG_BUF_SIZE, 4096);
+    logEntryRing_ = _aligned_malloc(LOG_ENTRY_RING_SIZE, 4096);
 #elif   __linux__
-    posix_memalign((void**)&logEntryRing_, 4096, TOTAL_LOG_BUF_SIZE);
+    posix_memalign((void**)&logEntryRing_, 4096, LOG_ENTRY_RING_SIZE);
 #endif
     if (!logEntryRing_) {
-        printf("Cant allocate [%u] memory.", TOTAL_LOG_BUF_SIZE);
+        printf("Cant allocate [%u] memory.", LOG_ENTRY_RING_SIZE);
         return -1;
     }
 
-    for (size_t i = 0; i < LOG_BUF_NUM; ++i) {
+    for (size_t i = 0; i < LOG_RING_SIZE; ++i) {
         logEntryRing_[i].state.store(ENTRY_EMPTY);
     }
 
@@ -49,68 +58,78 @@ bool LogMgr::terminate()
         return false;
 
     running_ = false;
-    logCv_.notify_all();
     if (logThread_.joinable())
         logThread_.join();
 
     return true;
 }
 
-void LogMgr::logOutput(const char* format, ...)
-{
-    if (!running_)
-        return ;
-
-    size_t entryIdx = wIdx_.fetch_add(1, std::memory_order_relaxed);
-    LogEntry& logEntry = logEntryRing_[entryIdx & LOG_BUF_RING_MASK];
-
-    int expectedState = ENTRY_EMPTY;
-    if (!logEntry.state.compare_exchange_strong(expectedState,
-                                                ENTRY_WRITTING,
-                                                std::memory_order_acquire,
-                                                std::memory_order_relaxed)) {
-        // FIXME: drop because buf full
-        return ;
-    }
-
-    va_list args;
-    va_start(args, format);
-    vsnprintf(logEntry.data, LOG_DATA_SIZE, format, args);
-    va_end(args);
-    logEntry.state.store(ENTRY_READY, std::memory_order_release);
-
-    logCv_.notify_one();
-}
-
-void LogMgr::logOutput(char level, const char* tag, const char* format, ...)
+void LogMgr::logOutput(LogLevel level, const char* tag, const char* format, ...)
 {
     if (!running_ || level > logLevel_)
         return ;
 
     size_t entryIdx = wIdx_.fetch_add(1, std::memory_order_relaxed);
-    LogEntry& logEntry = logEntryRing_[entryIdx & LOG_BUF_RING_MASK];
+    LogEntry& logEntry = logEntryRing_[entryIdx & LOG_RING_MASK];
 
-    int expectedState = ENTRY_EMPTY;
+    EntryState expectedState = ENTRY_EMPTY;
     if (!logEntry.state.compare_exchange_strong(expectedState,
                                                 ENTRY_WRITTING,
                                                 std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
         // FIXME: drop because buf full
+        running_ = false;
         return ;
     }
 
-    int offset = snprintf(logEntry.data, LOG_DATA_SIZE, "%s\t%s\t", logLevelStr[level], tag);
+    int offset = 0;
+    if (level != LogLevel::raw) {
+        offset = snprintf(logEntry.data,
+                          LOG_DATA_SIZE,
+                          "%s\t%s\t",
+                          logLevelStr[static_cast<size_t>(level)],
+                          tag);
+    }
 
     va_list args;
     va_start(args, format);
-    offset += vsnprintf(logEntry.data + offset, LOG_DATA_SIZE - offset, format, args);
+    offset += vsnprintf(logEntry.data + offset,
+                        LOG_DATA_SIZE - offset,
+                        format,
+                        args);
     va_end(args);
 
-    logEntry.data[offset] = '\n';
-    logEntry.data[offset + 1] = '\0';
+    if (level != LogLevel::raw) {
+        logEntry.data[offset] = '\n';
+        logEntry.data[offset + 1] = '\0';
+    }
     logEntry.state.store(ENTRY_READY, std::memory_order_release);
 
-    logCv_.notify_one();
+    // wIdx_.notify_one();
+    if ((entryIdx & LOG_NOTIFY_THRESHOLD) == 0)
+        logSem_.release();
+}
+
+void LogMgr::clearLog()
+{
+    size_t logCnt = 0;
+
+    while (rIdx_.load(std::memory_order_relaxed) != wIdx_.load(std::memory_order_relaxed)) {
+        size_t entryIdx = rIdx_.load(std::memory_order_relaxed);
+        LogEntry& logEntry = logEntryRing_[entryIdx & LOG_RING_MASK];
+        while (logEntry.state.load(std::memory_order_acquire) != ENTRY_READY) {
+            // FIXME: only support x86;
+            __builtin_ia32_pause();
+        }
+
+        std::cout << logEntry.data;
+        logEntry.state.store(ENTRY_EMPTY, std::memory_order_release);
+        rIdx_.fetch_add(1, std::memory_order_relaxed);
+        ++logCnt;
+    }
+
+    if (logCnt)
+        std::cout << std::flush;
 }
 
 void LogMgr::logWrk()
@@ -118,22 +137,10 @@ void LogMgr::logWrk()
     running_ = (initLogMgr() == 0);
 
     while (running_) {
-        std::unique_lock<std::mutex> lock(logMutex_);
-        logCv_.wait(lock, [&]{ return !running_ || rIdx_.load(std::memory_order_relaxed) != wIdx_.load(std::memory_order_relaxed); });
+        logSem_.try_acquire_for(std::chrono::milliseconds(10));
 
-        while (rIdx_.load(std::memory_order_relaxed) != wIdx_.load(std::memory_order_relaxed)) {
-            size_t entryIdx = rIdx_.load(std::memory_order_relaxed);
-            LogEntry& logEntry = logEntryRing_[entryIdx & LOG_BUF_RING_MASK];
-            while (logEntry.state.load(std::memory_order_acquire) != ENTRY_READY) {
-                // FIXME: only support x86;
-                __builtin_ia32_pause();
-            }
-
-            std::cout << logEntry.data;
-            logEntry.state.store(ENTRY_EMPTY, std::memory_order_release);
-            rIdx_.fetch_add(1, std::memory_order_relaxed);
-        }
-
-        std::cout << std::flush;
+        clearLog();
     }
+
+    clearLog();
 }
