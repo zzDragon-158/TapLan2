@@ -27,12 +27,12 @@
 
 #endif
 
-// FIXME: It is best not to use a singleton.
-#define     TapDevPtr           TapDev::ptr()
-
 class TapDev {
 public:
-    static TapDev*  ptr();
+    static TapDev&  instance() {
+        static TapDev ins;
+        return ins;
+    }
     TapFd           getFd() { return fd_; };
     bool            isFdValid() {  return (fd_ != INVALID_TAPFD); };
     bool            close();
@@ -90,8 +90,4 @@ private:
 #endif
 };
 
-inline TapDev* TapDev::ptr()
-{
-    static TapDev ins;
-    return &ins;
-}
+inline TapDev& g_tapDev = TapDev::instance();

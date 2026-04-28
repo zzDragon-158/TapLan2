@@ -210,7 +210,7 @@ bool NodeMgr::reqIPFromServer()
     uint8_t rcvBuf[65536];
 
     SyncMsgHdr reqMsgHdr{};
-    reqMsgHdr.mac = TapDevPtr->getMacAddr();
+    reqMsgHdr.mac = g_tapDev.getMacAddr();
     reqMsgHdr.op = OP_REQ_IP;
     reqMsgHdr.port = htons(g_cfgData.localPort());
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
@@ -242,7 +242,7 @@ bool NodeMgr::syncNodeFromServer()
 
     if (connStatus_ != SYNCED) {
         SyncMsgHdr reqMsgHdr{};
-        reqMsgHdr.mac = TapDevPtr->getMacAddr();
+        reqMsgHdr.mac = g_tapDev.getMacAddr();
         reqMsgHdr.op = OP_REQ_SYNC_NODE;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
         tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
@@ -331,7 +331,7 @@ bool NodeMgr::syncNodeToClients()
     size_t sendBytes = 0;
     SyncMsgHdr& syncMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
     sendBytes += sizeof(SyncMsgHdr);
-    syncMsgHdr.mac = TapDevPtr->getMacAddr();
+    syncMsgHdr.mac = g_tapDev.getMacAddr();
     syncMsgHdr.op = OP_MOD;
     // syncMsgHdr.key = ;
     SyncNodeMsg& syncMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
@@ -437,7 +437,7 @@ bool NodeMgr::handleIPMsg(uint8_t* respMsg)
     uint32_t subnetMask = ~(static_cast<uint32_t>(1 << (32 - ipMsg.netIDLen)) - 1);
     netNum_ = ntohl(ipMsg.ipv4Addr.s_addr) & subnetMask;
 
-    return TapDevPtr->setIPv4Addr(&ipMsg.ipv4Addr, ipMsg.netIDLen);
+    return g_tapDev.setIPv4Addr(&ipMsg.ipv4Addr, ipMsg.netIDLen);
 }
 
 bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
