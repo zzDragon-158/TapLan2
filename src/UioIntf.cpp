@@ -14,7 +14,7 @@ void SioIntf::udpWrk()
     UioCtx* ctx = &udpIoCtx_;
     int res;
 
-    while (g_cfgData.isRunning) {
+    while (g_cfgData.running_) {
         res = udpRecv(udpFd_, ctx);
         if (res == -1) {
             continue;
@@ -31,7 +31,7 @@ void SioIntf::tapWrk()
     UioCtx* ctx = &tapIoCtx_;
     int res;
 
-    while (g_cfgData.isRunning) {
+    while (g_cfgData.running_) {
         res = tapRead(tapFd_, ctx);
         if (res == -1) {
             continue;

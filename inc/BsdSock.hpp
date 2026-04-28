@@ -3,6 +3,7 @@
 #include    <string>
 #include    <memory>
 #include    "Common.hpp"
+#include    "Config.hpp"
 #include    "LogMgr.hpp"
 
 #ifdef      _WIN32

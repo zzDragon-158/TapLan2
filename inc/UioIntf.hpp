@@ -8,6 +8,7 @@
 #include    "LogMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
+#include    "liburing.h"
 
 class TapLan;
 
@@ -52,6 +53,7 @@ public:
     virtual int reqTapWrite(TapFd fd, UioCtx* ctx) { return -1; };
 
 protected:
+    static constexpr size_t DATA_BUF_SIZE = 2048;
     static constexpr size_t DATA_BUF_NUM = 1024;
     static constexpr size_t MAX_RECV_REQ = 256;
     static constexpr size_t MAX_READ_REQ = 8;
@@ -103,6 +105,14 @@ public:
     void aioWrk();
 
 private:
+    enum {
+        TOKEN_UDP_RECV_MULTISHOT = 0,
+        TOKEN_UDP_RECV,
+        TOKEN_UDP_SEND,
+        TOKEN_TAP_READ,
+        TOKEN_TAP_WRITE,
+    };
+
     static constexpr char TAG[] = "[AioIntf]";
     bool isInitialized;
     uint8_t* dataBufs_;

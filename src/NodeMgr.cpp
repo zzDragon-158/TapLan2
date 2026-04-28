@@ -3,16 +3,16 @@
 #include "TapLan.hpp"
 
 NodeMgr::NodeMgr()
-    : netNum_(g_cfgData.netNum)
-    , netNumLen_(g_cfgData.netNumLen)
+    : netNum_(g_cfgData.netNum_)
+    , netNumLen_(g_cfgData.netNumLen_)
     , verNum_(0)
     , serverAddr_{}
     , connStatus_(NOT_CONNECTED)
     , tcpSockSPtr_(nullptr)
 {
     serverAddr_.sin6_family = AF_INET6;
-    serverAddr_.sin6_addr = g_cfgData.remoteAddr;
-    serverAddr_.sin6_port = g_cfgData.remotePort;
+    serverAddr_.sin6_addr = g_cfgData.remoteAddr_;
+    serverAddr_.sin6_port = g_cfgData.remotePort_;
 }
 
 NodeMgr::~NodeMgr()
@@ -36,7 +36,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
         n->ipv6Addr = addr->sin6_addr;
         n->ipv6Port = addr->sin6_port;
 
-        if (!g_cfgData.noSync) {
+        if (!g_cfgData.noSync_) {
             WLock wLock(rwMutex_);
             activeDeltaBuffer_[macNum] = n;
         }
@@ -45,7 +45,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     }
 
     uint32_t hostNum = 0;
-    if (!g_cfgData.noSync) {
+    if (!g_cfgData.noSync_) {
         for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
             if (!addrPool_.test(i)) {
                 addrPool_.set(i);
@@ -62,7 +62,7 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
     n = std::make_shared<Node>();
     n->ipv6Addr = addr->sin6_addr;
     n->ipv6Port = addr->sin6_port;
-    n->ipv4Addr.s_addr = g_cfgData.noSync? UINT32_MAX: htonl(netNum_ + hostNum);
+    n->ipv4Addr.s_addr = g_cfgData.noSync_? UINT32_MAX: htonl(netNum_ + hostNum);
     n->mac = macNum;
     n->status = NODE_ONLINE;
     n->lastSeen = time(nullptr);
@@ -148,14 +148,14 @@ void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
 
 void NodeMgr::server()
 {
-    tcpSockSPtr_ = std::make_shared<TcpSock>(g_cfgData.localPort);
+    tcpSockSPtr_ = std::make_shared<TcpSock>(g_cfgData.localPort_);
     if (!tcpSockSPtr_->isFdValid() || !tcpSockSPtr_->listen(5)) {
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         return ;
     }
 
     pfds_.push_back({ tcpSockSPtr_->getFd(), POLLIN, 0 });
-    while (g_cfgData.isRunning) {
+    while (g_cfgData.running_) {
         int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
         if (pollCnt < 0) {
             LOGE(TAG, "Failed to poll.");
@@ -205,7 +205,7 @@ void NodeMgr::server()
 
 void NodeMgr::client()
 {
-    while (g_cfgData.isRunning) {
+    while (g_cfgData.running_) {
         bool ok = false;
 
         switch (connStatus_) {
@@ -255,7 +255,7 @@ bool NodeMgr::reqIPFromServer()
     SyncMsgHdr reqMsgHdr{};
     TapDevPtr->getMacAddr(reqMsgHdr.mac);
     reqMsgHdr.op = OP_REQ_IP;
-    reqMsgHdr.port = htons(g_cfgData.localPort);
+    reqMsgHdr.port = htons(g_cfgData.localPort_);
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
     tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
 
@@ -285,7 +285,7 @@ bool NodeMgr::syncNodeFromServer()
 
     if (connStatus_ != SYNCED) {
         SyncMsgHdr reqMsgHdr{};
-        reqMsgHdr.mac = g_cfgData.mac;
+        reqMsgHdr.mac = g_cfgData.mac_;
         reqMsgHdr.op = OP_REQ_SYNC_NODE;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
         tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
@@ -326,7 +326,7 @@ bool NodeMgr::syncNodeToClients()
     size_t sendBytes = 0;
     SyncMsgHdr& syncMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
     sendBytes += sizeof(SyncMsgHdr);
-    syncMsgHdr.mac = g_cfgData.mac;
+    syncMsgHdr.mac = g_cfgData.mac_;
     syncMsgHdr.op = OP_MOD;
     // syncMsgHdr.key = ;
     SyncNodeMsg& syncMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
@@ -410,7 +410,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     }
 
     IPMsg& ipMsg = reinterpret_cast<IPMsg&>(*(sndBuf + sendBytes));
-    ipMsg.netIDLen = g_cfgData.netNumLen;
+    ipMsg.netIDLen = g_cfgData.netNumLen_;
     ipMsg.ipv4Addr = n->ipv4Addr;
     sendBytes += sizeof(IPMsg);
 
@@ -487,8 +487,8 @@ bool NodeMgr::handleSyncNodeMsg(uint8_t* respMsg)
     for (int i = 0; i < numsOfNode; ++i) {
         Node& n = msgBody.nodes[i];
         if (IN6_IS_ADDR_UNSPECIFIED(&n.ipv6Addr)) {
-            n.ipv6Addr = g_cfgData.remoteAddr;
-            n.ipv6Port = g_cfgData.remotePort;
+            n.ipv6Addr = g_cfgData.remoteAddr_;
+            n.ipv6Port = g_cfgData.remotePort_;
         }
         addNode(n.mac, n);
     }

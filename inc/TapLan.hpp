@@ -8,6 +8,7 @@
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 #include    "UioIntf.hpp"
+#include    "Config.hpp"
 
 class TapLan {
 public:
@@ -22,6 +23,12 @@ public:
     void handleTapData(UioCtx* ctx);
 
 private:
+    struct EthHdr {
+        Mac dst;
+        Mac src;
+        uint16_t type;
+    };
+
     static constexpr char TAG[] = "[TapLan]";
     sockaddr_in6    serverAddr_;
     UdpSock*        udpSockPtr_;

@@ -120,7 +120,7 @@ int AioIntf::initAioIntf()
     res = io_uring_queue_init_params(IOURING_SIZE, ring_, &params);
     if (res < 0) {
         LOGF(TAG, "Failed to init queue params.[%s]", strerror(-res));
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         return -1;
     }
 
@@ -133,7 +133,7 @@ int AioIntf::initAioIntf()
         LOGD(TAG, "Cant allocate [%u] hugepage memory.", totalDatBufSize);
         posix_memalign((void **)&dataBufs_, 4096, totalDatBufSize);
         if (!dataBufs_) {
-            g_cfgData.isRunning = false;
+            g_cfgData.running_ = false;
             LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
             return -1;
         }
@@ -159,7 +159,7 @@ int AioIntf::initAioIntf()
     }
     res = io_uring_register_buffers(ring_, iovs, DATA_BUF_NUM);
     if (res < 0) {
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         LOGF(TAG, "Failed to register buffers.[%s]", strerror(-res));
         return -1;
     }
@@ -167,7 +167,7 @@ int AioIntf::initAioIntf()
     size_t bufRingSize = MAX_RECV_REQ * sizeof(io_uring_buf);
     posix_memalign((void**)(&bufRing_), 4096, bufRingSize);
     if (!bufRing_) {
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         LOGF(TAG, "Failed to allocate [%u] memory for io_uring_buf_ring.", bufRingSize);
         return -1;
     }
@@ -179,7 +179,7 @@ int AioIntf::initAioIntf()
     res = io_uring_register_buf_ring(ring_, &bufReg, 0);
     if (res < 0) {
         LOGF(TAG, "Failed to register buf ring.[%s]", strerror(-res));
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         return -1;
     }
 
@@ -317,7 +317,7 @@ void AioIntf::aioWrk()
     io_uring_cqe *cqe;
     __kernel_timespec timeout{IO_WAIT_TIME, 0};
     constexpr size_t maxCqeBatch = IOURING_SIZE / 2;
-    while (g_cfgData.isRunning) {
+    while (g_cfgData.running_) {
         int res = io_uring_wait_cqe_timeout(ring_, &cqe, &timeout);
         if (res < 0 && res != -ETIME) {
             LOGF(TAG, "Failed to wait cqe.[%s]", strerror(-res));

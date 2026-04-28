@@ -1,8 +1,6 @@
 #pragma     once
 #include    <cstdint>
-#include    <vector>
-#include    <stack>
-#include    <mutex>
+#include    <string>
 #include    <LogMgr.hpp>
 
 #ifdef      _WIN32
@@ -56,8 +54,6 @@ static std::string getIoErr()
 #include    <cstring>           // for strerror
 #include    <arpa/inet.h>
 #include    <sys/socket.h>
-#include    <sys/uio.h>
-#include    <liburing.h>
 
 using SockFd = int;
 constexpr SockFd INVALID_SOCKFD = -1;
@@ -129,49 +125,16 @@ struct Mac {
     }
 };
 
-struct EthHdr {
-    Mac dst;
-    Mac src;
-    uint16_t type;
-};
+constexpr int IO_WAIT_TIME = 3;
 
-enum {
-    TOKEN_UDP_RECV_MULTISHOT = 0,
-    TOKEN_UDP_RECV,
-    TOKEN_UDP_SEND,
-    TOKEN_TAP_READ,
-    TOKEN_TAP_WRITE,
-};
+static void delayExit(int code, int64_t delaySeconds = 0)
+{
+    LogMgrPtr->terminate();
 
-enum RunModeT {
-    RunMode_None = 0,
-    RunMode_Server,
-    RunMode_Client,
-};
-
-struct ConfigDataT {
-    uint8_t     runMode;
-    uint16_t    localPort;
-    uint32_t    netNum;
-    uint8_t     netNumLen;
-    in6_addr    remoteAddr;
-    uint16_t    remotePort;
-    uint16_t    swPortIntvl;
-    bool        isAioEnable;
-    bool        noSync;
-    bool        isRunning;
-    Mac         mac;
-
-    ConfigDataT(): runMode(RunMode_Server), localPort(3460),
-                    netNum((192 << 24) + (168 << 16) + (208 << 8)),
-                    netNumLen(24), remoteAddr{}, remotePort(0),
-                    swPortIntvl(0), isAioEnable(false),
-                    noSync(false), isRunning(false),
-                    mac{} {
-        // nothing to do
+    if (delaySeconds > 0) {
+        std::cout << "Program will completely exit after "<< delaySeconds <<" seconds." << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
     }
-};
 
-const int IO_WAIT_TIME = 3;
-const size_t DATA_BUF_SIZE = 2048;
-extern ConfigDataT g_cfgData;
+    exit(code);
+}

@@ -180,7 +180,7 @@ int AioIntf::initAioIntf()
     size_t totalDatBufSize = DATA_BUF_NUM * DATA_BUF_SIZE;
     dataBufs_ = (uint8_t*)_aligned_malloc(totalDatBufSize, 64);
     if (dataBufs_ == nullptr) {
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
         return -1;
     }
@@ -200,7 +200,7 @@ int AioIntf::initAioIntf()
 
     hIOCP_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
     if (hIOCP_ == nullptr) {
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to create IOCP.[%s]", errMsg.c_str());
         return -1;
@@ -209,11 +209,11 @@ int AioIntf::initAioIntf()
     if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
         errMsg = getErrMsg(GetLastError());
         LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
-        g_cfgData.isRunning = false;
+        g_cfgData.running_ = false;
         return -1;
     }
 
-    if (g_cfgData.swPortIntvl) {
+    if (g_cfgData.swPortIntvl_) {
         for (int i = 0; i < 4; ++i) {
             UdpSock* udpSockPtr = tapLanPtr_->udpSockPtrs_[i];
             if (udpSockPtr == nullptr) {
@@ -224,7 +224,7 @@ int AioIntf::initAioIntf()
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
                 errMsg = getErrMsg(GetLastError());
                 LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
-                g_cfgData.isRunning = false;
+                g_cfgData.running_ = false;
                 return -1;
             }
         }
@@ -232,7 +232,7 @@ int AioIntf::initAioIntf()
         if (!CreateIoCompletionPort((HANDLE)udpFd_, hIOCP_, (ULONG_PTR)this, 0)) {
             errMsg = getErrMsg(GetLastError());
             LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
-            g_cfgData.isRunning = false;
+            g_cfgData.running_ = false;
             return -1;
         }
     }
@@ -393,7 +393,7 @@ void AioIntf::aioWrk()
     ULONG_PTR key;
     LPOVERLAPPED lpOverlapped;
     DWORD err;
-    while (g_cfgData.isRunning) {
+    while (g_cfgData.running_) {
         BOOL ok = GetQueuedCompletionStatus(
             hIOCP_,
             &bytes,
