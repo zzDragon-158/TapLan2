@@ -31,8 +31,8 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 
 int SioIntf::tapPollRead(TapFd fd, UioCtx* ctx)
 {
-    TapLanPollFd pfd = { fd, POLLIN, 0};
-    int res = TapLanPoll(&pfd, 1, IO_WAIT_TIME * 1000);
+    UnivPollFd pfd = { fd, POLLIN, 0};
+    int res = UnivPoll(&pfd, 1, IO_WAIT_TIME * 1000);
     if (res == -1) {
         LOGE(TAG, "Failed to poll tap.[%s]", strerror(errno));
     }
@@ -74,8 +74,8 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
 
 int SioIntf::udpPollRecv(SockFd fd, UioCtx* ctx)
 {
-    TapLanPollFd pfd = { fd, POLLIN, 0};
-    int res = TapLanPoll(&pfd, 1, IO_WAIT_TIME * 1000);
+    UnivPollFd pfd = { fd, POLLIN, 0};
+    int res = UnivPoll(&pfd, 1, IO_WAIT_TIME * 1000);
     if (res == -1) {
         LOGE(TAG, "Failed to poll udp.[%s]", strerror(errno));
     }

@@ -270,7 +270,7 @@ bool NodeMgr::syncNodeFromServer()
 
 void NodeMgr::pollAndProcess()
 {
-    int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
+    int pollCnt = UnivPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
     if (pollCnt < 0) {
         LOGE(TAG, "Failed to poll.");
         return ;

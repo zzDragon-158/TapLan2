@@ -9,7 +9,7 @@
 #ifdef      _WIN32
 
 using PollFunc = int(*)(pollfd*, ULONG, INT);
-constexpr PollFunc TapLanPoll = WSAPoll;
+constexpr PollFunc UnivPoll = WSAPoll;
 
 #elif       __linux__
 #include    <poll.h>            // for poll
@@ -23,14 +23,14 @@ constexpr PollFunc TapLanPoll = WSAPoll;
 #include    <sys/mman.h>        // for mmap
 
 using PollFunc = int(*)(pollfd*, nfds_t, int);
-constexpr PollFunc TapLanPoll = poll;
+constexpr PollFunc UnivPoll = poll;
 
 #else
 #error      "unsupported platform!"
 
 #endif
 
-using TapLanPollFd = pollfd;
+using UnivPollFd = pollfd;
 class TcpSock;
 using TcpSockSPtr = std::shared_ptr<TcpSock>;
 

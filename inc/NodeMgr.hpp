@@ -110,7 +110,7 @@ private:
     sockaddr_in6 serverAddr_;
     uint8_t connStatus_;
     TcpSockSPtr tcpSockSPtr_;
-    std::vector<TapLanPollFd> pfds_;
+    std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
 
     void reset();
