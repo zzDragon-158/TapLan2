@@ -83,7 +83,7 @@ static std::string getIoErr()
 struct Mac {
     uint8_t addr[6];
 
-    operator uint64_t() {
+    operator uint64_t() const {
         uint64_t num = 0;
         __builtin_memcpy(&num, addr, 6);
         return num;
@@ -111,7 +111,7 @@ struct Mac {
         addr[4] = (seed >> 8) & 0xFF;
         addr[5] = seed & 0xFF;
     }
-    std::string getMacStr() {
+    std::string getMacStr() const {
         char buf[18];
     
         std::snprintf(

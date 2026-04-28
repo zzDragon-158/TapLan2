@@ -9,8 +9,8 @@
 #include    <functional>
 #include    <mutex>
 #include    <shared_mutex>
-#include    "BsdSock.hpp"
 #include    "Common.hpp"
+#include    "BsdSock.hpp"
 
 enum NodeStatus {
     NODE_ONLINE = 0,

@@ -2,23 +2,6 @@
 #include <string>
 #include <stdexcept>
 
-Config::Config()
-: runMode_(RunMode::server)
-, localPort_(3460)
-, netNum_((192 << 24) + (168 << 16) + (208 << 8))
-, netNumLen_(24)
-, remoteAddr_{}
-, remotePort_(0)
-, swPortIntvl_(0)
-, logLevel_(LogLevel::info)
-, isAioEnable_(false)
-, noSync_(false)
-, running_(false)
-, mac_{}
-{
-    ;
-}
-
 void Config::initCliApp(CLI::App& cliApp)
 {
     static const std::map<std::string, LogLevel> logMap = {

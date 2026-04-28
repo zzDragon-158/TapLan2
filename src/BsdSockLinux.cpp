@@ -61,7 +61,7 @@ ssize_t TcpSock::send(const void* buf, size_t bufLen)
 {
     size_t sendBytes = 0;
 
-    while (g_cfgData.running_ && sendBytes < bufLen) {
+    while (g_cfgData.running() && sendBytes < bufLen) {
         ssize_t res = ::send(
             fd_,
             reinterpret_cast<const char*>(buf) + sendBytes,
@@ -81,7 +81,7 @@ ssize_t TcpSock::send(const void* buf, size_t bufLen)
 
 ssize_t TcpSock::recv(void* buf, size_t bufLen)
 {
-    while (g_cfgData.running_) {
+    while (g_cfgData.running()) {
         ssize_t res = ::recv(
             fd_,
             reinterpret_cast<char*>(buf),

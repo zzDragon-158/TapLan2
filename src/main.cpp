@@ -5,7 +5,7 @@ int main(int argc, char* argv[])
 {
     g_cfgData.parseParams(argc, argv);
 
-    LogMgrPtr->setLogLevel(g_cfgData.logLevel_);
+    LogMgrPtr->setLogLevel(g_cfgData.logLevel());
     if (!LogMgrPtr->run())
         delayExit(-1, 3);
 
