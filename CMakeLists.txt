@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(TapLan)
+include(ExternalProject)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -25,7 +26,6 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     if(NOT EXISTS "${URING_INCLUDE_DIR}")
         file(MAKE_DIRECTORY "${URING_INCLUDE_DIR}")
     endif()
-    include(ExternalProject)
     ExternalProject_Add(
         ext_liburing
         GIT_REPOSITORY      https://github.com/axboe/liburing.git
@@ -34,6 +34,7 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
         PREFIX              ${CMAKE_BINARY_DIR}/ext_liburing
         STAMP_DIR           ${CMAKE_BINARY_DIR}/ext_liburing/stamp
         SOURCE_DIR          ${CMAKE_BINARY_DIR}/ext_liburing/src
+        BUILD_BYPRODUCTS    ${URING_INSTALL_DIR}/lib/liburing.a
 
         BUILD_IN_SOURCE     1
         CONFIGURE_COMMAND   ./configure --prefix=${URING_INSTALL_DIR}
@@ -58,6 +59,32 @@ else()
     message(FATAL_ERROR "Unsupported platform")
 
 endif()
+
+set(SODIUM_INSTALL_DIR "${CMAKE_BINARY_DIR}/third_party")
+set(SODIUM_INCLUDE_DIR "${SODIUM_INSTALL_DIR}/include")
+ExternalProject_Add(
+    ext_libsodium
+    GIT_REPOSITORY      https://github.com/jedisct1/libsodium
+    GIT_TAG             stable
+
+    PREFIX              ${CMAKE_BINARY_DIR}/ext_libsodium
+    STAMP_DIR           ${CMAKE_BINARY_DIR}/ext_libsodium/stamp
+    SOURCE_DIR          ${CMAKE_BINARY_DIR}/ext_libsodium/src
+    BUILD_BYPRODUCTS    ${SODIUM_INSTALL_DIR}/lib/libsodium.a
+
+    BUILD_IN_SOURCE     1
+    CONFIGURE_COMMAND   ./configure --prefix=${SODIUM_INSTALL_DIR}
+    BUILD_COMMAND       make -j && make check
+    INSTALL_COMMAND     make install
+    UPDATE_COMMAND      ""
+)
+add_library(sodium STATIC IMPORTED GLOBAL)
+add_dependencies(sodium ext_libsodium)
+set_target_properties(sodium PROPERTIES
+    IMPORTED_LOCATION               ${SODIUM_INSTALL_DIR}/lib/libsodium.a
+    INTERFACE_INCLUDE_DIRECTORIES   ${SODIUM_INCLUDE_DIR}
+)
+target_link_libraries(UioIntf PUBLIC sodium)
 
 add_library(NodeMgr src/NodeMgr.cpp)
 add_library(LogMgr src/LogMgr.cpp)
