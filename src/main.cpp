@@ -5,8 +5,8 @@ int main(int argc, char* argv[])
 {
     g_cfgData.parseParams(argc, argv);
 
-    LogMgrPtr->setLogLevel(g_cfgData.logLevel());
-    if (!LogMgrPtr->run())
+    g_logMgr.setLogLevel(g_cfgData.logLevel());
+    if (!g_logMgr.run())
         delayExit(-1, 3);
 
     TapLan* TapLanPtr = new TapLan();

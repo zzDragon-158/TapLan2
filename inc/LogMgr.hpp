@@ -9,14 +9,13 @@
 #include    <semaphore>
 #include    <pthread.h>
 
-#define     LogMgrPtr                   LogMgr::ptr()
-#define     LOGR(fmt, ...)              LogMgrPtr->logOutput(LogLevel::raw, "", fmt, ##__VA_ARGS__)
-#define     LOGF(TAG, fmt, ...)         LogMgrPtr->logOutput(LogLevel::fatal, TAG, fmt, ##__VA_ARGS__)
-#define     LOGE(TAG, fmt, ...)         LogMgrPtr->logOutput(LogLevel::error, TAG, fmt, ##__VA_ARGS__)
-#define     LOGW(TAG, fmt, ...)         LogMgrPtr->logOutput(LogLevel::warn, TAG, fmt, ##__VA_ARGS__)
-#define     LOGI(TAG, fmt, ...)         LogMgrPtr->logOutput(LogLevel::info, TAG, fmt, ##__VA_ARGS__)
-#define     LOGD(TAG, fmt, ...)         LogMgrPtr->logOutput(LogLevel::debug, TAG, fmt, ##__VA_ARGS__)
-#define     LOGT(TAG, fmt, ...)         LogMgrPtr->logOutput(LogLevel::trace, TAG, fmt, ##__VA_ARGS__)
+#define     LOGR(fmt, ...)              g_logMgr.logOutput(LogLevel::raw, "", fmt, ##__VA_ARGS__)
+#define     LOGF(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::fatal, TAG, fmt, ##__VA_ARGS__)
+#define     LOGE(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::error, TAG, fmt, ##__VA_ARGS__)
+#define     LOGW(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::warn, TAG, fmt, ##__VA_ARGS__)
+#define     LOGI(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::info, TAG, fmt, ##__VA_ARGS__)
+#define     LOGD(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::debug, TAG, fmt, ##__VA_ARGS__)
+#define     LOGT(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::trace, TAG, fmt, ##__VA_ARGS__)
 
 enum class LogLevel: char {
     raw = -1,
@@ -36,7 +35,10 @@ public:
     void setLogLevel(LogLevel level) { logLevel_ = level; };
     bool isRunning() { return running_; };
     void logOutput(LogLevel level, const char* tag, const char* format, ...);
-    static LogMgr* ptr();
+    static LogMgr& instance() {
+        static LogMgr ins;
+        return ins;
+    }
 
 private:
     enum EntryState: int {
@@ -78,11 +80,7 @@ private:
     void logWrk();
 };
 
-inline LogMgr* LogMgr::ptr() {
-    static LogMgr ins;
-
-    return &ins;
-}
+inline LogMgr& g_logMgr = LogMgr::instance();
 
 inline void cpuRelax()
 {

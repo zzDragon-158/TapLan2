@@ -129,7 +129,7 @@ constexpr int IO_WAIT_TIME = 3;
 
 static void delayExit(int code, int64_t delaySeconds = 0)
 {
-    LogMgrPtr->terminate();
+    g_logMgr.terminate();
 
     if (delaySeconds > 0) {
         std::cout << "Program will completely exit after "<< delaySeconds <<" seconds." << std::endl;
