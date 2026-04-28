@@ -8,7 +8,9 @@
 #include    "LogMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
+#if defined(__linux__)
 #include    "liburing.h"
+#endif
 
 class TapLan;
 
