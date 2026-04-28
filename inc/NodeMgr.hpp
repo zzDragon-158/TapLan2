@@ -118,10 +118,12 @@ private:
     NodeSPtr delNode(uint64_t macNum);
     bool setNodeStatus(uint64_t macNum, uint8_t status);
 
+    void pollAndProcess();
+    bool syncNodeToClients();
+
     bool connectToServer();
     bool reqIPFromServer();
     bool syncNodeFromServer();
-    bool syncNodeToClients();
 
     bool handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSockSPtr srcSock);
     bool handleIPReq(uint8_t* reqMsg, TcpSockSPtr client);

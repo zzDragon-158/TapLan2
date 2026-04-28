@@ -156,50 +156,7 @@ void NodeMgr::server()
 
     pfds_.push_back({ tcpSockSPtr_->getFd(), POLLIN, 0 });
     while (g_cfgData.running()) {
-        int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
-        if (pollCnt < 0) {
-            LOGE(TAG, "Failed to poll.");
-            break;
-        } else if (pollCnt == 0) {
-            continue;
-        }
-
-        size_t pfdsLen = pfds_.size();
-        if (pfds_.begin()->revents) {
-            --pollCnt;
-            TcpSockSPtr client = tcpSockSPtr_->accept();
-            if (client) {
-                clients_.push_back(client);
-                pfds_.push_back({ client->getFd(), POLLIN, 0 });
-            }
-        }
-        for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
-            if (!pfds_[i].revents) {
-                continue;
-            }
-
-            --pollCnt;
-            uint8_t recvBuf[65536];
-            TcpSockSPtr client = clients_[i - 1];
-            ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
-            if (recvBytes == -2) {
-                LOGW(TAG, "poll but recv timeout.");
-                continue;
-            } else if (recvBytes == -1 || recvBytes == 0) {
-                uint64_t macNum = client->getMac();
-                setNodeStatus(macNum, NODE_OFFLINE);
-
-                std::swap(pfds_[i], pfds_.back());
-                pfds_.pop_back();
-                std::swap(clients_[i - 1], clients_.back());
-                clients_.pop_back();
-                continue;
-            }
-
-            handleSyncMsg(recvBuf, recvBytes, client);
-        }
-
-        syncNodeToClients();
+        pollAndProcess();
     }
 }
 
@@ -309,6 +266,54 @@ bool NodeMgr::syncNodeFromServer()
 
     connStatus_ = SYNCED;
     return true;
+}
+
+void NodeMgr::pollAndProcess()
+{
+    int pollCnt = TapLanPoll(pfds_.data(), pfds_.size(), IO_WAIT_TIME * 1000);
+    if (pollCnt < 0) {
+        LOGE(TAG, "Failed to poll.");
+        return ;
+    } else if (pollCnt == 0) {
+        return ;
+    }
+
+    size_t pfdsLen = pfds_.size();
+    if (pfds_.begin()->revents) {
+        --pollCnt;
+        TcpSockSPtr client = tcpSockSPtr_->accept();
+        if (client) {
+            clients_.push_back(client);
+            pfds_.push_back({ client->getFd(), POLLIN, 0 });
+        }
+    }
+    for (int i = pfdsLen - 1; pollCnt && i > 0; --i) {
+        if (!pfds_[i].revents) {
+            continue;
+        }
+
+        --pollCnt;
+        uint8_t recvBuf[65536];
+        TcpSockSPtr client = clients_[i - 1];
+        ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
+        if (recvBytes == -2) {
+            LOGW(TAG, "poll but recv timeout.");
+            continue;
+        } else if (recvBytes == -1 || recvBytes == 0) {
+            uint64_t macNum = client->getMac();
+            setNodeStatus(macNum, NODE_OFFLINE);
+
+            std::swap(pfds_[i], pfds_.back());
+            pfds_.pop_back();
+            std::swap(clients_[i - 1], clients_.back());
+            clients_.pop_back();
+            continue;
+        }
+
+        handleSyncMsg(recvBuf, recvBytes, client);
+    }
+
+    syncNodeToClients();
 }
 
 bool NodeMgr::syncNodeToClients()
