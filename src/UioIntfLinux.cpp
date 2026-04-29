@@ -55,8 +55,8 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
 {
     ctx->addrLen = sizeof(ctx->buf->addr);
     ctx->dataLen = ::recvfrom(fd,
-                              ctx->buf->payload,
-                              PAYLOAD_SIZE,
+                              &ctx->buf->nonce,
+                              PAYLOAD_SIZE + 12,
                               0,
                               reinterpret_cast<sockaddr*>(&ctx->buf->addr),
                               &ctx->addrLen);
@@ -86,8 +86,8 @@ int SioIntf::udpPollRecv(SockFd fd, UioCtx* ctx)
 int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
 {
     int res = ::sendto(fd,
-                       ctx->buf->payload,
-                       ctx->dataLen,
+                       &ctx->buf->nonce,
+                       ctx->dataLen + 12,
                        0,
                        reinterpret_cast<sockaddr*>(&ctx->buf->addr),
                        sizeof(ctx->buf->addr));
@@ -148,7 +148,6 @@ int AioIntf::initAioIntf()
         ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
         ctx->msgHdr.msg_iov = &ctx->iov;
         ctx->msgHdr.msg_iovlen = 1;
-        ctx->iov.iov_base = ctx->buf->payload;
 
         iovs[i].iov_base = ctx->buf;
         iovs[i].iov_len = DATA_BUF_SIZE;
@@ -199,6 +198,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
 
     ++ctx->ref;
     ctx->token = TOKEN_TAP_READ;
+    ctx->iov.iov_base = &ctx->buf->payload;
     ctx->iov.iov_len = PAYLOAD_SIZE;
 
     io_uring_sqe* sqe = io_uring_get_sqe(ring_);
@@ -223,6 +223,7 @@ int AioIntf::reqTapWrite(TapFd fd, UioCtx* ctx)
 {
     ++ctx->ref;
     ctx->token = TOKEN_TAP_WRITE;
+    ctx->iov.iov_base = &ctx->buf->payload;
     ctx->iov.iov_len = ctx->dataLen;
 
     io_uring_sqe *sqe = io_uring_get_sqe(ring_);
@@ -256,7 +257,8 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     } else {
         ctx->token = TOKEN_UDP_RECV;
         ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
-        ctx->iov.iov_len = PAYLOAD_SIZE;
+        ctx->iov.iov_base = &ctx->buf->nonce;
+        ctx->iov.iov_len = PAYLOAD_SIZE + 12;
 
         io_uring_sqe* sqe = io_uring_get_sqe(ring_);
         sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
@@ -295,7 +297,9 @@ int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
     ++ctx->ref;
     ctx->token = TOKEN_UDP_SEND;
     ctx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
-    ctx->iov.iov_len = ctx->dataLen;
+    ctx->iov.iov_base = &ctx->buf->nonce;
+    ctx->iov.iov_len = ctx->dataLen + 12;
+    //LOGD(TAG, "actual send: %d", ctx->iov.iov_len);
 
     io_uring_sqe* sqe = io_uring_get_sqe(ring_);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);

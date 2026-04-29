@@ -4,13 +4,14 @@
 #include    <cstdlib>
 #include    <vector>
 #include    <stack>
+#if defined(__linux__)
+#include    "liburing.h"
+#endif
 #include    "Common.hpp"
 #include    "LogMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
-#if defined(__linux__)
-#include    "liburing.h"
-#endif
+#include    "DataSec.hpp"
 
 class TapLan;
 
@@ -32,6 +33,7 @@ struct UioCtx {
     struct Buf {
         io_uring_recvmsg_out ro;
         sockaddr_in6 addr;
+        Nonce nonce;
         char payload[];
     } *buf;
     socklen_t addrLen;

@@ -3,12 +3,14 @@
 #include    <ctime>
 #include    <atomic>
 #include    <pthread.h>
+#include    <map>
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "TapDev.hpp"
 #include    "UioIntf.hpp"
 #include    "Config.hpp"
+#include    "DataSec.hpp"
 
 class TapLan {
 public:
@@ -36,6 +38,8 @@ private:
     std::atomic<UdpSock*>       udpSendSockPtr_;
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
     UioIntf*        uioIntfPtr_;
+    AeadSession*    sendSession_;
+    std::map<uint64_t, AeadSession*> macToSession_;
     std::thread     swPortThread_, syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
@@ -44,6 +48,10 @@ private:
 
     void unicastData(UioCtx* ctx);
     void broadcastData(UioCtx* ctx);
+
+    void fetchMacFromNonce(const Nonce& nonce, Mac& mac);
+    bool encryptData(UioCtx* ctx);
+    bool decryptData(UioCtx* ctx);
 
     friend void SioIntf::udpWrk();
     friend void SioIntf::tapWrk();

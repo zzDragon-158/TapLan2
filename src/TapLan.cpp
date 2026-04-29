@@ -32,6 +32,7 @@ TapLan::TapLan()
         // RunMode_None
     }
     udpSendSockPtr_ = udpSockPtr_;
+    sendSession_ = new AeadSession(g_tapDev.getMacAddr());
 }
 
 TapLan::~TapLan()
@@ -254,6 +255,9 @@ bool TapLan::stop()
 
 void TapLan::handleUdpData(UioCtx* ctx)
 {
+    if (!decryptData(ctx))
+        return ;
+
     TapFd tapFd = g_tapDev.getFd();
 
     char* payload = ctx->buf->payload;
@@ -270,8 +274,8 @@ void TapLan::handleUdpData(UioCtx* ctx)
 
     if (g_cfgData.runMode() == RunMode::server) {
         if (needBroadcast) {
-            broadcastData(ctx);
             uioIntfPtr_->reqTapWrite(tapFd, ctx);
+            broadcastData(ctx);
         } else if (!isSendToMe) {
             unicastData(ctx);
         } else {
@@ -287,7 +291,7 @@ void TapLan::handleTapData(UioCtx* ctx)
     SockFd udpSendFd = udpSendSockPtr_.load()->getFd();
 
     char* payload = ctx->buf->payload;
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*payload);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
     Mac& dstMac = eh.dst;
     bool needBroadcast = eh.dst[0] & 0x01;
 
@@ -301,6 +305,8 @@ void TapLan::handleTapData(UioCtx* ctx)
         if (!g_cfgData.noSync() || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
             sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
             dstAddr = serverAddr_;
+
+            encryptData(ctx);
             uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
         }
     }
@@ -309,14 +315,15 @@ void TapLan::handleTapData(UioCtx* ctx)
 void TapLan::unicastData(UioCtx* ctx)
 {
     SockFd udpSendFd = udpSendSockPtr_.load()->getFd();
-
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
     Mac& dstMac = eh.dst;
+
     auto n = nodeMgrPtr_->findNode(dstMac);
     if (n) {
         sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
         nodeMgrPtr_->setSockaddr(dstAddr, n);
 
+        encryptData(ctx);
         uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
     }
 }
@@ -326,7 +333,7 @@ void TapLan::broadcastData(UioCtx* ctx)
     SockFd udpSendFd = udpSendSockPtr_.load()->getFd();
 
     char* payload = ctx->buf->payload;
-    EthHdr& eh = reinterpret_cast<EthHdr&>(*payload);
+    EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
     Mac& srcMac = eh.src;
 
     nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
@@ -343,7 +350,68 @@ void TapLan::broadcastData(UioCtx* ctx)
             sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
             nodeMgrPtr_->setSockaddr(sendAddr, n);
 
+            encryptData(sendCtx);
             uioIntfPtr_->reqUdpSend(udpSendFd, sendCtx);
         }
     });
+}
+
+void TapLan::fetchMacFromNonce(const Nonce& nonce, Mac& mac)
+{
+    mac = {
+        0x02, 0x34, 0x60,
+        nonce.data[0],
+        nonce.data[1],
+        nonce.data[2],
+    };
+}
+
+bool TapLan::encryptData(UioCtx* ctx)
+{
+    AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
+
+    //LOGD(TAG, "Raw: %d", ctx->dataLen);
+    if (g_cfgData.runMode() == RunMode::server) {
+        EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
+        Mac& dstMac = eh.dst;
+        AeadSession* session = macToSession_[dstMac];
+        session->encrypt(packet, ctx->dataLen);
+    } else {
+        sendSession_->encrypt(packet, ctx->dataLen);
+    }
+    //LOGD(TAG, "Send: %d", ctx->dataLen);
+
+    return true;
+}
+
+bool TapLan::decryptData(UioCtx* ctx)
+{
+    if (ctx->dataLen < NONCE_SIZE) {
+        return false;
+    }
+
+    Mac srcMac;
+    fetchMacFromNonce(ctx->buf->nonce, srcMac);
+
+    AeadSession* session = nullptr;
+    auto it = macToSession_.find(srcMac);
+    if (it == macToSession_.end()) {
+        session = sendSession_;
+    } else {
+        session = it->second;
+    }
+
+    //LOGD(TAG, "Recv: %d", ctx->dataLen);
+    ctx->dataLen -= NONCE_SIZE;
+    AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
+    if (!session->decrypt(packet, ctx->dataLen)) {
+        return false;
+    }
+
+    if (session == sendSession_) {
+        AeadSession* newSession = new AeadSession(g_tapDev.getMacAddr(), ctx->buf->nonce);
+        macToSession_[srcMac] = newSession;
+    }
+
+    return true;
 }

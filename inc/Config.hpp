@@ -26,6 +26,7 @@ public:
     uint16_t remotePort() const noexcept { return remotePort_; }
     uint16_t swPortIntvl() const noexcept { return swPortIntvl_; }
     LogLevel logLevel() const noexcept { return logLevel_; }
+    const std::string& passwd() const noexcept { return passwd_; }
     bool isAioEnable() const noexcept { return isAioEnable_; }
     bool noSync() const noexcept { return noSync_; }
     bool& running() noexcept { return running_; }
@@ -39,6 +40,7 @@ private:
     uint16_t    remotePort_;
     uint16_t    swPortIntvl_ = 0;
     LogLevel    logLevel_ = LogLevel::info;
+    std::string passwd_ = "abc";
     bool        isAioEnable_ = false;
     bool        noSync_ = false;
     bool        running_ = false;
