@@ -33,6 +33,14 @@ public:
     bool isSameSession(const Nonce& nonce) {
         return (nonce.sessionId == recvNonce_.sessionId);
     };
+    static Mac fetchMacFromNonce(const Nonce& nonce) {
+        return Mac{
+            0x02, 0x34, 0x60,
+            nonce.macEUI[0],
+            nonce.macEUI[1],
+            nonce.macEUI[2]
+        };
+    }
 
 private:
     static constexpr char TAG[] = "[DataSec]";

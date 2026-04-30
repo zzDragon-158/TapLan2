@@ -49,7 +49,6 @@ private:
     void unicastData(UioCtx* ctx);
     void broadcastData(UioCtx* ctx);
 
-    void fetchMacFromNonce(const Nonce& nonce, Mac& mac);
     bool encryptData(UioCtx* ctx);
     bool decryptData(UioCtx* ctx);
 

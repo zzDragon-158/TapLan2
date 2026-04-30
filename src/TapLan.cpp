@@ -356,16 +356,6 @@ void TapLan::broadcastData(UioCtx* ctx)
     });
 }
 
-void TapLan::fetchMacFromNonce(const Nonce& nonce, Mac& mac)
-{
-    mac = {
-        0x02, 0x34, 0x60,
-        nonce.macEUI[0],
-        nonce.macEUI[1],
-        nonce.macEUI[2],
-    };
-}
-
 bool TapLan::encryptData(UioCtx* ctx)
 {
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
@@ -389,8 +379,7 @@ bool TapLan::decryptData(UioCtx* ctx)
     }
 
     Nonce& recvNonce = ctx->buf->nonce;
-    Mac srcMac;
-    fetchMacFromNonce(recvNonce, srcMac);
+    Mac srcMac = AeadSession::fetchMacFromNonce(recvNonce);
 
     AeadSessSPtr session = nullptr;
     if (g_cfgData.runMode() == RunMode::server) {
