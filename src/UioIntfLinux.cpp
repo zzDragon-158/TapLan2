@@ -53,10 +53,20 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
 int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
 {
+    void* buf = nullptr;
+    size_t bufLen = 0;
+    if (g_cfgData.enableSec()) {
+        buf = &ctx->buf->nonce;
+        bufLen = PAYLOAD_SIZE + NONCE_SIZE;
+    } else {
+        buf = ctx->buf->payload;
+        bufLen = PAYLOAD_SIZE;
+    }
+
     ctx->addrLen = sizeof(ctx->buf->addr);
     ctx->dataLen = ::recvfrom(fd,
-                              &ctx->buf->nonce,
-                              PAYLOAD_SIZE + 12,
+                              buf,
+                              bufLen,
                               0,
                               reinterpret_cast<sockaddr*>(&ctx->buf->addr),
                               &ctx->addrLen);
@@ -85,9 +95,19 @@ int SioIntf::udpPollRecv(SockFd fd, UioCtx* ctx)
 
 int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
 {
+    void* buf = nullptr;
+    size_t dataLen = 0;
+    if (g_cfgData.enableSec()) {
+        buf = &ctx->buf->nonce;
+        dataLen = ctx->dataLen + NONCE_SIZE;
+    } else {
+        buf = ctx->buf->payload;
+        dataLen = ctx->dataLen;
+    }
+
     int res = ::sendto(fd,
-                       &ctx->buf->nonce,
-                       ctx->dataLen + 12,
+                       buf,
+                       dataLen,
                        0,
                        reinterpret_cast<sockaddr*>(&ctx->buf->addr),
                        sizeof(ctx->buf->addr));
@@ -257,8 +277,13 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     } else {
         ctx->token = TOKEN_UDP_RECV;
         ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
-        ctx->iov.iov_base = &ctx->buf->nonce;
-        ctx->iov.iov_len = PAYLOAD_SIZE + 12;
+        if (g_cfgData.enableSec()) {
+            ctx->iov.iov_base = &ctx->buf->nonce;
+            ctx->iov.iov_len = PAYLOAD_SIZE + NONCE_SIZE;
+        } else {
+            ctx->iov.iov_base = ctx->buf->payload;
+            ctx->iov.iov_len = PAYLOAD_SIZE;
+        }
 
         io_uring_sqe* sqe = io_uring_get_sqe(ring_);
         sqe->user_data = reinterpret_cast<unsigned long long>(ctx);
@@ -282,6 +307,7 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd)
     ctx->token = TOKEN_UDP_RECV_MULTISHOT;
     memset(&ctx->msgHdr, 0, sizeof(msghdr));
     ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
+    ctx->msgHdr.msg_controllen = (g_cfgData.enableSec())? 0: NONCE_SIZE;
 
     io_uring_sqe* sqe = io_uring_get_sqe(ring_);
     io_uring_prep_recvmsg_multishot(sqe, fd, &ctx->msgHdr, 0);
@@ -297,9 +323,13 @@ int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
     ++ctx->ref;
     ctx->token = TOKEN_UDP_SEND;
     ctx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
-    ctx->iov.iov_base = &ctx->buf->nonce;
-    ctx->iov.iov_len = ctx->dataLen + 12;
-    //LOGD(TAG, "actual send: %d", ctx->iov.iov_len);
+    if (g_cfgData.enableSec()) {
+        ctx->iov.iov_base = &ctx->buf->nonce;
+        ctx->iov.iov_len = ctx->dataLen + NONCE_SIZE;
+    } else {
+        ctx->iov.iov_base = ctx->buf->payload;
+        ctx->iov.iov_len = ctx->dataLen;
+    }
 
     io_uring_sqe* sqe = io_uring_get_sqe(ring_);
     sqe->user_data = reinterpret_cast<unsigned long long>(ctx);

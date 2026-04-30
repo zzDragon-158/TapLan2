@@ -56,6 +56,7 @@ bool AeadSession::initAeadSession()
     }
 
     const std::string& passwd = g_cfgData.passwd();
+    LOGD(TAG, "passwd: %s", passwd.c_str());
     crypto_hash_sha256(key_, (const unsigned char*)passwd.c_str(), passwd.length());
 
     s_initialized_ = true;

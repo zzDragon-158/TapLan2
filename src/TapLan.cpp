@@ -358,6 +358,10 @@ void TapLan::broadcastData(UioCtx* ctx)
 
 bool TapLan::encryptData(UioCtx* ctx)
 {
+    if (!g_cfgData.enableSec()) {
+        return true;
+    }
+ 
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
 
     if (g_cfgData.runMode() == RunMode::server) {
@@ -374,6 +378,10 @@ bool TapLan::encryptData(UioCtx* ctx)
 
 bool TapLan::decryptData(UioCtx* ctx)
 {
+    if (!g_cfgData.enableSec()) {
+        return true;
+    }
+
     if (ctx->dataLen < NONCE_SIZE) {
         return false;
     }
