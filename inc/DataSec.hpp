@@ -2,13 +2,20 @@
 #include    "sodium.h"
 #include    "Common.hpp"
 
-union Nonce {
-    struct {
+struct Nonce{
+    uint32_t counterLow;
+    uint32_t counterHigh;
+    union {
         uint32_t sessionId;
-        uint32_t counterLow;
-        uint32_t counterHigh;
+        uint8_t macEUI[3];
     };
-    uint8_t data[crypto_aead_aes256gcm_NPUBBYTES];
+
+    Nonce& operator++() {
+        uint64_t& couter = reinterpret_cast<uint64_t&>(counterLow);
+        ++couter;
+
+        return *this;
+    }
 };
 static constexpr size_t NONCE_SIZE = sizeof(Nonce);
 

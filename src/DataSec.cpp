@@ -14,9 +14,9 @@ AeadSession::AeadSession(const Mac& mac, const Nonce& nonce)
 
     if (s_initialized_) {
         randombytes_buf(&sendNonce_, sizeof(sendNonce_));
-        sendNonce_.data[0] = mac.addr[3];
-        sendNonce_.data[1] = mac.addr[4];
-        sendNonce_.data[2] = mac.addr[5];
+        sendNonce_.macEUI[0] = mac.addr[3];
+        sendNonce_.macEUI[1] = mac.addr[4];
+        sendNonce_.macEUI[2] = mac.addr[5];
     }
 
     recvNonce_ = nonce;
@@ -52,6 +52,8 @@ bool AeadSession::encrypt(AeadPacket* packet, int& payloadLen)
     }
 
     packet->nonce = sendNonce_;
+    ++sendNonce_;
+
     unsigned long long outLen;
     crypto_aead_aes256gcm_encrypt(
         packet->payload, &outLen,

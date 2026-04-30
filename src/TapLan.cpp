@@ -360,9 +360,9 @@ void TapLan::fetchMacFromNonce(const Nonce& nonce, Mac& mac)
 {
     mac = {
         0x02, 0x34, 0x60,
-        nonce.data[0],
-        nonce.data[1],
-        nonce.data[2],
+        nonce.macEUI[0],
+        nonce.macEUI[1],
+        nonce.macEUI[2],
     };
 }
 
