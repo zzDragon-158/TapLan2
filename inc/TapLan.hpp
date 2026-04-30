@@ -38,8 +38,8 @@ private:
     std::atomic<UdpSock*>       udpSendSockPtr_;
     std::shared_ptr<NodeMgr>    nodeMgrPtr_;
     UioIntf*        uioIntfPtr_;
-    AeadSession*    sendSession_;
-    std::map<uint64_t, AeadSession*> macToSession_;
+    AeadSessSPtr    sendSession_;
+    std::map<uint64_t, AeadSessSPtr> macToSession_;
     std::thread     swPortThread_, syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();

@@ -32,7 +32,7 @@ TapLan::TapLan()
         // RunMode_None
     }
     udpSendSockPtr_ = udpSockPtr_;
-    sendSession_ = new AeadSession(g_tapDev.getMacAddr());
+    sendSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
 }
 
 TapLan::~TapLan()
@@ -370,16 +370,14 @@ bool TapLan::encryptData(UioCtx* ctx)
 {
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
 
-    //LOGD(TAG, "Raw: %d", ctx->dataLen);
     if (g_cfgData.runMode() == RunMode::server) {
         EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
         Mac& dstMac = eh.dst;
-        AeadSession* session = macToSession_[dstMac];
+        AeadSessSPtr session = macToSession_[dstMac];
         session->encrypt(packet, ctx->dataLen);
     } else {
         sendSession_->encrypt(packet, ctx->dataLen);
     }
-    //LOGD(TAG, "Send: %d", ctx->dataLen);
 
     return true;
 }
@@ -390,27 +388,28 @@ bool TapLan::decryptData(UioCtx* ctx)
         return false;
     }
 
+    Nonce& recvNonce = ctx->buf->nonce;
     Mac srcMac;
-    fetchMacFromNonce(ctx->buf->nonce, srcMac);
+    fetchMacFromNonce(recvNonce, srcMac);
 
-    AeadSession* session = nullptr;
-    auto it = macToSession_.find(srcMac);
-    if (it == macToSession_.end()) {
-        session = sendSession_;
+    AeadSessSPtr session = nullptr;
+    if (g_cfgData.runMode() == RunMode::server) {
+        auto it = macToSession_.find(srcMac);
+        if (it != macToSession_.end()
+        && it->second->isSameSession(recvNonce)) {
+            session = it->second;
+        } else {
+            session = std::make_shared<AeadSession>(g_tapDev.getMacAddr(), recvNonce);
+            macToSession_[srcMac] = session;
+        }
     } else {
-        session = it->second;
+        session = sendSession_;
     }
 
-    //LOGD(TAG, "Recv: %d", ctx->dataLen);
     ctx->dataLen -= NONCE_SIZE;
-    AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
+    AeadPacket* packet = reinterpret_cast<AeadPacket*>(&recvNonce);
     if (!session->decrypt(packet, ctx->dataLen)) {
         return false;
-    }
-
-    if (session == sendSession_) {
-        AeadSession* newSession = new AeadSession(g_tapDev.getMacAddr(), ctx->buf->nonce);
-        macToSession_[srcMac] = newSession;
     }
 
     return true;
