@@ -334,15 +334,16 @@ void AioIntf::aioWrk()
 
             switch (ctx->token) {
             case TOKEN_UDP_RECV_MULTISHOT:
+                if (cqe->res > 0) {
+                    ctx = acquireIoCtx(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
+                    ctx->dataLen = ctx->buf->ro.payloadlen;
+                    handleUdpRecv(ctx);
+                }
+
                 if (!(cqe->flags & IORING_CQE_F_MORE)) {
                     LOGE(TAG, "UDP recvmsg multishot stop.[%d]", strerror(-cqe->res));
                     reqUdpRecvMultishot(udpFd_);
-                    break;
                 }
-
-                ctx = acquireIoCtx(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
-                ctx->dataLen = cqe->res;
-                handleUdpRecv(ctx);
                 break;
 
             case TOKEN_UDP_RECV:
