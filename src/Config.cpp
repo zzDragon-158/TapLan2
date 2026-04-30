@@ -21,18 +21,32 @@ void Config::initCliApp(CLI::App& cliApp)
     runMode->require_option(0, 1);
 
     cliApp.add_option("-p,--port", localPort_, "Local listen port [Default: 3460]")
-         ->check(CLI::Range(0, 65535));
+    ->check(CLI::Range(0, 65535));
 
     cliApp.add_option("-m", swPortIntvl_, "Source port switching interval in minutes")
-         ->check(CLI::PositiveNumber);
+    ->check(CLI::PositiveNumber);
 
     cliApp.add_option("--log", logLevel_, "Set log level [Default: INFO]")
-         ->transform(CLI::CheckedTransformer(logMap, CLI::ignore_case))
-         ->option_text("{f, e, w, i, d, t}");
+    ->transform(CLI::CheckedTransformer(logMap, CLI::ignore_case))
+    ->option_text("{f, e, w, i, d, t}");
 
     cliApp.add_flag("--nosync", noSync_, "Run without sync server");
 
     cliApp.add_flag("--aio", isAioEnable_, "Enable Async I/O (io_uring 6.1+ / IOCP)");
+
+    cliApp.add_option("--passwd", passwd_, "Set password for encryption")
+    ->each([this](const std::string&) {
+        enableSec_ = true;
+    })
+    ->check([](const std::string &str) {
+        if (str.empty()) {
+            return std::string("Password cannot be empty");
+        }
+        if (str.length() > 16) {
+            return std::string("Password length exceeds 16 characters");
+        }
+        return std::string("");
+    });
 }
 
 bool Config::parseCIDR(const std::string& input)

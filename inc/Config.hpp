@@ -40,7 +40,8 @@ private:
     uint16_t    remotePort_;
     uint16_t    swPortIntvl_ = 0;
     LogLevel    logLevel_ = LogLevel::info;
-    std::string passwd_ = "abc";
+    bool        enableSec_ = false;
+    std::string passwd_ = "TapLan";
     bool        isAioEnable_ = false;
     bool        noSync_ = false;
     bool        running_ = false;
