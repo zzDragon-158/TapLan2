@@ -113,7 +113,13 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
 {
     ctx->addrLen = sizeof(ctx->buf->addr);
-    ctx->wsaBuf.len = PAYLOAD_SIZE;
+    if (g_cfgData.enableSec()) {
+        ctx->wsaBuf.len = PAYLOAD_SIZE + NONCE_SIZE;
+        ctx->wsaBuf.buf = reinterpret_cast<char*>(&ctx->buf->nonce);
+    } else {
+        ctx->wsaBuf.len = PAYLOAD_SIZE;
+        ctx->wsaBuf.buf = ctx->buf->payload;
+    }
 
     DWORD flags = 0;
     DWORD res = WSARecvFrom(fd,
@@ -143,7 +149,14 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
     DWORD err;
     DWORD sendBytes;
 
-    ctx->wsaBuf.len = ctx->dataLen;
+    if (g_cfgData.enableSec()) {
+        ctx->wsaBuf.len = ctx->dataLen + NONCE_SIZE;
+        ctx->wsaBuf.buf = reinterpret_cast<char*>(&ctx->buf->nonce);
+    } else {
+        ctx->wsaBuf.len = ctx->dataLen;
+        ctx->wsaBuf.buf = ctx->buf->payload;
+    }
+
     res = WSASendTo(fd,
                     &ctx->wsaBuf,
                     1,
@@ -311,7 +324,13 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     ctx->token = TOKEN_UDP_RECV;
     ctx->addrLen = sizeof(ctx->buf->addr);
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
-    ctx->wsaBuf.len = PAYLOAD_SIZE;
+    if (g_cfgData.enableSec()) {
+        ctx->wsaBuf.len = PAYLOAD_SIZE + NONCE_SIZE;
+        ctx->wsaBuf.buf = reinterpret_cast<char*>(&ctx->buf->nonce);
+    } else {
+        ctx->wsaBuf.len = PAYLOAD_SIZE;
+        ctx->wsaBuf.buf = ctx->buf->payload;
+    }
 
     DWORD flags = 0;
     int res = WSARecvFrom(
@@ -352,7 +371,13 @@ int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
     ++ctx->ref;
     ctx->token = TOKEN_UDP_SEND;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
-    ctx->wsaBuf.len = ctx->dataLen;
+    if (g_cfgData.enableSec()) {
+        ctx->wsaBuf.len = ctx->dataLen + NONCE_SIZE;
+        ctx->wsaBuf.buf = reinterpret_cast<char*>(&ctx->buf->nonce);
+    } else {
+        ctx->wsaBuf.len = ctx->dataLen;
+        ctx->wsaBuf.buf = ctx->buf->payload;
+    }
 
     int res = WSASendTo(
         fd,

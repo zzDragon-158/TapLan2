@@ -28,8 +28,10 @@ public:
     AeadSession(const Mac& mac, const Nonce& nonce = { 0 });
     ~AeadSession();
     static bool initAeadSession();
-    bool encrypt(AeadPacket* packet, int& payloadLen);
-    bool decrypt(AeadPacket* packet, int& payloadLen);
+    template<typename T>
+    bool encrypt(AeadPacket* packet, T& payloadLen);
+    template<typename T>
+    bool decrypt(AeadPacket* packet, T& payloadLen);
     bool isSameSession(const Nonce& nonce) {
         return (nonce.sessionId == recvNonce_.sessionId);
     };
@@ -55,3 +57,54 @@ private:
     bool checkReplay(uint64_t seq);
 };
 using AeadSessSPtr = std::shared_ptr<AeadSession>;
+
+template<typename T>
+bool AeadSession::encrypt(AeadPacket* packet, T& payloadLen)
+{
+    if (!s_initialized_) {
+        return false;
+    }
+
+    packet->nonce = sendNonce_;
+    ++sendNonce_.counter();
+
+    unsigned long long outLen;
+    crypto_aead_chacha20poly1305_ietf_encrypt(
+        packet->payload, &outLen,
+        packet->payload, payloadLen,
+        NULL, 0,
+        NULL,
+        (uint8_t*)&packet->nonce,
+        key_
+    );
+
+    payloadLen = static_cast<int32_t>(outLen);
+    return true;
+}
+
+template<typename T>
+bool AeadSession::decrypt(AeadPacket* packet, T& payloadLen)
+{
+    if (!s_initialized_) {
+        return false;
+    }
+
+    unsigned long long outLen;
+    if (crypto_aead_chacha20poly1305_ietf_decrypt(
+        packet->payload, &outLen,
+        NULL,
+        packet->payload, payloadLen,
+        NULL, 0,
+        (uint8_t*)&packet->nonce, key_
+    ) != 0) {
+        LOGW(TAG, "Failed to decrypt.");
+        return false;
+    }
+
+    if (!checkReplay(packet->nonce.counter())) {
+        return false;
+    }
+
+    payloadLen = static_cast<int32_t>(outLen);
+    return true;
+}

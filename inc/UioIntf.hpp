@@ -22,7 +22,7 @@ struct UioCtx {
 #ifdef      _WIN32
     struct Buf {
         sockaddr_in6 addr;
-        uint8_t resv[2];
+        Nonce nonce;
         char payload[];
     } *buf;
     DWORD dataLen;
