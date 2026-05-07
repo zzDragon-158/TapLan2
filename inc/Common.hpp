@@ -52,6 +52,7 @@ static std::string getIoErr()
 
 #elif       __linux__
 #include    <cstring>           // for strerror
+#include    <unistd.h>          // for getpid
 #include    <arpa/inet.h>
 #include    <sys/socket.h>
 
