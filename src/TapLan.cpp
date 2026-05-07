@@ -1,4 +1,8 @@
 #include    "TapLan.hpp"
+#include    <ctime>
+#include    "LogMgr.hpp"
+#include    "TapDev.hpp"
+#include    "Config.hpp"
 
 TapLan::TapLan()
     : serverAddr_{}
@@ -367,6 +371,10 @@ bool TapLan::encryptData(UioCtx* ctx)
     if (g_cfgData.runMode() == RunMode::server) {
         EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
         Mac& dstMac = eh.dst;
+        auto it = macToSession_.find(dstMac);
+        if (it == macToSession_.end()) {
+            return false;
+        }
         AeadSessSPtr session = macToSession_[dstMac];
         session->encrypt(packet, ctx->dataLen);
     } else {

@@ -1,15 +1,11 @@
 #pragma     once
 #include    <cstdint>
-#include    <ctime>
 #include    <atomic>
 #include    <pthread.h>
 #include    <map>
-#include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
 #include    "BsdSock.hpp"
-#include    "TapDev.hpp"
 #include    "UioIntf.hpp"
-#include    "Config.hpp"
 #include    "DataSec.hpp"
 
 class TapLan {

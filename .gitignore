@@ -1,3 +1,4 @@
 .vscode
 build*
 inc/CLI11.hpp
+compile_commands.json
