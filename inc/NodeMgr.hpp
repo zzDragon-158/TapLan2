@@ -119,7 +119,11 @@ private:
     std::vector<TcpSockSPtr> clients_;
 
     void reset();
+
+    uint32_t getHostNum(const in_addr& ipv4Addr);
+    NodeInfoSPtr constructNodeInfo(const sockaddr_in6& addr, const Mac& mac, uint32_t hostNum);
     NodeInfoSPtr assignIpHostNumForNode(const sockaddr_in6& addr, const Mac& mac);
+
     NodeSessSPtr addNode(const Mac& mac, const NodeInfo& node);
     NodeSessSPtr delNode(const Mac& mac);
     bool setNodeStatus(const Mac& mac, NodeStatus status);

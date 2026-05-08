@@ -40,6 +40,27 @@ void NodeMgr::reset()
     addrPool_.reset();
 }
 
+uint32_t NodeMgr::getHostNum(const in_addr& ipv4Addr)
+{
+    uint32_t hostNumMask = netNumLen_ == 32? 0: ((1u << (32 - netNumLen_)) - 1);
+    uint32_t hostNum = ntohl(ipv4Addr.s_addr) & hostNumMask;
+
+    return hostNum;
+}
+
+NodeInfoSPtr NodeMgr::constructNodeInfo(const sockaddr_in6& addr, const Mac& mac, uint32_t hostNum)
+{
+    NodeInfoSPtr nodeInfo = std::make_shared<NodeInfo>();
+    nodeInfo->ipv6Addr = addr.sin6_addr;
+    nodeInfo->ipv6Port = addr.sin6_port;
+    nodeInfo->ipv4Addr.s_addr = g_cfgData.noSync()? UINT32_MAX: htonl(netNum_ + hostNum);
+    nodeInfo->mac = mac;
+    nodeInfo->status = NodeStatus::online;
+    nodeInfo->lastSeen = time(nullptr);
+
+    return nodeInfo;
+}
+
 NodeInfoSPtr NodeMgr::assignIpHostNumForNode(const sockaddr_in6& addr, const Mac& mac)
 {
     uint32_t hostNum = 0;
@@ -57,68 +78,45 @@ NodeInfoSPtr NodeMgr::assignIpHostNumForNode(const sockaddr_in6& addr, const Mac
         }
     }
 
-    NodeInfoSPtr nodeInfo = std::make_shared<NodeInfo>();
-    nodeInfo->ipv6Addr = addr.sin6_addr;
-    nodeInfo->ipv6Port = addr.sin6_port;
-    nodeInfo->ipv4Addr.s_addr = g_cfgData.noSync()? UINT32_MAX: htonl(netNum_ + hostNum);
-    nodeInfo->mac = mac;
-    nodeInfo->status = NodeStatus::online;
-    nodeInfo->lastSeen = time(nullptr);
+    NodeInfoSPtr nodeInfo = constructNodeInfo(addr, mac, hostNum);
 
     return nodeInfo;
 }
 
 NodeSessSPtr NodeMgr::addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMsgHdr)
 {
-    NodeInfoSPtr nodeInfo;
-    AeadSessSPtr aeadSess;
-    NodeSessSPtr node;
     const Mac& mac = syncMsgHdr.mac;
-    
-    node = findNode(mac);
+
+    NodeInfoSPtr nodeInfo;
+    NodeSessSPtr node = findNode(mac);
     if (node) {
-        node->aeadSess->setRecvNonce(syncMsgHdr.nonce);
-        nodeInfo = node->nodeInfo;
-        nodeInfo->ipv6Addr = addr.sin6_addr;
-        nodeInfo->ipv6Port = addr.sin6_port;
-
-        if (!g_cfgData.noSync()) {
-            WLock wLock(rwMutex_);
-            activeDeltaBuffer_[mac] = nodeInfo;
-        }
-
-        return node;
+        uint32_t hostNum = getHostNum(node->nodeInfo->ipv4Addr);
+        nodeInfo = constructNodeInfo(addr, mac, hostNum);
+    } else {
+        nodeInfo = assignIpHostNumForNode(addr, mac);
     }
-
-    nodeInfo = assignIpHostNumForNode(addr, mac);
     if (!nodeInfo) {
-        LOGE(TAG, "Failed to assign.");
         return nullptr;
     }
 
-    aeadSess = std::make_shared<AeadSession>(g_tapDev.getMacAddr(), syncMsgHdr.nonce);
-    node = std::make_shared<NodeSession>(NodeSession{nodeInfo, aeadSess});
-    {
-        WLock wLock(rwMutex_);
-        macToNodeSess_[mac] = node;
-        activeDeltaBuffer_[mac] = nodeInfo;
-    }
+    node = std::make_shared<NodeSession>();
+    node->nodeInfo = nodeInfo;
+    node->aeadSess = std::make_shared<AeadSession>(g_tapDev.getMacAddr(), syncMsgHdr.nonce);
+
+    WLock wLock(rwMutex_);
+    macToNodeSess_.insert_or_assign(mac, node);
+    activeDeltaBuffer_[mac] = nodeInfo;
 
     return node;
 }
 
 NodeSessSPtr NodeMgr::addNode(const Mac& mac, const NodeInfo& nodeInfo)
 {
-    uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
-    uint32_t hostNum = ntohl(nodeInfo.ipv4Addr.s_addr) & hostNumMask;
+    uint32_t hostNum = getHostNum(nodeInfo.ipv4Addr);
     addrPool_.set(hostNum);
 
     WLock wLock(rwMutex_);
-    auto [it, inserted] =
-        macToNodeSess_.try_emplace(
-            mac,
-            std::make_shared<NodeSession>()
-        );
+    auto [it, inserted] = macToNodeSess_.insert_or_assign(mac, std::make_shared<NodeSession>());
     it->second->nodeInfo = std::make_shared<NodeInfo>(nodeInfo);
 
     return it->second;
@@ -131,9 +129,7 @@ NodeSessSPtr NodeMgr::delNode(const Mac& mac)
         return nullptr;
 
     NodeInfoSPtr nodeInfo = node->nodeInfo;
-
-    uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
-    uint32_t hostNum = ntohl(nodeInfo->ipv4Addr.s_addr) & hostNumMask;
+    uint32_t hostNum = getHostNum(nodeInfo->ipv4Addr);
     addrPool_.reset(hostNum);
 
     {
