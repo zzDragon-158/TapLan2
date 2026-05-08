@@ -1,43 +1,17 @@
 #include    "TapLan.hpp"
 #include    <cstdint>
 #include    <ctime>
+#include    "DataSec.hpp"
 #include    "LogMgr.hpp"
+#include    "NodeMgr.hpp"
 #include    "TapDev.hpp"
 #include    "Config.hpp"
 
 TapLan::TapLan()
-    : serverAddr_{}
-    , udpSockPtr_(nullptr)
-    , udpSockPtrs_{}
-    , nodeMgrPtr_(nullptr)
 {
     g_cfgData.running() = (initUdpSockPtrs() && g_tapDev.isFdValid());
-    if (g_cfgData.runMode() == RunMode::server) {
-        LOGI(TAG, "We are running in server mode.");
-
-        nodeMgrPtr_ = std::make_shared<NodeMgr>();
-
-        serverAddr_.sin6_family = AF_INET6;
-        serverAddr_.sin6_addr = IN6ADDR_LOOPBACK_INIT;
-        serverAddr_.sin6_port = htons(g_cfgData.localPort());
-
-        if (g_cfgData.running()) {
-            NodeSPtr n = nodeMgrPtr_->addNode(&serverAddr_, g_tapDev.getMacAddr());
-            g_tapDev.setIPv4Addr(&n->ipv4Addr, g_cfgData.netNumLen());
-        }
-    } else if (g_cfgData.runMode() == RunMode::client) {
-        LOGI(TAG, "We are running in client mode.");
-
-        nodeMgrPtr_ = std::make_shared<NodeMgr>();
-
-        serverAddr_.sin6_family = AF_INET6;
-        serverAddr_.sin6_addr = g_cfgData.remoteAddr();
-        serverAddr_.sin6_port = g_cfgData.remotePort();
-    } else {
-        // RunMode_None
-    }
+    nodeMgrPtr_ = std::make_shared<NodeMgr>();
     udpSendSockPtr_ = udpSockPtr_;
-    sendSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
 }
 
 TapLan::~TapLan()
@@ -103,6 +77,7 @@ void TapLan::swPortWrk()
     LOGI(TAG, "swPortWrk has exited.");
 }
 
+#if 0
 void TapLan::showNodeStatus()
 {
     if (!nodeMgrPtr_) {
@@ -113,7 +88,7 @@ void TapLan::showNodeStatus()
     LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
-    nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
+    nodeMgrPtr_->forEach([&](uint64_t m, NodeInfoSPtr n) {
         char tapmacbuf[32];
         sprintf(tapmacbuf, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X",
             n->mac.addr[0], n->mac.addr[1], n->mac.addr[2], 
@@ -133,7 +108,6 @@ void TapLan::showNodeStatus()
     });
 }
 
-#if 0
 void TapLan::showStats()
 {
     uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
@@ -273,8 +247,9 @@ void TapLan::handleUdpData(UioCtx* ctx)
     bool isSendToMe = needBroadcast || (dstMac == g_tapDev.getMacAddr());
 
     if (g_cfgData.noSync()) {
-        sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
-        nodeMgrPtr_->addNode(&srcAddr, srcMac);
+        // FIXME: processing later.
+        // sockaddr_in6& srcAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
+        // nodeMgrPtr_->addNode(&srcAddr, srcMac);
     }
 
     if (g_cfgData.runMode() == RunMode::server) {
@@ -307,12 +282,14 @@ void TapLan::handleTapData(UioCtx* ctx)
             broadcastData(ctx);
         }
     } else if (g_cfgData.runMode() == RunMode::client) {
-        if (!g_cfgData.noSync() || nodeMgrPtr_->findNode(dstMac) || needBroadcast) {
+        NodeSessSPtr node = nodeMgrPtr_->findNode(dstMac);
+        if (!g_cfgData.noSync() || node || needBroadcast) {
             sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
-            dstAddr = serverAddr_;
+            dstAddr = g_cfgData.serverAddr();
 
-            encryptData(ctx);
-            uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
+            if (encryptData(ctx, node)) {
+                uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
+            }
         }
     }
 }
@@ -323,13 +300,14 @@ void TapLan::unicastData(UioCtx* ctx)
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
     Mac& dstMac = eh.dst;
 
-    auto n = nodeMgrPtr_->findNode(dstMac);
-    if (n) {
+    auto node = nodeMgrPtr_->findNode(dstMac);
+    if (node) {
         sockaddr_in6& dstAddr = reinterpret_cast<sockaddr_in6&>(ctx->buf->addr);
-        nodeMgrPtr_->setSockaddr(dstAddr, n);
+        NodeMgr::setSockaddr(dstAddr, node->nodeInfo);
 
-        encryptData(ctx);
-        uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
+        if (encryptData(ctx, node)) {
+            uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
+        }
     }
 }
 
@@ -341,9 +319,13 @@ void TapLan::broadcastData(UioCtx* ctx)
     EthHdr eh = reinterpret_cast<EthHdr&>(*payload);
     Mac& srcMac = eh.src;
 
-    nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
-        if (n->status == NodeStatus::offline || n->mac == srcMac || n->mac == g_tapDev.getMacAddr())
+    nodeMgrPtr_->forEach([&](uint64_t m, NodeSessSPtr n) {
+        NodeInfoSPtr nodeInfo = n->nodeInfo;
+        if (nodeInfo->status == NodeStatus::offline
+        || nodeInfo->mac == srcMac
+        || nodeInfo->mac == g_tapDev.getMacAddr()) {
             return;
+        }
 
         UioCtx* sendCtx = g_cfgData.isAioEnable()? uioIntfPtr_->acquireIoCtx(): ctx;
         if (g_cfgData.isAioEnable() && sendCtx) {
@@ -353,34 +335,32 @@ void TapLan::broadcastData(UioCtx* ctx)
 
         if (sendCtx) {
             sockaddr_in6& sendAddr = reinterpret_cast<sockaddr_in6&>(sendCtx->buf->addr);
-            nodeMgrPtr_->setSockaddr(sendAddr, n);
+            NodeMgr::setSockaddr(sendAddr, nodeInfo);
 
-            encryptData(sendCtx);
-            uioIntfPtr_->reqUdpSend(udpSendFd, sendCtx);
+            if (encryptData(sendCtx, n)) {
+                uioIntfPtr_->reqUdpSend(udpSendFd, sendCtx);
+            }
         }
     });
 }
 
-bool TapLan::encryptData(UioCtx* ctx)
+bool TapLan::encryptData(UioCtx* ctx, NodeSessSPtr node)
 {
     if (!g_cfgData.enableSec()) {
         return true;
     }
+
+    // if (!node) {
+    //     return false;
+    // }
+
+    AeadSessSPtr session = g_cfgData.runMode() == RunMode::server? node->aeadSess: nodeMgrPtr_->getAeadSess();
+    if (!session) {
+        return false;
+    }
  
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&ctx->buf->nonce);
-
-    if (g_cfgData.runMode() == RunMode::server) {
-        EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
-        Mac& dstMac = eh.dst;
-        auto it = macToSession_.find(dstMac);
-        if (it == macToSession_.end()) {
-            return false;
-        }
-        AeadSessSPtr session = macToSession_[dstMac];
-        session->encrypt(packet, ctx->dataLen);
-    } else {
-        sendSession_->encrypt(packet, ctx->dataLen);
-    }
+    session->encrypt(packet, ctx->dataLen);
 
     return true;
 }
@@ -397,19 +377,14 @@ bool TapLan::decryptData(UioCtx* ctx)
 
     Nonce& recvNonce = ctx->buf->nonce;
     Mac srcMac = AeadSession::fetchMacFromNonce(recvNonce);
+    NodeSessSPtr node = nodeMgrPtr_->findNode(srcMac);
+    if (!node) {
+        return false;
+    }
 
-    AeadSessSPtr session = nullptr;
-    if (g_cfgData.runMode() == RunMode::server) {
-        auto it = macToSession_.find(srcMac);
-        if (it != macToSession_.end()
-        && it->second->isSameSession(recvNonce)) {
-            session = it->second;
-        } else {
-            session = std::make_shared<AeadSession>(g_tapDev.getMacAddr(), recvNonce);
-            macToSession_[srcMac] = session;
-        }
-    } else {
-        session = sendSession_;
+    AeadSessSPtr session = node->aeadSess;
+    if (!session) {
+        return false;
     }
 
     ctx->dataLen -= NONCE_SIZE;

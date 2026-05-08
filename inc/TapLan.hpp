@@ -2,11 +2,10 @@
 #include    <cstdint>
 #include    <atomic>
 #include    <pthread.h>
-#include    <map>
+#include "DataSec.hpp"
 #include    "NodeMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "UioIntf.hpp"
-#include    "DataSec.hpp"
 
 class TapLan {
 public:
@@ -28,15 +27,12 @@ private:
     };
 
     static constexpr char TAG[] = "[TapLan]";
-    sockaddr_in6    serverAddr_;
-    UdpSock*        udpSockPtr_;
-    UdpSock*        udpSockPtrs_[4];
-    std::atomic<UdpSock*>       udpSendSockPtr_;
-    std::shared_ptr<NodeMgr>    nodeMgrPtr_;
-    UioIntf*        uioIntfPtr_;
-    AeadSessSPtr    sendSession_;
-    std::map<uint64_t, AeadSessSPtr> macToSession_;
-    std::thread     swPortThread_, syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
+    UdpSock* udpSockPtr_ = nullptr;
+    UdpSock* udpSockPtrs_[4] = {};
+    std::atomic<UdpSock*> udpSendSockPtr_ = nullptr;
+    std::shared_ptr<NodeMgr> nodeMgrPtr_ = nullptr;
+    UioIntf* uioIntfPtr_ = nullptr;
+    std::thread swPortThread_, syncThread_, aioWrkThread_, tapWrkThread_, udpWrkThread_;
 
     bool initUdpSockPtrs();
     void syncWrk();
@@ -45,7 +41,7 @@ private:
     void unicastData(UioCtx* ctx);
     void broadcastData(UioCtx* ctx);
 
-    bool encryptData(UioCtx* ctx);
+    bool encryptData(UioCtx* ctx, NodeSessSPtr node);
     bool decryptData(UioCtx* ctx);
 
     friend void SioIntf::udpWrk();

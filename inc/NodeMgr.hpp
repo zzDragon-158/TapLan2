@@ -10,6 +10,7 @@
 #include    <shared_mutex>
 #include    "Common.hpp"
 #include    "BsdSock.hpp"
+#include    "DataSec.hpp"
 
 enum class NodeStatus: uint8_t {
     offline = 0,
@@ -31,7 +32,7 @@ enum class OP: uint16_t {
     modNode,
 };
 
-struct Node {
+struct NodeInfo {
     time_t      lastSeen;
     Mac         mac;
     uint8_t     resv[2];
@@ -44,16 +45,22 @@ struct Node {
     uint8_t     resv1[1];
     // 40 bytes
 };
+using NodeInfoSPtr = std::shared_ptr<NodeInfo>;
+
+struct NodeSession {
+    NodeInfoSPtr nodeInfo;
+    AeadSessSPtr aeadSess;
+};
+using NodeSessSPtr = std::shared_ptr<NodeSession>;
 
 struct SyncMsgHdr {
     Mac         mac;
     OP          op;
     // 8 bytes
-    uint8_t     key[16];
-    // 16 bytes
+    Nonce       nonce;
+    // 20 bytes
     uint16_t    port;
     uint16_t    msgLen;
-    uint8_t     resv[4];
     // 24 bytes
     uint8_t     msgBody[0];
 };
@@ -67,10 +74,9 @@ struct IPMsg {
 struct SyncNodeMsg {
     uint32_t    verNum;
     uint32_t    numsOfNode;
-    Node        nodes[0];
+    NodeInfo    nodes[0];
 };
 
-using NodeSPtr = std::shared_ptr<Node>;
 using WLock = std::unique_lock<std::shared_mutex>;
 using RLock = std::shared_lock<std::shared_mutex>;
 
@@ -78,14 +84,15 @@ class NodeMgr {
 public:
     NodeMgr();
     ~NodeMgr();
-    NodeSPtr    addNode(const sockaddr_in6* addr, uint64_t macNum);
-    NodeSPtr    findNode(uint64_t macNum);
-    void        setSockaddr(sockaddr_in6& addr, NodeSPtr n);
+    NodeSessSPtr addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMsgHdr);
+    NodeSessSPtr findNode(const Mac& mac);
+    AeadSessSPtr getAeadSess() { return aeadSession_; };
+    static void setSockaddr(sockaddr_in6& addr, NodeInfoSPtr n);
     template<typename Func>
     void forEach(Func&& f)
     {
         RLock lock(rwMutex_);
-        for (auto& [key, value] : macToNode_) {
+        for (auto& [key, value] : macToNodeSess_) {
             f(key, value);
         }
     }
@@ -100,21 +107,22 @@ private:
     std::bitset<256> addrPool_;
 
     std::shared_mutex rwMutex_;
-    std::map<uint64_t, NodeSPtr> macToNode_;
-    std::unordered_map<uint64_t, NodeSPtr> activeDeltaBuffer_;
-    std::unordered_map<uint64_t, NodeSPtr> processingBuffer_;
+    std::map<uint64_t, NodeSessSPtr> macToNodeSess_;
+    std::unordered_map<uint64_t, NodeInfoSPtr> activeDeltaBuffer_;
+    std::unordered_map<uint64_t, NodeInfoSPtr> processingBuffer_;
     uint32_t verNum_;
 
-    sockaddr_in6 serverAddr_;
+    AeadSessSPtr aeadSession_;
     SyncStatus syncStatus_;
     TcpSockSPtr tcpSockSPtr_;
     std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
 
     void reset();
-    NodeSPtr addNode(uint64_t macNum, Node& node);
-    NodeSPtr delNode(uint64_t macNum);
-    bool setNodeStatus(uint64_t macNum, NodeStatus status);
+    NodeInfoSPtr assignIpHostNumForNode(const sockaddr_in6& addr, const Mac& mac);
+    NodeSessSPtr addNode(const Mac& mac, const NodeInfo& node);
+    NodeSessSPtr delNode(const Mac& mac);
+    bool setNodeStatus(const Mac& mac, NodeStatus status);
 
     void pollAndProcess();
     bool syncNodeToClients();
@@ -129,3 +137,4 @@ private:
     bool handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client);
     bool handleSyncNodeMsg(uint8_t* respMsg);
 };
+using NodeMgrSPtr = std::shared_ptr<NodeMgr>;

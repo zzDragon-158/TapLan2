@@ -78,8 +78,8 @@ protected:
 class TcpSock: public BsdSock {
 public:
     TcpSock(uint16_t port) noexcept;                                     // for listen
-    TcpSock(uint16_t port, sockaddr_in6& addr) noexcept;                 // for connect
-    TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr) noexcept;      // for accept
+    TcpSock(uint16_t port, const sockaddr_in6& addr) noexcept;                 // for connect
+    TcpSock(uint16_t port, SockFd fd, const sockaddr_in6& addr) noexcept;      // for accept
     TcpSock(TcpSock&& other) noexcept;
     ~TcpSock();
     TcpSock& operator=(TcpSock&& other) noexcept;

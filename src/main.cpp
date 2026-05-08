@@ -26,7 +26,7 @@ int main(int argc, char* argv[])
             // TODO: flow stats
             // TapLanPtr->showStats();
         } else if (input == "/show fib") {
-            TapLanPtr->showNodeStatus();
+            // TapLanPtr->showNodeStatus();
         }
     }
 

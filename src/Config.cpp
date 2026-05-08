@@ -1,6 +1,13 @@
 #include "Config.hpp"
 #include <string>
-#include <stdexcept>
+#include <sys/socket.h>
+
+Config::Config()
+{
+    serverAddr_.sin6_family = AF_INET6;
+    serverAddr_.sin6_addr = IN6ADDR_LOOPBACK_INIT;
+    serverAddr_.sin6_port = htons(localPort_);
+}
 
 void Config::initCliApp(CLI::App& cliApp)
 {
@@ -92,7 +99,7 @@ bool Config::parseRemoteAddr(const std::string& input) {
     try {
         int port = std::stoi(portStr);
         if (port < 0 || port > 65535) return false;
-        remotePort_ = htons(static_cast<uint16_t>(port));
+        serverAddr_.sin6_port = htons(static_cast<uint16_t>(port));
     } catch (...) {
         return false;
     }
@@ -110,7 +117,7 @@ bool Config::parseRemoteAddr(const std::string& input) {
         ipv6Str = "::ffff:" + hostStr;
     }
 
-    if (inet_pton(AF_INET6, ipv6Str.c_str(), &remoteAddr_) <= 0) {
+    if (inet_pton(AF_INET6, ipv6Str.c_str(), &serverAddr_.sin6_addr) <= 0) {
         return false;
     }
 

@@ -89,10 +89,6 @@ struct Mac {
         __builtin_memcpy(&num, addr, 6);
         return num;
     };
-    Mac& operator =(const Mac& m) {
-        __builtin_memcpy(&this->addr, &m.addr, 6);
-        return *this;
-    }
     Mac& operator =(const uint64_t& m) {
         __builtin_memcpy(&this->addr, &m, 6);
         return *this;

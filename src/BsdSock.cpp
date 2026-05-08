@@ -59,7 +59,7 @@ TcpSock::TcpSock(uint16_t port) noexcept
     }
 }
 
-TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr) noexcept
+TcpSock::TcpSock(uint16_t port, const sockaddr_in6& addr) noexcept
     : BsdSock(port)
     , isPassive_(false)
     , remoteAddr_(addr)
@@ -69,7 +69,7 @@ TcpSock::TcpSock(uint16_t port, sockaddr_in6& addr) noexcept
     }
 }
 
-TcpSock::TcpSock(uint16_t port, SockFd fd, sockaddr_in6& addr) noexcept
+TcpSock::TcpSock(uint16_t port, SockFd fd, const sockaddr_in6& addr) noexcept
     : BsdSock(port, fd)
     , isPassive_(true)
     , remoteAddr_(addr)

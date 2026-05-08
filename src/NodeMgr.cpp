@@ -1,18 +1,29 @@
 #include    "NodeMgr.hpp"
+#include    "Config.hpp"
+#include    "DataSec.hpp"
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
+#include    <memory>
 
 NodeMgr::NodeMgr()
     : netNum_(g_cfgData.netNum())
     , netNumLen_(g_cfgData.netNumLen())
     , verNum_(0)
-    , serverAddr_{}
     , syncStatus_(SyncStatus::outOfSync)
     , tcpSockSPtr_(nullptr)
 {
-    serverAddr_.sin6_family = AF_INET6;
-    serverAddr_.sin6_addr = g_cfgData.remoteAddr();
-    serverAddr_.sin6_port = g_cfgData.remotePort();
+    if (g_cfgData.runMode() == RunMode::server) {
+        LOGI(TAG, "We are running in server mode.");
+        if (g_cfgData.running()) {
+            const Mac& mac = g_tapDev.getMacAddr();
+            NodeInfoSPtr nodeInfo = assignIpHostNumForNode(g_cfgData.serverAddr(), mac);
+            g_tapDev.setIPv4Addr(&nodeInfo->ipv4Addr, g_cfgData.netNumLen());
+            addNode(mac, *nodeInfo);
+        }
+    } else {
+        LOGI(TAG, "We are running in client mode.");
+    }
+    aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
 }
 
 NodeMgr::~NodeMgr()
@@ -23,27 +34,14 @@ NodeMgr::~NodeMgr()
 void NodeMgr::reset()
 {
     WLock lock;
-    macToNode_.clear();
+    macToNodeSess_.clear();
     activeDeltaBuffer_.clear();
     processingBuffer_.clear();
     addrPool_.reset();
 }
 
-NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
+NodeInfoSPtr NodeMgr::assignIpHostNumForNode(const sockaddr_in6& addr, const Mac& mac)
 {
-    NodeSPtr n = findNode(macNum);
-    if (n) {
-        n->ipv6Addr = addr->sin6_addr;
-        n->ipv6Port = addr->sin6_port;
-
-        if (!g_cfgData.noSync()) {
-            WLock wLock(rwMutex_);
-            activeDeltaBuffer_[macNum] = n;
-        }
-
-        return n;
-    }
-
     uint32_t hostNum = 0;
     if (!g_cfgData.noSync()) {
         for (size_t i = 1; i < addrPool_.size() - 1; ++i) {
@@ -54,91 +52,129 @@ NodeSPtr NodeMgr::addNode(const sockaddr_in6* addr, uint64_t macNum)
             }
         }
         if (hostNum == 0) {
-            LOGE(TAG, "No enough addr for allocating.");
+            LOGE(TAG, "Unable to assign IP host number.");
             return nullptr;
         }
     }
 
-    n = std::make_shared<Node>();
-    n->ipv6Addr = addr->sin6_addr;
-    n->ipv6Port = addr->sin6_port;
-    n->ipv4Addr.s_addr = g_cfgData.noSync()? UINT32_MAX: htonl(netNum_ + hostNum);
-    n->mac = macNum;
-    n->status = NodeStatus::online;
-    n->lastSeen = time(nullptr);
+    NodeInfoSPtr nodeInfo = std::make_shared<NodeInfo>();
+    nodeInfo->ipv6Addr = addr.sin6_addr;
+    nodeInfo->ipv6Port = addr.sin6_port;
+    nodeInfo->ipv4Addr.s_addr = g_cfgData.noSync()? UINT32_MAX: htonl(netNum_ + hostNum);
+    nodeInfo->mac = mac;
+    nodeInfo->status = NodeStatus::online;
+    nodeInfo->lastSeen = time(nullptr);
 
-    {
-        WLock wLock(rwMutex_);
-        macToNode_[macNum] = n;
-        activeDeltaBuffer_[macNum] = n;
-    }
-
-    return n;
+    return nodeInfo;
 }
 
-NodeSPtr NodeMgr::addNode(uint64_t macNum, Node& node)
+NodeSessSPtr NodeMgr::addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMsgHdr)
 {
-    std::shared_ptr n = std::make_shared<Node>();
-    *n.get() = node;
+    NodeInfoSPtr nodeInfo;
+    AeadSessSPtr aeadSess;
+    NodeSessSPtr node;
+    const Mac& mac = syncMsgHdr.mac;
+    
+    node = findNode(mac);
+    if (node) {
+        node->aeadSess->setRecvNonce(syncMsgHdr.nonce);
+        nodeInfo = node->nodeInfo;
+        nodeInfo->ipv6Addr = addr.sin6_addr;
+        nodeInfo->ipv6Port = addr.sin6_port;
 
+        if (!g_cfgData.noSync()) {
+            WLock wLock(rwMutex_);
+            activeDeltaBuffer_[mac] = nodeInfo;
+        }
+
+        return node;
+    }
+
+    nodeInfo = assignIpHostNumForNode(addr, mac);
+    if (!nodeInfo) {
+        LOGE(TAG, "Failed to assign.");
+        return nullptr;
+    }
+
+    aeadSess = std::make_shared<AeadSession>(g_tapDev.getMacAddr(), syncMsgHdr.nonce);
+    node = std::make_shared<NodeSession>(NodeSession{nodeInfo, aeadSess});
+    {
+        WLock wLock(rwMutex_);
+        macToNodeSess_[mac] = node;
+        activeDeltaBuffer_[mac] = nodeInfo;
+    }
+
+    return node;
+}
+
+NodeSessSPtr NodeMgr::addNode(const Mac& mac, const NodeInfo& nodeInfo)
+{
     uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
-    uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
+    uint32_t hostNum = ntohl(nodeInfo.ipv4Addr.s_addr) & hostNumMask;
     addrPool_.set(hostNum);
 
-    {
-        WLock wLock(rwMutex_);
-        macToNode_[macNum] = n;
-    }
-
-    return n;
-}
-
-NodeSPtr NodeMgr::delNode(uint64_t macNum)
-{
-    NodeSPtr n = findNode(macNum);
-    if (!n)
-        return nullptr;
-
-    uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
-    uint32_t hostNum = ntohl(n->ipv4Addr.s_addr) & hostNumMask;
-    addrPool_.reset(hostNum);
-
-    {
-        WLock wLock(rwMutex_);
-        macToNode_.erase(macNum);
-        // FIXME: not support notify client.
-        activeDeltaBuffer_[macNum] = n;
-    }
-
-    return n;
-}
-
-NodeSPtr NodeMgr::findNode(uint64_t macNum)
-{
-    RLock rLock(rwMutex_);
-    auto it = macToNode_.find(macNum);
-    if (it == macToNode_.end())
-        return nullptr;
+    WLock wLock(rwMutex_);
+    auto [it, inserted] =
+        macToNodeSess_.try_emplace(
+            mac,
+            std::make_shared<NodeSession>()
+        );
+    it->second->nodeInfo = std::make_shared<NodeInfo>(nodeInfo);
 
     return it->second;
 }
 
-bool NodeMgr::setNodeStatus(uint64_t macNum, NodeStatus status)
+NodeSessSPtr NodeMgr::delNode(const Mac& mac)
 {
-    NodeSPtr n = findNode(macNum);
-    if (!n)
-        return false;
+    NodeSessSPtr node = findNode(mac);
+    if (!node)
+        return nullptr;
 
-    n->status = status;
+    NodeInfoSPtr nodeInfo = node->nodeInfo;
+
+    uint32_t hostNumMask = static_cast<uint32_t>(1 << (32 - netNumLen_)) - 1;
+    uint32_t hostNum = ntohl(nodeInfo->ipv4Addr.s_addr) & hostNumMask;
+    addrPool_.reset(hostNum);
+
     {
         WLock wLock(rwMutex_);
-        activeDeltaBuffer_[macNum] = n;
+        macToNodeSess_.erase(mac);
+        // FIXME: not support notify client.
+        activeDeltaBuffer_[mac] = nodeInfo;
+    }
+
+    return node;
+}
+
+NodeSessSPtr NodeMgr::findNode(const Mac& mac)
+{
+    RLock rLock(rwMutex_);
+    auto it = macToNodeSess_.find(mac);
+    if (it == macToNodeSess_.end()) {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
+bool NodeMgr::setNodeStatus(const Mac& mac, NodeStatus status)
+{
+    NodeSessSPtr node = findNode(mac);
+    if (!node)
+        return false;
+
+    NodeInfoSPtr nodeInfo = node->nodeInfo;
+
+    nodeInfo->status = status;
+    {
+        WLock wLock(rwMutex_);
+        activeDeltaBuffer_[mac] = nodeInfo;
     }
 
     return true;
 }
 
-void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeSPtr n)
+void NodeMgr::setSockaddr(sockaddr_in6& addr, NodeInfoSPtr n)
 {
     addr = {};
     addr.sin6_family = AF_INET6;
@@ -191,7 +227,7 @@ void NodeMgr::client()
 bool NodeMgr::connectToServer()
 {
     if (!tcpSockSPtr_ || !tcpSockSPtr_->isFdValid()) {
-        tcpSockSPtr_ = std::make_shared<TcpSock>(0, serverAddr_);
+        tcpSockSPtr_ = std::make_shared<TcpSock>(0, g_cfgData.serverAddr());
         if (!tcpSockSPtr_->isFdValid()) {
             return false;
         }
@@ -212,6 +248,7 @@ bool NodeMgr::reqIPFromServer()
     SyncMsgHdr reqMsgHdr{};
     reqMsgHdr.mac = g_tapDev.getMacAddr();
     reqMsgHdr.op = OP::getIP;
+    reqMsgHdr.nonce = aeadSession_->getSendNonce();
     reqMsgHdr.port = htons(g_cfgData.localPort());
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
     tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
@@ -300,8 +337,7 @@ void NodeMgr::pollAndProcess()
             LOGW(TAG, "poll but recv timeout.");
             continue;
         } else if (recvBytes == -1 || recvBytes == 0) {
-            uint64_t macNum = client->getMac();
-            setNodeStatus(macNum, NodeStatus::offline);
+            setNodeStatus(client->getMac(), NodeStatus::offline);
 
             std::swap(pfds_[i], pfds_.back());
             pfds_.pop_back();
@@ -340,7 +376,7 @@ bool NodeMgr::syncNodeToClients()
     syncMsg.verNum = ++verNum_;
     for (auto& [k, v]: processingBuffer_) {
         syncMsg.nodes[syncMsg.numsOfNode++] = *v.get();
-        sendBytes += sizeof(Node);
+        sendBytes += sizeof(NodeInfo);
     }
     processingBuffer_.clear();
 
@@ -404,20 +440,22 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
 
     sockaddr_in6 addr = client->getRemoteAddr();
     addr.sin6_port = respMsgHdr.port;
-    NodeSPtr n = addNode(&addr, static_cast<uint64_t>(respMsgHdr.mac));
-    if (!n) {
+    NodeSessSPtr node = addNode(addr, reqMsgHdr);
+    if (!node) {
         LOGE(TAG, "Failed to add node.");
         return false;
     }
 
-    if (n->status != NodeStatus::online) {
-        n->status = NodeStatus::online;
-        activeDeltaBuffer_[respMsgHdr.mac] = n;
+    NodeInfoSPtr nodeInfo = node->nodeInfo;
+    if (nodeInfo->status != NodeStatus::online) {
+        nodeInfo->status = NodeStatus::online;
+        activeDeltaBuffer_[respMsgHdr.mac] = nodeInfo;
     }
 
+    respMsgHdr.nonce = node->aeadSess->getSendNonce();
     IPMsg& ipMsg = reinterpret_cast<IPMsg&>(*(sndBuf + sendBytes));
     ipMsg.netIDLen = g_cfgData.netNumLen();
-    ipMsg.ipv4Addr = n->ipv4Addr;
+    ipMsg.ipv4Addr = nodeInfo->ipv4Addr;
     sendBytes += sizeof(IPMsg);
 
     respMsgHdr.msgLen = sendBytes;
@@ -431,6 +469,9 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
 
 bool NodeMgr::handleIPMsg(uint8_t* respMsg)
 {
+    SyncMsgHdr& syncMsgHdr = reinterpret_cast<SyncMsgHdr&>(*respMsg);
+    aeadSession_->setRecvNonce(syncMsgHdr.nonce);
+
     IPMsg& ipMsg = reinterpret_cast<IPMsg&>(*(respMsg + sizeof(SyncMsgHdr)));
 
     netNumLen_ = ipMsg.netIDLen;
@@ -459,9 +500,9 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     respMsg.numsOfNode = 0;
     sendBytes += sizeof(SyncNodeMsg);
 
-    forEach([&](uint64_t k, NodeSPtr v) {
-        respMsg.nodes[respMsg.numsOfNode++] = *v.get();
-        sendBytes += sizeof(Node);
+    forEach([&](uint64_t k, NodeSessSPtr v) {
+        respMsg.nodes[respMsg.numsOfNode++] = *v->nodeInfo.get();
+        sendBytes += sizeof(NodeInfo);
     });
 
     respMsgHdr.msgLen = sendBytes;
@@ -479,7 +520,7 @@ bool NodeMgr::handleSyncNodeMsg(uint8_t* respMsg)
     SyncNodeMsg& msgBody = reinterpret_cast<SyncNodeMsg&>(*msgHdr.msgBody);
 
     size_t numsOfNode = msgBody.numsOfNode;
-    size_t expectedSize = numsOfNode * sizeof(Node);
+    size_t expectedSize = numsOfNode * sizeof(NodeInfo);
     size_t actualSize = msgHdr.msgLen - sizeof(SyncMsgHdr) - sizeof(SyncNodeMsg);
     if (expectedSize != actualSize) {
         LOGE(TAG, "NodeSize is incorrect, e[%u]:a[%u].", expectedSize, actualSize);
@@ -492,12 +533,17 @@ bool NodeMgr::handleSyncNodeMsg(uint8_t* respMsg)
     verNum_ = msgBody.verNum;
 
     for (int i = 0; i < numsOfNode; ++i) {
-        Node& n = msgBody.nodes[i];
-        if (IN6_IS_ADDR_LOOPBACK(&n.ipv6Addr)) {
-            n.ipv6Addr = g_cfgData.remoteAddr();
-            n.ipv6Port = g_cfgData.remotePort();
+        NodeInfo& nodeInfo = msgBody.nodes[i];
+        if (IN6_IS_ADDR_LOOPBACK(&nodeInfo.ipv6Addr)) {
+            nodeInfo.ipv6Addr = g_cfgData.serverAddr().sin6_addr;
+            nodeInfo.ipv6Port = g_cfgData.serverAddr().sin6_port;
         }
-        addNode(n.mac, n);
+        NodeSessSPtr node = addNode(nodeInfo.mac, nodeInfo);
+        if (node) {
+            node->aeadSess = aeadSession_;
+        } else {
+            LOGE(TAG, "Unable to addNode.");
+        }
     }
 
     return true;

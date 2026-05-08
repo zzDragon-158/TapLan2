@@ -35,6 +35,12 @@ public:
     bool isSameSession(const Nonce& nonce) {
         return (nonce.sessionId == recvNonce_.sessionId);
     };
+    const Nonce& getSendNonce() { return sendNonce_; }
+    void setRecvNonce(const Nonce& nonce) {
+        recvNonce_ = nonce;
+        recvMaxSeen_ = 0;
+        recvBitmap_ = 0;
+    }
     static Mac fetchMacFromNonce(const Nonce& nonce) {
         return Mac{
             0x02, 0x34, 0x60,
@@ -47,7 +53,7 @@ public:
 private:
     static constexpr char TAG[] = "[DataSec]";
     static bool s_initialized_;
-    static uint8_t key_[crypto_aead_aes256gcm_KEYBYTES];
+    static uint8_t key_[crypto_aead_chacha20poly1305_IETF_KEYBYTES];
 
     Nonce sendNonce_;
     Nonce recvNonce_;
