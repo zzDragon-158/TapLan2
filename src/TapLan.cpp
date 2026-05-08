@@ -1,4 +1,5 @@
 #include    "TapLan.hpp"
+#include    <cstdint>
 #include    <ctime>
 #include    "LogMgr.hpp"
 #include    "TapDev.hpp"
@@ -126,7 +127,7 @@ void TapLan::showNodeStatus()
 
         char buf[128];
         sprintf(buf, "%-11s%-22s%-21s[%s]:%u\n",
-            (n->status == NODE_ONLINE? "ONLINE": "OFFLINE"),
+            (n->status == NodeStatus::online? "ONLINE": "OFFLINE"),
             tapmacbuf, tapipbuf, ipv6str.c_str(), ntohs(n->ipv6Port));
         LOGR("%s", buf);
     });
@@ -341,7 +342,7 @@ void TapLan::broadcastData(UioCtx* ctx)
     Mac& srcMac = eh.src;
 
     nodeMgrPtr_->forEach([&](uint64_t m, NodeSPtr n) {
-        if (n->status == NODE_OFFLINE || n->mac == srcMac || n->mac == g_tapDev.getMacAddr())
+        if (n->status == NodeStatus::offline || n->mac == srcMac || n->mac == g_tapDev.getMacAddr())
             return;
 
         UioCtx* sendCtx = g_cfgData.isAioEnable()? uioIntfPtr_->acquireIoCtx(): ctx;
@@ -414,6 +415,8 @@ bool TapLan::decryptData(UioCtx* ctx)
     ctx->dataLen -= NONCE_SIZE;
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&recvNonce);
     if (!session->decrypt(packet, ctx->dataLen)) {
+        LOGE(TAG, "Failed to decrypt packet from [%u:%s]",
+            static_cast<uint64_t>(srcMac), IPv6_NTOP(ctx->buf->addr.sin6_addr).c_str());
         return false;
     }
 

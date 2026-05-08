@@ -65,6 +65,7 @@ bool AeadSession::initAeadSession()
 
 bool AeadSession::checkReplay(uint64_t seq)
 {
+    // FIXME: counter will become 0 from MAX.
     if (seq > recvMaxSeen_) {
         uint64_t shift = seq - recvMaxSeen_;
 

@@ -6,49 +6,48 @@
 #include    <map>
 #include    <unordered_map>
 #include    <bitset>
-#include    <functional>
 #include    <mutex>
 #include    <shared_mutex>
 #include    "Common.hpp"
 #include    "BsdSock.hpp"
 
-enum NodeStatus {
-    NODE_ONLINE = 0,
-    NODE_OFFLINE,
+enum class NodeStatus: uint8_t {
+    offline = 0,
+    online,
 };
 
-enum ConnStatus {
-    NOT_CONNECTED = 0,
-    CONNECTED,
-    GOT_IP,
-    SYNCED,
+enum class SyncStatus {
+    outOfSync = 0,
+    connected,
+    ipGot,
+    synced,
 };
 
-enum OP_TYPE {
-    OP_REQ_IP = 0,
-    OP_RESP_IP,
-    OP_REQ_SYNC_NODE,
-    OP_RESP_SYNC_NODE,
-    OP_MOD,
+enum class OP: uint16_t {
+    getIP = 0,
+    assignIP,
+    reqSync,
+    respSync,
+    modNode,
 };
 
-#pragma pack(push, 1)
 struct Node {
     time_t      lastSeen;
     Mac         mac;
     uint8_t     resv[2];
     // 16 bytes    
     in6_addr    ipv6Addr;
+    // 32 bytes
     in_addr     ipv4Addr;
     uint16_t    ipv6Port;
-    uint8_t     status;
+    NodeStatus  status;
     uint8_t     resv1[1];
-    // 24 bytes
+    // 40 bytes
 };
 
 struct SyncMsgHdr {
     Mac         mac;
-    uint16_t    op;
+    OP          op;
     // 8 bytes
     uint8_t     key[16];
     // 16 bytes
@@ -56,7 +55,7 @@ struct SyncMsgHdr {
     uint16_t    msgLen;
     uint8_t     resv[4];
     // 24 bytes
-    uint8_t     msgBody[];
+    uint8_t     msgBody[0];
 };
 
 struct IPMsg {
@@ -68,9 +67,8 @@ struct IPMsg {
 struct SyncNodeMsg {
     uint32_t    verNum;
     uint32_t    numsOfNode;
-    Node        nodes[];
+    Node        nodes[0];
 };
-#pragma pack(pop)
 
 using NodeSPtr = std::shared_ptr<Node>;
 using WLock = std::unique_lock<std::shared_mutex>;
@@ -95,7 +93,7 @@ public:
     void client();
 
 private:
-    const char* TAG = "[NodeMgr]";
+    static constexpr char TAG[] = "[NodeMgr]";
 
     uint32_t netNum_;
     uint8_t netNumLen_;
@@ -108,7 +106,7 @@ private:
     uint32_t verNum_;
 
     sockaddr_in6 serverAddr_;
-    uint8_t connStatus_;
+    SyncStatus syncStatus_;
     TcpSockSPtr tcpSockSPtr_;
     std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
@@ -116,7 +114,7 @@ private:
     void reset();
     NodeSPtr addNode(uint64_t macNum, Node& node);
     NodeSPtr delNode(uint64_t macNum);
-    bool setNodeStatus(uint64_t macNum, uint8_t status);
+    bool setNodeStatus(uint64_t macNum, NodeStatus status);
 
     void pollAndProcess();
     bool syncNodeToClients();
