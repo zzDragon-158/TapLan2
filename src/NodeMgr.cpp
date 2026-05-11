@@ -5,6 +5,7 @@
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
 #include    <cstddef>
+#include    <cstdint>
 #include    <cstring>
 #include    <memory>
 
@@ -15,6 +16,8 @@ NodeMgr::NodeMgr()
     , syncStatus_(SyncStatus::outOfSync)
     , tcpSockSPtr_(nullptr)
 {
+    sndBuf_ = new uint8_t[UINT16_MAX + 1];
+    rcvBuf_ = new uint8_t[UINT16_MAX + 1];
     if (g_cfgData.runMode() == RunMode::server) {
         LOGI(TAG, "We are running in server mode.");
         if (g_cfgData.running()) {
@@ -30,7 +33,8 @@ NodeMgr::NodeMgr()
 
 NodeMgr::~NodeMgr()
 {
-    ;
+    delete[] sndBuf_;
+    delete[] rcvBuf_;
 }
 
 void NodeMgr::reset()
@@ -241,18 +245,17 @@ bool NodeMgr::connectToServer()
 
 bool NodeMgr::reqIPFromServer()
 {
-    uint8_t rcvBuf[65536];
     aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
 
-    SyncMsgHdr reqMsgHdr{};
+    SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
     reqMsgHdr.mac = g_tapDev.getMacAddr();
     reqMsgHdr.op = OP::getIP;
     reqMsgHdr.nonce = aeadSession_->getSendNonce();
     reqMsgHdr.port = htons(g_cfgData.localPort());
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
-    sendMsg(*tcpSockSPtr_, &reqMsgHdr, sizeof(reqMsgHdr));
+    sendMsg(*tcpSockSPtr_, sndBuf_, sizeof(reqMsgHdr));
 
-    ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf, sizeof(rcvBuf));
+    ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf_, UINT16_MAX);
     if (recvBytes == -2) {
         LOGE(TAG, "Wait IPMsg timeout.");
         return false;
@@ -263,7 +266,7 @@ bool NodeMgr::reqIPFromServer()
         return false;
     }
 
-    if (!handleSyncMsg(rcvBuf, recvBytes, tcpSockSPtr_)) {
+    if (!handleSyncMsg(rcvBuf_, recvBytes, tcpSockSPtr_)) {
         LOGE(TAG, "Failed to parse OP_RESQ_IP.");
         return false;
     }
@@ -274,17 +277,15 @@ bool NodeMgr::reqIPFromServer()
 
 bool NodeMgr::syncNodeFromServer()
 {
-    uint8_t rcvBuf[65536];
-
     if (syncStatus_ != SyncStatus::synced) {
-        SyncMsgHdr reqMsgHdr{};
+        SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
         reqMsgHdr.mac = g_tapDev.getMacAddr();
         reqMsgHdr.op = OP::reqSync;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
-        sendMsg(*tcpSockSPtr_, &reqMsgHdr, sizeof(reqMsgHdr));
+        sendMsg(*tcpSockSPtr_, sndBuf_, sizeof(reqMsgHdr));
     }
 
-    ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf, sizeof(rcvBuf));
+    ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf_, UINT16_MAX);
     if (recvBytes == -2) {
         // LOGT(TAG, "Wait sync timeout.");
         return false;
@@ -295,7 +296,7 @@ bool NodeMgr::syncNodeFromServer()
         return false;
     }
 
-    if(!handleSyncMsg(rcvBuf, recvBytes, tcpSockSPtr_)) {
+    if(!handleSyncMsg(rcvBuf_, recvBytes, tcpSockSPtr_)) {
         LOGE(TAG, "Failed to parse OP::respSync.");
         return false;
     }
@@ -407,9 +408,8 @@ void NodeMgr::pollAndProcess()
         }
 
         --pollCnt;
-        uint8_t recvBuf[65536];
         TcpSockSPtr client = clients_[i - 1];
-        ssize_t recvBytes = recvMsg(*client, recvBuf, sizeof(recvBuf));
+        ssize_t recvBytes = recvMsg(*client, rcvBuf_, UINT16_MAX);
         if (recvBytes == -2) {
             LOGW(TAG, "poll but recv timeout.");
             continue;
@@ -424,7 +424,7 @@ void NodeMgr::pollAndProcess()
             continue;
         }
 
-        handleSyncMsg(recvBuf, recvBytes, client);
+        handleSyncMsg(rcvBuf_, recvBytes, client);
     }
 
     syncNodeToClients();
@@ -441,14 +441,13 @@ bool NodeMgr::syncNodeToClients()
     }
 
     // construct sync message
-    uint8_t sndBuf[65536];
     size_t sendBytes = 0;
-    SyncMsgHdr& syncMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
+    SyncMsgHdr& syncMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
     sendBytes += sizeof(SyncMsgHdr);
     syncMsgHdr.mac = g_tapDev.getMacAddr();
     syncMsgHdr.op = OP::modNode;
     // syncMsgHdr.key = ;
-    SyncNodeMsg& syncMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
+    SyncNodeMsg& syncMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf_ + sendBytes));
     sendBytes += sizeof(SyncNodeMsg);
     syncMsg.numsOfNode = 0;
     syncMsg.verNum = ++verNum_;
@@ -461,7 +460,7 @@ bool NodeMgr::syncNodeToClients()
     for (auto& client: clients_) {
         if (client->getMac() != 0) {
             syncMsgHdr.msgLen = sendBytes;
-            sendMsg(*client, sndBuf, sendBytes);
+            sendMsg(*client, sndBuf_, sendBytes);
         }
     }
 
@@ -507,11 +506,10 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSockSPtr srcSock)
 
 bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
 {
-    uint8_t sndBuf[65536];
     size_t sendBytes = 0;
 
     SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*reqMsg);
-    SyncMsgHdr& respMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
+    SyncMsgHdr& respMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
     respMsgHdr = reqMsgHdr;
     respMsgHdr.op = OP::assignIP;
     sendBytes += sizeof(SyncMsgHdr);
@@ -532,13 +530,13 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     }
 
     respMsgHdr.nonce = node->aeadSess->getSendNonce();
-    IPMsg& ipMsg = reinterpret_cast<IPMsg&>(*(sndBuf + sendBytes));
+    IPMsg& ipMsg = reinterpret_cast<IPMsg&>(*(sndBuf_ + sendBytes));
     ipMsg.netIDLen = g_cfgData.netNumLen();
     ipMsg.ipv4Addr = nodeInfo->ipv4Addr;
     sendBytes += sizeof(IPMsg);
 
     respMsgHdr.msgLen = sendBytes;
-    if (sendMsg(*client, sndBuf, sendBytes) <= 0) {
+    if (sendMsg(*client, sndBuf_, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send IPMsg.");
         return false;
     }
@@ -563,17 +561,16 @@ bool NodeMgr::handleIPMsg(uint8_t* respMsg)
 
 bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
 {
-    uint8_t sndBuf[65536];
     size_t sendBytes = 0;
 
     SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*reqMsg);
-    SyncMsgHdr& respMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf);
+    SyncMsgHdr& respMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
     respMsgHdr = reqMsgHdr;
     sendBytes += sizeof(SyncMsgHdr);
 
     respMsgHdr.op = OP::respSync;
 
-    SyncNodeMsg& respMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
+    SyncNodeMsg& respMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf_ + sendBytes));
     respMsg.verNum = verNum_;
     respMsg.numsOfNode = 0;
     sendBytes += sizeof(SyncNodeMsg);
@@ -584,7 +581,7 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     });
 
     respMsgHdr.msgLen = sendBytes;
-    if (sendMsg(*client, sndBuf, sendBytes) <= 0) {
+    if (sendMsg(*client, sndBuf_, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send SyncNodeMsg.");
         return false;
     }

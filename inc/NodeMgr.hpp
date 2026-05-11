@@ -120,6 +120,9 @@ private:
     std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
 
+    uint8_t* sndBuf_;
+    uint8_t* rcvBuf_;
+
     void reset();
 
     uint32_t getHostNum(const in_addr& ipv4Addr);
