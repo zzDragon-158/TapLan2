@@ -33,18 +33,19 @@ enum class OP: uint16_t {
 };
 
 struct NodeInfo {
-    time_t      lastSeen;
     Mac         mac;
-    uint8_t     resv[2];
-    // 16 bytes    
-    in6_addr    ipv6Addr;
-    // 32 bytes
-    in_addr     ipv4Addr;
     uint16_t    ipv6Port;
+    // 8 bytes
+    in6_addr    ipv6Addr;
+    // 24 bytes
+    in_addr     ipv4Addr;
+    uint32_t    lastSeen;
+    // 32 bytes
     NodeStatus  status;
-    uint8_t     resv1[1];
-    // 40 bytes
+    uint8_t     resv[3];
+    // 36 bytes
 };
+static_assert(sizeof(NodeInfo) == 36);
 using NodeInfoSPtr = std::shared_ptr<NodeInfo>;
 
 struct NodeSession {
@@ -57,13 +58,14 @@ struct SyncMsgHdr {
     Mac         mac;
     OP          op;
     // 8 bytes
-    Nonce       nonce;
-    // 20 bytes
     uint16_t    port;
     uint16_t    msgLen;
+    // 12 bytes
+    Nonce       nonce;
     // 24 bytes
     uint8_t     msgBody[0];
 };
+static_assert(sizeof(SyncMsgHdr) == 24);
 
 struct IPMsg {
     in_addr     ipv4Addr;
@@ -112,7 +114,7 @@ private:
     std::unordered_map<uint64_t, NodeInfoSPtr> processingBuffer_;
     uint32_t verNum_;
 
-    AeadSessSPtr aeadSession_;
+    AeadSessSPtr aeadSession_;  // for client
     SyncStatus syncStatus_;
     TcpSockSPtr tcpSockSPtr_;
     std::vector<UnivPollFd> pfds_;
@@ -128,6 +130,8 @@ private:
     NodeSessSPtr delNode(const Mac& mac);
     bool setNodeStatus(const Mac& mac, NodeStatus status);
 
+    ssize_t sendMsg(TcpSock& tcpSock, void* msg, size_t msgLen);
+    ssize_t recvMsg(TcpSock& tcpSock, void* buf, size_t bufLen);
     void pollAndProcess();
     bool syncNodeToClients();
 

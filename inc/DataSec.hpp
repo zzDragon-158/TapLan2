@@ -32,6 +32,8 @@ public:
     bool encrypt(AeadPacket* packet, T& payloadLen);
     template<typename T>
     bool decrypt(AeadPacket* packet, T& payloadLen);
+    template<typename T>
+    static bool decryptWithoutCheck(AeadPacket* packet, T& payloadLen);
     bool isSameSession(const Nonce& nonce) {
         return (nonce.sessionId == recvNonce_.sessionId);
     };
@@ -89,9 +91,9 @@ bool AeadSession::encrypt(AeadPacket* packet, T& payloadLen)
 }
 
 template<typename T>
-bool AeadSession::decrypt(AeadPacket* packet, T& payloadLen)
+bool AeadSession::decryptWithoutCheck(AeadPacket* packet, T& payloadLen)
 {
-    if (!s_initialized_) {
+    if (!initAeadSession()) {
         return false;
     }
 
@@ -107,10 +109,23 @@ bool AeadSession::decrypt(AeadPacket* packet, T& payloadLen)
         return false;
     }
 
-    if (!checkReplay(packet->nonce.counter())) {
+    payloadLen = static_cast<int32_t>(outLen);
+    return true;
+}
+
+template<typename T>
+bool AeadSession::decrypt(AeadPacket* packet, T& payloadLen)
+{
+    if (!initAeadSession()) {
         return false;
     }
 
-    payloadLen = static_cast<int32_t>(outLen);
+    decryptWithoutCheck(packet, payloadLen);
+
+    if (!checkReplay(packet->nonce.counter())) {
+        LOGW(TAG, "Duplicate package received!");
+        return false;
+    }
+
     return true;
 }

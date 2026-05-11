@@ -1,8 +1,11 @@
 #include    "NodeMgr.hpp"
+#include    "Common.hpp"
 #include    "Config.hpp"
 #include    "DataSec.hpp"
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
+#include    <cstddef>
+#include    <cstring>
 #include    <memory>
 
 NodeMgr::NodeMgr()
@@ -23,7 +26,6 @@ NodeMgr::NodeMgr()
     } else {
         LOGI(TAG, "We are running in client mode.");
     }
-    aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
 }
 
 NodeMgr::~NodeMgr()
@@ -240,6 +242,7 @@ bool NodeMgr::connectToServer()
 bool NodeMgr::reqIPFromServer()
 {
     uint8_t rcvBuf[65536];
+    aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
 
     SyncMsgHdr reqMsgHdr{};
     reqMsgHdr.mac = g_tapDev.getMacAddr();
@@ -247,9 +250,9 @@ bool NodeMgr::reqIPFromServer()
     reqMsgHdr.nonce = aeadSession_->getSendNonce();
     reqMsgHdr.port = htons(g_cfgData.localPort());
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
-    tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
+    sendMsg(*tcpSockSPtr_, &reqMsgHdr, sizeof(reqMsgHdr));
 
-    ssize_t recvBytes = tcpSockSPtr_->recv(rcvBuf, sizeof(rcvBuf));
+    ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf, sizeof(rcvBuf));
     if (recvBytes == -2) {
         LOGE(TAG, "Wait IPMsg timeout.");
         return false;
@@ -278,10 +281,10 @@ bool NodeMgr::syncNodeFromServer()
         reqMsgHdr.mac = g_tapDev.getMacAddr();
         reqMsgHdr.op = OP::reqSync;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
-        tcpSockSPtr_->send(&reqMsgHdr, sizeof(reqMsgHdr));
+        sendMsg(*tcpSockSPtr_, &reqMsgHdr, sizeof(reqMsgHdr));
     }
 
-    ssize_t recvBytes = tcpSockSPtr_->recv(rcvBuf, sizeof(rcvBuf));
+    ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf, sizeof(rcvBuf));
     if (recvBytes == -2) {
         // LOGT(TAG, "Wait sync timeout.");
         return false;
@@ -299,6 +302,84 @@ bool NodeMgr::syncNodeFromServer()
 
     syncStatus_ = SyncStatus::synced;
     return true;
+}
+
+ssize_t NodeMgr::sendMsg(TcpSock& tcpSock, void* msg, size_t msgLen)
+{
+    if (g_cfgData.enableSec()) {
+        AeadPacket* packet = reinterpret_cast<AeadPacket*>(msg);
+        std::memmove(
+            packet->payload,
+            packet,
+            msgLen
+        );
+        size_t payloadLen = msgLen;
+
+        if (g_cfgData.runMode() == RunMode::server) {
+            const Mac& mac = tcpSock.getMac();
+            NodeSessSPtr node = findNode(mac);
+            if (!node || !node->aeadSess) {
+                LOGE(TAG, "Failed to sendmsg to [%s].", mac.getMacStr().c_str());
+                return -1;
+            }
+            node->aeadSess->encrypt(packet, payloadLen);
+        } else {
+            aeadSession_->encrypt(packet, payloadLen);
+        }
+        msgLen = NONCE_SIZE + payloadLen;
+    }
+
+    size_t sendBytes = tcpSock.send(msg, msgLen);
+
+    return sendBytes;
+}
+
+ssize_t NodeMgr::recvMsg(TcpSock& tcpSock, void* buf, size_t bufLen)
+{
+    ssize_t recvBytes = tcpSock.recv(buf, bufLen);
+    if (recvBytes <= 0)
+        return recvBytes;
+
+    if (g_cfgData.enableSec()) {
+        AeadPacket* packet = reinterpret_cast<AeadPacket*>(buf);
+        size_t payloadLen = recvBytes - NONCE_SIZE;
+
+        if (g_cfgData.runMode() == RunMode::server) {
+            const Mac& mac = AeadSession::fetchMacFromNonce(packet->nonce);
+            bool ok = false;
+
+            NodeSessSPtr node = findNode(mac);
+            if (!node) {
+                ok = AeadSession::decryptWithoutCheck(packet, payloadLen);
+            } else {
+                bool isSameSess = node->aeadSess->isSameSession(packet->nonce);
+                bool isOnline = node->nodeInfo->status == NodeStatus::online;
+                if (isSameSess && isOnline) {
+                    ok = node->aeadSess->decrypt(packet, payloadLen);
+                } else if (!isSameSess && !isOnline) {
+                    LOGI(TAG, "client[%s] reconnect.", mac.getMacStr().c_str());
+                    ok = AeadSession::decryptWithoutCheck(packet, payloadLen);
+                } else {
+                    LOGW(TAG, "mac[%s], isSameSess[%d], isOnline[%d].", mac.getMacStr().c_str(), isSameSess, isOnline);
+                    return -2;
+                }
+                if (!ok) {
+                    LOGE(TAG, "Failed to decrypt syncmsg.");
+                }
+            }
+        } else {
+            aeadSession_->decrypt(packet, payloadLen);
+        }
+
+        std::memmove(
+            packet,
+            packet->payload,
+            payloadLen
+        );
+        recvBytes = payloadLen;
+    }
+
+    return recvBytes;
 }
 
 void NodeMgr::pollAndProcess()
@@ -328,12 +409,13 @@ void NodeMgr::pollAndProcess()
         --pollCnt;
         uint8_t recvBuf[65536];
         TcpSockSPtr client = clients_[i - 1];
-        ssize_t recvBytes = client->recv(recvBuf, sizeof(recvBuf));
+        ssize_t recvBytes = recvMsg(*client, recvBuf, sizeof(recvBuf));
         if (recvBytes == -2) {
             LOGW(TAG, "poll but recv timeout.");
             continue;
         } else if (recvBytes == -1 || recvBytes == 0) {
             setNodeStatus(client->getMac(), NodeStatus::offline);
+            LOGI(TAG, "client[%s] is offline.", client->getMac().getMacStr().c_str());
 
             std::swap(pfds_[i], pfds_.back());
             pfds_.pop_back();
@@ -379,7 +461,7 @@ bool NodeMgr::syncNodeToClients()
     for (auto& client: clients_) {
         if (client->getMac() != 0) {
             syncMsgHdr.msgLen = sendBytes;
-            client->send(sndBuf, sendBytes);
+            sendMsg(*client, sndBuf, sendBytes);
         }
     }
 
@@ -434,6 +516,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     respMsgHdr.op = OP::assignIP;
     sendBytes += sizeof(SyncMsgHdr);
 
+    client->setMac(respMsgHdr.mac);
     sockaddr_in6 addr = client->getRemoteAddr();
     addr.sin6_port = respMsgHdr.port;
     NodeSessSPtr node = addNode(addr, reqMsgHdr);
@@ -455,7 +538,7 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     sendBytes += sizeof(IPMsg);
 
     respMsgHdr.msgLen = sendBytes;
-    if (client->send(sndBuf, sendBytes) <= 0) {
+    if (sendMsg(*client, sndBuf, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send IPMsg.");
         return false;
     }
@@ -489,7 +572,6 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     sendBytes += sizeof(SyncMsgHdr);
 
     respMsgHdr.op = OP::respSync;
-    client->setMac(respMsgHdr.mac);
 
     SyncNodeMsg& respMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf + sendBytes));
     respMsg.verNum = verNum_;
@@ -502,7 +584,7 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     });
 
     respMsgHdr.msgLen = sendBytes;
-    if (client->send(sndBuf, sendBytes) <= 0) {
+    if (sendMsg(*client, sndBuf, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send SyncNodeMsg.");
         return false;
     }
@@ -538,7 +620,7 @@ bool NodeMgr::handleSyncNodeMsg(uint8_t* respMsg)
         if (node) {
             node->aeadSess = aeadSession_;
         } else {
-            LOGE(TAG, "Unable to addNode.");
+            LOGE(TAG, "Unable to add node.");
         }
     }
 

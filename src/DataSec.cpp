@@ -8,7 +8,7 @@ uint8_t AeadSession::key_[crypto_aead_chacha20poly1305_IETF_KEYBYTES] = {};
 
 AeadSession::AeadSession(const Mac& mac, const Nonce& nonce)
     : sendNonce_{}
-    , recvNonce_{}
+    , recvNonce_(nonce)
     , recvMaxSeen_(0)
     , recvBitmap_(0)
 {
@@ -29,9 +29,7 @@ AeadSession::AeadSession(const Mac& mac, const Nonce& nonce)
         std::time_t now = std::time(nullptr);
         sendNonce_.macEUI[3] = now & 0xff;
     }
-
-    recvNonce_ = nonce;
-    LOGD(TAG, "new session: %u", recvNonce_.sessionId);
+    LOGD(TAG, "new session: %u", sendNonce_.sessionId);
 }
 
 AeadSession::~AeadSession()

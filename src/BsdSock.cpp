@@ -98,7 +98,7 @@ TcpSock& TcpSock::operator=(TcpSock&& other) noexcept
 TcpSock::~TcpSock()
 {
     if (remoteAddr_.sin6_port)
-        LOGI(TAG, "Client[%s][%s] is offline.", IPv6_NTOP(remoteAddr_.sin6_addr).c_str(), remoteMac_.getMacStr().c_str());
+        LOGI(TAG, "client[%s] closed the connection.", IPv6_NTOP(remoteAddr_.sin6_addr).c_str());
 }
 
 bool TcpSock::connect()
