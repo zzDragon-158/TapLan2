@@ -26,15 +26,16 @@ AeadSession::AeadSession(const Mac& mac, const Nonce& nonce)
         sendNonce_.macEUI[1] = mac.addr[4];
         sendNonce_.macEUI[2] = mac.addr[5];
 
+        // FIXME: Multiple consecutive starts in the same 1s will cause exceptions, which is not a major problem at present.
         std::time_t now = std::time(nullptr);
         sendNonce_.macEUI[3] = now & 0xff;
     }
-    LOGD(TAG, "new session: %u", sendNonce_.sessionId);
+    LOGD(TAG, "new session: send[%X] recv[%X].", sendNonce_.sessionId, recvNonce_.sessionId);
 }
 
 AeadSession::~AeadSession()
 {
-    LOGD(TAG, "del session: %u", recvNonce_.sessionId);
+    LOGD(TAG, "del session: send[%X] recv[%X].", sendNonce_.sessionId, recvNonce_.sessionId);
 }
 
 bool AeadSession::initAeadSession()

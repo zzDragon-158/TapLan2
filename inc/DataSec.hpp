@@ -42,6 +42,7 @@ public:
         recvNonce_ = nonce;
         recvMaxSeen_ = 0;
         recvBitmap_ = 0;
+        LOGD(TAG, "set recv nonce: send[%X] recv[%X].", sendNonce_.sessionId, recvNonce_.sessionId);
     }
     static Mac fetchMacFromNonce(const Nonce& nonce) {
         return Mac{

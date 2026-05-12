@@ -13,7 +13,7 @@ NodeMgr::NodeMgr()
     : netNum_(g_cfgData.netNum())
     , netNumLen_(g_cfgData.netNumLen())
     , verNum_(0)
-    , syncStatus_(SyncStatus::outOfSync)
+    , nodeStatus_(NodeStatus::outOfSync)
     , tcpSockSPtr_(nullptr)
 {
     sndBuf_ = new uint8_t[UINT16_MAX + 1];
@@ -23,6 +23,7 @@ NodeMgr::NodeMgr()
         if (g_cfgData.running()) {
             const Mac& mac = g_tapDev.getMacAddr();
             NodeInfoSPtr nodeInfo = assignIpHostNumForNode(g_cfgData.serverAddr(), mac);
+            nodeInfo->status = NodeStatus::synced;
             g_tapDev.setIPv4Addr(&nodeInfo->ipv4Addr, g_cfgData.netNumLen());
             addNode(mac, *nodeInfo);
         }
@@ -61,7 +62,7 @@ NodeInfoSPtr NodeMgr::constructNodeInfo(const sockaddr_in6& addr, const Mac& mac
     nodeInfo->ipv6Port = addr.sin6_port;
     nodeInfo->ipv4Addr.s_addr = g_cfgData.noSync()? UINT32_MAX: htonl(netNum_ + hostNum);
     nodeInfo->mac = mac;
-    nodeInfo->status = NodeStatus::online;
+    nodeInfo->status = NodeStatus::outOfSync;
     nodeInfo->lastSeen = time(nullptr);
 
     return nodeInfo;
@@ -203,22 +204,22 @@ void NodeMgr::client()
     while (g_cfgData.running()) {
         bool ok = false;
 
-        switch (syncStatus_) {
-        case SyncStatus::outOfSync:
+        switch (nodeStatus_) {
+        case NodeStatus::outOfSync:
             ok = connectToServer();
             break;
 
-        case SyncStatus::connected:
+        case NodeStatus::connected:
             ok = reqIPFromServer();
             break;
 
-        case SyncStatus::ipGot:
-        case SyncStatus::synced:
+        case NodeStatus::ipGot:
+        case NodeStatus::synced:
             ok = syncNodeFromServer();
             break;
 
         default:
-            LOGE(TAG, "Unknown status[%u].", syncStatus_);
+            LOGE(TAG, "Unknown status[%u].", nodeStatus_);
         }
 
         if (!ok)
@@ -239,7 +240,8 @@ bool NodeMgr::connectToServer()
         return false;
     }
 
-    syncStatus_ = SyncStatus::connected;
+    nodeStatus_ = NodeStatus::connected;
+    LOGD(TAG, "Succeed in connecting to server.");
     return true;
 }
 
@@ -254,6 +256,7 @@ bool NodeMgr::reqIPFromServer()
     reqMsgHdr.port = htons(g_cfgData.localPort());
     reqMsgHdr.msgLen = sizeof(reqMsgHdr);
     sendMsg(*tcpSockSPtr_, sndBuf_, sizeof(reqMsgHdr));
+    LOGD(TAG, "send msg to server for requesting IP.");
 
     ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf_, UINT16_MAX);
     if (recvBytes == -2) {
@@ -261,7 +264,7 @@ bool NodeMgr::reqIPFromServer()
         return false;
     } else if (recvBytes == -1 || recvBytes == 0) {
         LOGE(TAG, "Failed to recv IPMsg.");
-        syncStatus_ = SyncStatus::outOfSync;
+        nodeStatus_ = NodeStatus::outOfSync;
         tcpSockSPtr_->close();
         return false;
     }
@@ -271,18 +274,19 @@ bool NodeMgr::reqIPFromServer()
         return false;
     }
 
-    syncStatus_ = SyncStatus::ipGot;
+    nodeStatus_ = NodeStatus::ipGot;
     return true;
 }
 
 bool NodeMgr::syncNodeFromServer()
 {
-    if (syncStatus_ != SyncStatus::synced) {
+    if (nodeStatus_ != NodeStatus::synced) {
         SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
         reqMsgHdr.mac = g_tapDev.getMacAddr();
         reqMsgHdr.op = OP::reqSync;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
         sendMsg(*tcpSockSPtr_, sndBuf_, sizeof(reqMsgHdr));
+        LOGD(TAG, "send msg to server for syncing node.");
     }
 
     ssize_t recvBytes = recvMsg(*tcpSockSPtr_, rcvBuf_, UINT16_MAX);
@@ -291,7 +295,7 @@ bool NodeMgr::syncNodeFromServer()
         return false;
     } else if (recvBytes == -1 || recvBytes == 0) {
         LOGE(TAG, "Failed to sync node.");
-        syncStatus_ = SyncStatus::outOfSync;
+        nodeStatus_ = NodeStatus::outOfSync;
         tcpSockSPtr_->close();
         return false;
     }
@@ -301,7 +305,7 @@ bool NodeMgr::syncNodeFromServer()
         return false;
     }
 
-    syncStatus_ = SyncStatus::synced;
+    nodeStatus_ = NodeStatus::synced;
     return true;
 }
 
@@ -354,7 +358,7 @@ ssize_t NodeMgr::recvMsg(TcpSock& tcpSock, void* buf, size_t bufLen)
                 ok = AeadSession::decryptWithoutCheck(packet, payloadLen);
             } else {
                 bool isSameSess = node->aeadSess->isSameSession(packet->nonce);
-                bool isOnline = node->nodeInfo->status == NodeStatus::online;
+                bool isOnline = node->nodeInfo->status != NodeStatus::outOfSync;
                 if (isSameSess && isOnline) {
                     ok = node->aeadSess->decrypt(packet, payloadLen);
                 } else if (!isSameSess && !isOnline) {
@@ -414,7 +418,7 @@ void NodeMgr::pollAndProcess()
             LOGW(TAG, "poll but recv timeout.");
             continue;
         } else if (recvBytes == -1 || recvBytes == 0) {
-            setNodeStatus(client->getMac(), NodeStatus::offline);
+            setNodeStatus(client->getMac(), NodeStatus::outOfSync);
             LOGI(TAG, "client[%s] is offline.", client->getMac().getMacStr().c_str());
 
             std::swap(pfds_[i], pfds_.back());
@@ -458,7 +462,12 @@ bool NodeMgr::syncNodeToClients()
     processingBuffer_.clear();
 
     for (auto& client: clients_) {
-        if (client->getMac() != 0) {
+        NodeSessSPtr node = findNode(client->getMac());
+        if (!node || !node->nodeInfo) {
+            continue;
+        }
+
+        if (node->nodeInfo->status == NodeStatus::synced) {
             syncMsgHdr.msgLen = sendBytes;
             sendMsg(*client, sndBuf_, sendBytes);
         }
@@ -471,6 +480,7 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSockSPtr srcSock)
 {
     bool ok;
     SyncMsgHdr& msgHdr = reinterpret_cast<SyncMsgHdr&>(*msg);
+    LOGD(TAG, "recv [%u]msg from[%s]", msgHdr.op, IPv6_NTOP(srcSock->getRemoteAddr().sin6_addr).c_str());
 
     switch (msgHdr.op) {
     case OP::getIP:
@@ -506,6 +516,10 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSockSPtr srcSock)
 
 bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
 {
+    if (g_cfgData.runMode() == RunMode::client) {
+        LOGW(TAG, "Why are we here.handle IPReq?");
+        return false;
+    }
     size_t sendBytes = 0;
 
     SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*reqMsg);
@@ -524,11 +538,6 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     }
 
     NodeInfoSPtr nodeInfo = node->nodeInfo;
-    if (nodeInfo->status != NodeStatus::online) {
-        nodeInfo->status = NodeStatus::online;
-        activeDeltaBuffer_[respMsgHdr.mac] = nodeInfo;
-    }
-
     respMsgHdr.nonce = node->aeadSess->getSendNonce();
     IPMsg& ipMsg = reinterpret_cast<IPMsg&>(*(sndBuf_ + sendBytes));
     ipMsg.netIDLen = g_cfgData.netNumLen();
@@ -539,6 +548,8 @@ bool NodeMgr::handleIPReq(uint8_t* reqMsg, TcpSockSPtr client)
     if (sendMsg(*client, sndBuf_, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send IPMsg.");
         return false;
+    } else {
+        setNodeStatus(reqMsgHdr.mac, NodeStatus::ipGot);
     }
 
     return true;
@@ -584,6 +595,8 @@ bool NodeMgr::handleSyncNodeReq(uint8_t* reqMsg, TcpSockSPtr client)
     if (sendMsg(*client, sndBuf_, sendBytes) <= 0) {
         LOGE(TAG, "Failed to send SyncNodeMsg.");
         return false;
+    } else {
+        setNodeStatus(reqMsgHdr.mac, NodeStatus::synced);
     }
 
     return true;

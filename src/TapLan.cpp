@@ -321,7 +321,7 @@ void TapLan::broadcastData(UioCtx* ctx)
 
     nodeMgrPtr_->forEach([&](uint64_t m, NodeSessSPtr n) {
         NodeInfoSPtr nodeInfo = n->nodeInfo;
-        if (nodeInfo->status == NodeStatus::offline
+        if (nodeInfo->status < NodeStatus::ipGot
         || nodeInfo->mac == srcMac
         || nodeInfo->mac == g_tapDev.getMacAddr()) {
             return;
@@ -390,7 +390,7 @@ bool TapLan::decryptData(UioCtx* ctx)
     ctx->dataLen -= NONCE_SIZE;
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&recvNonce);
     if (!session->decrypt(packet, ctx->dataLen)) {
-        LOGE(TAG, "Failed to decrypt packet from [%u:%s]",
+        LOGE(TAG, "Failed to decrypt packet from [%lu:%s]",
             static_cast<uint64_t>(srcMac), IPv6_NTOP(ctx->buf->addr.sin6_addr).c_str());
         return false;
     }

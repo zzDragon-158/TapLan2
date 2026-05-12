@@ -13,11 +13,6 @@
 #include    "DataSec.hpp"
 
 enum class NodeStatus: uint8_t {
-    offline = 0,
-    online,
-};
-
-enum class SyncStatus {
     outOfSync = 0,
     connected,
     ipGot,
@@ -115,7 +110,7 @@ private:
     uint32_t verNum_;
 
     AeadSessSPtr aeadSession_;  // for client
-    SyncStatus syncStatus_;
+    NodeStatus nodeStatus_;
     TcpSockSPtr tcpSockSPtr_;
     std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
