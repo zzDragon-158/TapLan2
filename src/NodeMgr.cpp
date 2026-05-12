@@ -1,4 +1,5 @@
 #include    "NodeMgr.hpp"
+#include "BsdSock.hpp"
 #include    "Common.hpp"
 #include    "Config.hpp"
 #include    "DataSec.hpp"
@@ -265,7 +266,8 @@ bool NodeMgr::reqIPFromServer()
         LOGE(TAG, "Wait IPMsg timeout.");
         return false;
     } else if (recvBytes == -1 || recvBytes == 0) {
-        LOGE(TAG, "Failed to recv IPMsg.");
+        LOGF(TAG, "Failed to recv IPMsg. Please check whether the password is correct.");
+        g_cfgData.running() = false;
         nodeStatus_ = NodeStatus::outOfSync;
         tcpSockSPtr_->close();
         return false;
@@ -370,12 +372,17 @@ ssize_t NodeMgr::recvMsg(TcpSock& tcpSock, void* buf, size_t bufLen)
                     LOGW(TAG, "mac[%s], isSameSess[%d], isOnline[%d].", mac.getMacStr().c_str(), isSameSess, isOnline);
                     return -2;
                 }
-                if (!ok) {
-                    LOGE(TAG, "Failed to decrypt syncmsg.");
-                }
+            }
+            if (!ok) {
+                // Maybe the password is incorrect
+                LOGE(TAG, "Failed to decrypt sync msg from client[%s].", IPv6_NTOP(tcpSock.getRemoteAddr().sin6_addr).c_str());
+                return -1;
             }
         } else {
-            aeadSession_->decrypt(packet, payloadLen);
+            if (!aeadSession_->decrypt(packet, payloadLen)) {
+                LOGE(TAG, "Failed to decrypt sync msg from server.");
+                return -1;
+            }
         }
 
         std::memmove(

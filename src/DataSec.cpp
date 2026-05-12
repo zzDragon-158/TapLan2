@@ -81,13 +81,13 @@ bool AeadSession::checkReplay(uint64_t seq)
 
     uint64_t delta = recvMaxSeen_ - seq;
     if (delta >= 64) {
-        LOGW(TAG, "[%u]Seq of recv packet out of range.", recvNonce_.sessionId);
+        LOGW(TAG, "[%X]Seq of recv packet out of range.", recvNonce_.sessionId);
         return false;
     }
 
     uint64_t seqBit = 1ULL << delta;
     if (recvBitmap_ & seqBit) {
-        LOGW(TAG, "[%u]Replay package detected.", recvNonce_.sessionId);
+        LOGW(TAG, "[%X]Replay package detected.", recvNonce_.sessionId);
         return false;
     }
 

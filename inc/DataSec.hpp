@@ -106,7 +106,6 @@ bool AeadSession::decryptWithoutCheck(AeadPacket* packet, T& payloadLen)
         NULL, 0,
         (uint8_t*)&packet->nonce, key_
     ) != 0) {
-        LOGW(TAG, "Failed to decrypt.");
         return false;
     }
 
@@ -124,7 +123,6 @@ bool AeadSession::decrypt(AeadPacket* packet, T& payloadLen)
     decryptWithoutCheck(packet, payloadLen);
 
     if (!checkReplay(packet->nonce.counter())) {
-        LOGW(TAG, "Duplicate package received!");
         return false;
     }
 
