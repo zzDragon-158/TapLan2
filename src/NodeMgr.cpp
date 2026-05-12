@@ -41,6 +41,7 @@ NodeMgr::~NodeMgr()
 void NodeMgr::reset()
 {
     WLock lock;
+    verNum_ = 0;
     macToNodeSess_.clear();
     activeDeltaBuffer_.clear();
     processingBuffer_.clear();
@@ -241,6 +242,7 @@ bool NodeMgr::connectToServer()
     }
 
     nodeStatus_ = NodeStatus::connected;
+    reset();
     LOGD(TAG, "Succeed in connecting to server.");
     return true;
 }
@@ -496,8 +498,6 @@ bool NodeMgr::handleSyncMsg(uint8_t* msg, size_t msgLen, TcpSockSPtr srcSock)
         break;
 
     case OP::respSync:
-        reset();
-
     case OP::modNode:
         ok = handleSyncNodeMsg(msg);
         break;

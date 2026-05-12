@@ -1,6 +1,8 @@
 #include    "TapLan.hpp"
 #include    <cstdint>
 #include    <ctime>
+#include <netinet/in.h>
+#include "BsdSock.hpp"
 #include    "DataSec.hpp"
 #include    "LogMgr.hpp"
 #include    "NodeMgr.hpp"
@@ -77,7 +79,6 @@ void TapLan::swPortWrk()
     LOGI(TAG, "swPortWrk has exited.");
 }
 
-#if 0
 void TapLan::showNodeStatus()
 {
     if (!nodeMgrPtr_) {
@@ -88,26 +89,25 @@ void TapLan::showNodeStatus()
     LOGR("Status     TapLan MAC address    TapLan IP address    Public IP address\n");
 //  LOGR("offline    00:00:00:00:00:00     255.255.255.255      aaaa:bbbb:cccc:dddd:eeee:ffff:aaaa:bbbb");
 
-    nodeMgrPtr_->forEach([&](uint64_t m, NodeInfoSPtr n) {
-        char tapmacbuf[32];
-        sprintf(tapmacbuf, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X",
-            n->mac.addr[0], n->mac.addr[1], n->mac.addr[2], 
-            n->mac.addr[3], n->mac.addr[4], n->mac.addr[5]);
+    nodeMgrPtr_->forEach([&](uint64_t m, NodeSessSPtr n) {
+        NodeInfoSPtr nodeInfo = n->nodeInfo;
+        std::string statusStr = (nodeInfo->status < NodeStatus::ipGot? "OFFLINE": "ONLINE");
+        std::string macStr = nodeInfo->mac.getMacStr();
+        std::string ipv6Str = IPv6_NTOP(nodeInfo->ipv6Addr);
+        std::string ipv4Str = IPv4_NTOP(nodeInfo->ipv4Addr);
 
-        std::string ipv6str = IPv6_NTOP(n->ipv6Addr);
-
-        char tapipbuf[INET_ADDRSTRLEN];
-        uint8_t* ipv4addr = reinterpret_cast<uint8_t*>(&(n->ipv4Addr));
-        sprintf(tapipbuf, "%u.%u.%u.%u", ipv4addr[0], ipv4addr[1], ipv4addr[2], ipv4addr[3]);
-
-        char buf[128];
-        sprintf(buf, "%-11s%-22s%-21s[%s]:%u\n",
-            (n->status == NodeStatus::online? "ONLINE": "OFFLINE"),
-            tapmacbuf, tapipbuf, ipv6str.c_str(), ntohs(n->ipv6Port));
-        LOGR("%s", buf);
+        LOGR(
+            "%-11s%-22s%-21s[%s]:%u\n",
+            statusStr.c_str(),
+            macStr.c_str(),
+            ipv4Str.c_str(),
+            ipv6Str.c_str(),
+            ntohs(nodeInfo->ipv6Port)
+        );
     });
 }
 
+#if 0
 void TapLan::showStats()
 {
     uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
