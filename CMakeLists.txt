@@ -19,6 +19,13 @@ if(NOT EXISTS "${THIRD_INCLUDE_DIR}")
 endif()
 include_directories(${THIRD_INCLUDE_DIR})
 
+string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type_lower)
+if(build_type_lower STREQUAL "debug")
+    unset(CMAKE_EXE_LINKER_FLAGS)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address)
+endif()
+
 # link libsodium
 add_library(DataSec src/DataSec.cpp)
 add_library(sodium UNKNOWN IMPORTED GLOBAL)
