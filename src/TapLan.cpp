@@ -35,7 +35,7 @@ bool TapLan::initUdpSockPtrs()
         if (!udpSockPtr->isFdValid()) {
             delete udpSockPtr;
             udpSockPtr = nullptr;
-            LOGW(TAG, "Failed to bind [%u]port to udp socket.", port);
+            LOGW("Failed to bind [{}]port to udp socket.", port);
         }
         if (port == g_cfgData.localPort()) {
             udpSockPtr_ = udpSockPtr;
@@ -55,7 +55,7 @@ void TapLan::syncWrk()
         // RunMode_None
     }
 
-    LOGI(TAG, "syncWrk has exited.");
+    LOGI("syncWrk has exited.");
 }
 
 void TapLan::swPortWrk()
@@ -76,13 +76,13 @@ void TapLan::swPortWrk()
         std::this_thread::sleep_for(std::chrono::seconds(IO_WAIT_TIME));
     }
 
-    LOGI(TAG, "swPortWrk has exited.");
+    LOGI("swPortWrk has exited.");
 }
 
 void TapLan::showNodeStatus()
 {
     if (!nodeMgrPtr_) {
-        LOGI(TAG, "No other nodes have been obtained from the server.");
+        LOGI("No other nodes have been obtained from the server.");
         return ;
     }
 
@@ -92,16 +92,13 @@ void TapLan::showNodeStatus()
     nodeMgrPtr_->forEach([&](uint64_t m, NodeSessSPtr n) {
         NodeInfoSPtr nodeInfo = n->nodeInfo;
         std::string statusStr = (nodeInfo->status < NodeStatus::ipGot? "OFFLINE": "ONLINE");
-        std::string macStr = nodeInfo->mac.getMacStr();
-        std::string ipv6Str = IPv6_NTOP(nodeInfo->ipv6Addr);
-        std::string ipv4Str = IPv4_NTOP(nodeInfo->ipv4Addr);
 
         LOGR(
-            "%-11s%-22s%-21s[%s]:%u\n",
-            statusStr.c_str(),
-            macStr.c_str(),
-            ipv4Str.c_str(),
-            ipv6Str.c_str(),
+            "{:<11}{:<22}{:<21}[{}]:{}\n",
+            statusStr,
+            nodeInfo->mac,
+            nodeInfo->ipv4Addr,
+            nodeInfo->ipv6Addr,
             ntohs(nodeInfo->ipv6Port)
         );
     });
@@ -121,19 +118,19 @@ void TapLan::showStats()
                      dropped = udpSockPtrs_[i]->getDropped();
 
             if (i == 3) {
-                LOGR("╙── UDP port %u:\n", udpSockPtrs_[i]->getBindPort());
-                LOGR("    ╟── TX bytes:   %lu\n", sendBytes);
-                LOGR("    ╟── TX errors:  %lu\n", sendErrs);
-                LOGR("    ╟── RX bytes:   %lu\n", recvBytes);
-                LOGR("    ╟── RX errors:  %lu\n", recvErrs);
-                LOGR("    ╙── dropped:    %lu\n", dropped);
+                LOGR("╙── UDP port {}:\n", udpSockPtrs_[i]->getBindPort());
+                LOGR("    ╟── TX bytes:   {}\n", sendBytes);
+                LOGR("    ╟── TX errors:  {}\n", sendErrs);
+                LOGR("    ╟── RX bytes:   {}\n", recvBytes);
+                LOGR("    ╟── RX errors:  {}\n", recvErrs);
+                LOGR("    ╙── dropped:    {}\n", dropped);
             } else {
-                LOGR("╟── UDP port %u:\n", udpSockPtrs_[i]->getBindPort());
-                LOGR("║   ╟── TX bytes:   %lu\n", sendBytes);
-                LOGR("║   ╟── TX errors:  %lu\n", sendErrs);
-                LOGR("║   ╟── RX bytes:   %lu\n", recvBytes);
-                LOGR("║   ╟── RX errors:  %lu\n", recvErrs);
-                LOGR("║   ╙── dropped:    %lu\n", dropped);
+                LOGR("╟── UDP port {}:\n", udpSockPtrs_[i]->getBindPort());
+                LOGR("║   ╟── TX bytes:   {}\n", sendBytes);
+                LOGR("║   ╟── TX errors:  {}\n", sendErrs);
+                LOGR("║   ╟── RX bytes:   {}\n", recvBytes);
+                LOGR("║   ╟── RX errors:  {}\n", recvErrs);
+                LOGR("║   ╙── dropped:    {}\n", dropped);
             }
             totalSendBytes += sendBytes;
             totalSendErrs += sendErrs;
@@ -152,19 +149,19 @@ void TapLan::showStats()
     LOGR("\n");
 
     LOGR("Total UDP\n");
-    LOGR("╟── TX bytes:       %lu\n", totalSendBytes);
-    LOGR("╟── TX errors:      %lu\n", totalSendErrs);
-    LOGR("╟── RX bytes:       %lu\n", totalRecvBytes);
-    LOGR("╟── RX errors:      %lu\n", totalRecvErrs);
-    LOGR("╙── dropped:        %lu\n", totalDropped);
+    LOGR("╟── TX bytes:       {}\n", totalSendBytes);
+    LOGR("╟── TX errors:      {}\n", totalSendErrs);
+    LOGR("╟── RX bytes:       {}\n", totalRecvBytes);
+    LOGR("╟── RX errors:      {}\n", totalRecvErrs);
+    LOGR("╙── dropped:        {}\n", totalDropped);
 
     LOGR("\n");
 
     LOGR("Total TAP:\n");
-    LOGR("╟── write bytes:    %lu\n", g_tapDev.getWriteBytes());
-    LOGR("╟── write errors:   %lu\n", g_tapDev.getWriteErrs());
-    LOGR("╟── read  bytes:    %lu\n", g_tapDev.getReadBytes());
-    LOGR("╙── read  errors:   %lu\n", g_tapDev.getReadErrs());
+    LOGR("╟── write bytes:    {}\n", g_tapDev.getWriteBytes());
+    LOGR("╟── write errors:   {}\n", g_tapDev.getWriteErrs());
+    LOGR("╟── read  bytes:    {}\n", g_tapDev.getReadBytes());
+    LOGR("╙── read  errors:   {}\n", g_tapDev.getReadErrs());
 }
 #endif
 
@@ -390,7 +387,7 @@ bool TapLan::decryptData(UioCtx* ctx)
     ctx->dataLen -= NONCE_SIZE;
     AeadPacket* packet = reinterpret_cast<AeadPacket*>(&recvNonce);
     if (!session->decrypt(packet, ctx->dataLen)) {
-        LOGE(TAG, "Failed to decrypt packet from [%lu:%s]",
+        LOGE("Failed to decrypt packet from [{}:{}]",
             static_cast<uint64_t>(srcMac), IPv6_NTOP(ctx->buf->addr.sin6_addr).c_str());
         return false;
     }

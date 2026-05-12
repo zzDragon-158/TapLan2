@@ -18,6 +18,12 @@ enum class NodeStatus: uint8_t {
     ipGot,
     synced,
 };
+template <>
+struct std::formatter<NodeStatus> : std::formatter<int> {
+    auto format(NodeStatus s, format_context& ctx) const {
+        return std::formatter<int>::format(static_cast<int>(s), ctx);
+    }
+};
 
 enum class OP: uint16_t {
     getIP = 0,
@@ -26,6 +32,13 @@ enum class OP: uint16_t {
     respSync,
     modNode,
 };
+template <>
+struct std::formatter<OP> : std::formatter<int> {
+    auto format(OP op, format_context& ctx) const {
+        return std::formatter<int>::format(static_cast<int>(op), ctx);
+    }
+};
+
 
 struct NodeInfo {
     Mac         mac;

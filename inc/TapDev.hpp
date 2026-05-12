@@ -37,7 +37,7 @@ public:
     bool            isFdValid() {  return (fd_ != INVALID_TAPFD); };
     bool            close();
     const Mac&      getMacAddr() { return mac_; };
-    bool            setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen);
+    bool            setIPv4Addr(const in_addr& ipv4Addr, uint8_t netIdLen);
     uint64_t        getWriteBytes() { return writeBytes_; };
     uint64_t        getWriteErrs() { return writeErrs_; };
     uint64_t        getReadBytes() { return readBytes_; };

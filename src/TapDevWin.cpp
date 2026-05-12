@@ -56,7 +56,7 @@ TapDev::~TapDev()
     close();
     // use tapInfo_.DeviceInstanceID to remove
     // if (system(TAP_INSTALL " remove TAP0901"))
-    //     LOGE(TAG, "Removing tap device failed.");
+    //     LOGE("Removing tap device failed.");
 }
 
 bool TapDev::open()
@@ -72,7 +72,7 @@ bool TapDev::open()
     fd_ = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
     if (!isFdValid()) {
         errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to open TAP device.[%s]", errMsg.c_str());
+        LOGF("Failed to open TAP device.[{}]", errMsg.c_str());
         return false;
     }
 
@@ -88,7 +88,7 @@ bool TapDev::open()
     );
     if (!ok) {
         errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to set status to up.[%s]", errMsg.c_str());
+        LOGF("Failed to set status to up.[{}]", errMsg.c_str());
         return false;
     }
 
@@ -106,7 +106,7 @@ bool TapDev::open()
     );
     if (!ok) {
         errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to get MAC address.[%s]", errMsg.c_str());
+        LOGF("Failed to get MAC address.[{}]", errMsg.c_str());
         return false;
     }
 
@@ -123,18 +123,20 @@ bool TapDev::close()
     return true;
 }
 
-bool TapDev::setIPv4Addr(const in_addr* ipv4Addr, uint8_t netIdLen)
+bool TapDev::setIPv4Addr(const in_addr& ipv4Addr, uint8_t netIdLen)
 {
-    std::stringstream cidr;
-    cidr << inet_ntoa(*ipv4Addr) << "/" << +netIdLen;
+    std::string cmd = std::format(
+        R("netsh interface ip set address "{}" static "{}/{}""),
+        TAP_NAME,
+        ipv4Addr,
+        netIdLen
+    );
 
-    std::stringstream cmd;
-    cmd << "netsh interface ip set address \"" << TAP_NAME << "\" static " << cidr.str();
     if (system(cmd.str().c_str())) {
-        LOGE(TAG, "Failed to exec [%s].", cmd.str().c_str());
+        LOGE("Failed to exec [{}].", cmd.str().c_str());
         return false;
     }
-    LOGI(TAG, "%s IP address has been set to %s.", TAP_NAME, cidr.str().c_str());
+    LOGI("{} IP address has been set to {}.", TAP_NAME, ipv4Addr);
 
     return true;
 }
@@ -155,10 +157,10 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGF(TAG, "Failed to get DeviceInstanceID from %s.[%s]", adaptIdx, errMsg.c_str());
+        LOGF("Failed to get DeviceInstanceID from {}.[{}]", adaptIdx, errMsg.c_str());
         return false;
     }
-    LOGT(TAG, "DeviceInstanceID: [%s]", tapInfo_.devInstId);
+    LOGT("DeviceInstanceID: [{}]", tapInfo_.devInstId);
 
     err = RegGetValueA(
         adaptKey,
@@ -171,10 +173,10 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGF(TAG, "Failed to get NetCfgInstanceId from %s.[%s]", adaptIdx, errMsg.c_str());
+        LOGF("Failed to get NetCfgInstanceId from {}.[{}]", adaptIdx, errMsg.c_str());
         return false;
     }
-    LOGT(TAG, "NetCfgInstanceId: [%s]", tapInfo_.netCfgInstId);
+    LOGT("NetCfgInstanceId: [{}]", tapInfo_.netCfgInstId);
 
     std::stringstream connKeyPath;
     connKeyPath << NETWORK_CONNECTIONS_KEY << "\\" << tapInfo_.netCfgInstId << "\\Connection";
@@ -189,7 +191,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGF(TAG, "Failed to open %s.[%s]", connKeyPath.str().c_str(), errMsg);
+        LOGF("Failed to open {}.[{}]", connKeyPath.str().c_str(), errMsg);
         RegCloseKey(connKey);
         return false;
     }
@@ -206,15 +208,18 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     RegCloseKey(connKey);
     if (err) {
         errMsg = getErrMsg(err);
-        LOGE(TAG, "Failed to get Name from %s.[%s]", connKeyPath.str().c_str(), errMsg.c_str());
+        LOGE("Failed to get Name from {}.[{}]", connKeyPath.str().c_str(), errMsg.c_str());
         return false;
     }
 
     if (0 != strcmp(TAP_NAME, tapInfo_.name)) {
-        char cmd[256];
-        snprintf(cmd, REG_BUF_SIZE, "netsh interface set interface name=\"%s\" newname=\"%s\"", tapInfo_.name, TAP_NAME);
-        if (system(cmd)) {
-            LOGE(TAG, "Failed to exec [%s].", cmd);
+        std::string cmd = std::format(
+            R(netsh interface set interface name="{}" newname="{}"),
+            tapInfo_.name,
+            TAP_NAME
+        );
+        if (system(cmd.c_str())) {
+            LOGE("Failed to exec [{}].", cmd);
             return false;
         }
 
@@ -241,7 +246,7 @@ bool TapDev::findExistingTap()
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGE(TAG, "Failed to open %s.[%s]", ADAPTER_KEY, errMsg.c_str());
+        LOGE("Failed to open {}.[{}]", ADAPTER_KEY, errMsg.c_str());
         return false;
     }
 
@@ -261,7 +266,7 @@ bool TapDev::findExistingTap()
         if (err != ERROR_SUCCESS) {
             if (err != ERROR_NO_MORE_ITEMS) {
                 errMsg = getErrMsg(err);
-                LOGT(TAG, "Failed to enum %s.[%s]", NETWORK_CONNECTIONS_KEY, errMsg.c_str());
+                LOGT("Failed to enum {}.[{}]", NETWORK_CONNECTIONS_KEY, errMsg.c_str());
             }
             break;
         }
@@ -279,7 +284,7 @@ bool TapDev::findExistingTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT(TAG, "Failed to get Owner from %s.[%s]", adaptIdx, errMsg.c_str());
+            LOGT("Failed to get Owner from {}.[{}]", adaptIdx, errMsg.c_str());
             continue;
         } else if (0 != strcmp(TAP_NAME, owner)) {
             continue;
@@ -307,13 +312,16 @@ bool TapDev::createNewTap()
 
     DWORD attributes = GetFileAttributesA(TAP_INSTALL);
     if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
-        snprintf(cmd, REG_BUF_SIZE, "%s install OemVista.inf TAP0901", TAP_INSTALL);
-        if (system(cmd)) {
-            LOGE(TAG, "Failed to exec [%s].", cmd);
+        std::string cmd = std::format(
+            R("{} install OemVista.inf TAP0901"),
+            TAP_INSTALL
+        );
+        if (system(cmd.c_str())) {
+            LOGE("Failed to exec [{}].", cmd);
             return ret;
         }
     } else {
-        LOGE(TAG, "Please place [%s] in [%s].", TAP_INSTALL, getCurrentWorkDir().c_str());
+        LOGE("Please place [{}] in [{}].", TAP_INSTALL, getCurrentWorkDir().c_str());
         return ret;
     }
 
@@ -327,7 +335,7 @@ bool TapDev::createNewTap()
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGE(TAG, "Failed to open %s.[%s]", ADAPTER_KEY, errMsg.c_str());
+        LOGE("Failed to open {}.[{}]", ADAPTER_KEY, errMsg.c_str());
         return false;
     }
 
@@ -348,7 +356,7 @@ bool TapDev::createNewTap()
         if (err != ERROR_SUCCESS) {
             if (err != ERROR_NO_MORE_ITEMS) {
                 errMsg = getErrMsg(err);
-                LOGE(TAG, "Failed to enum %s.[%s]", ADAPTER_KEY, errMsg.c_str());
+                LOGE("Failed to enum {}.[{}]", ADAPTER_KEY, errMsg.c_str());
             }
             break;
         }
@@ -366,7 +374,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT(TAG, "Failed to get NetworkInterfaceInstallTimestamp from %s.[%s]", adaptIdx, errMsg.c_str());
+            LOGT("Failed to get NetworkInterfaceInstallTimestamp from {}.[{}]", adaptIdx, errMsg.c_str());
             continue;
         } else if (installTimestamp < startTimestamp) {
             continue;
@@ -385,7 +393,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT(TAG, "Failed to get ProviderName from %s.[%s]", adaptIdx, errMsg.c_str());
+            LOGT("Failed to get ProviderName from {}.[{}]", adaptIdx, errMsg.c_str());
             continue;
         } else if (strcmp("TAP-Windows Provider V9", (const char*)providerName) != 0) {
             continue;
@@ -408,7 +416,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to set NetworkAddress to %s.[%s]", macSs.str().c_str(), errMsg.c_str());
+            LOGE("Failed to set NetworkAddress to {}.[{}]", macSs.str().c_str(), errMsg.c_str());
         }
 
         std::string mtu_size = std::to_string(1418);
@@ -422,7 +430,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to set MTU to %s.[%s]", mtu_size.c_str(), errMsg.c_str());
+            LOGE("Failed to set MTU to {}.[{}]", mtu_size.c_str(), errMsg.c_str());
         }
 
         std::string owner = TAP_NAME;
@@ -436,12 +444,16 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to set Owner to %s.[%s]", owner.c_str(), errMsg.c_str());
+            LOGE("Failed to set Owner to {}.[{}]", owner.c_str(), errMsg.c_str());
         }
 
-        snprintf(cmd, REG_BUF_SIZE, "%s restart @%s", TAP_INSTALL, adapterInfo.devInstId);
-        if (system(cmd)) {
-            LOGF(TAG, "Failed to exec [%s].", cmd);
+        std::string cmd = std::format(
+            R("{} restart @{}"),
+            TAP_INSTALL,
+            adapterInfo.devInstId
+        );
+        if (system(cmd.c_str())) {
+            LOGF("Failed to exec [{}].", cmd);
             break;
         }
 

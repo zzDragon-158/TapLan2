@@ -22,7 +22,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
         if (err == EAGAIN || err == EWOULDBLOCK) {
             tapPollRead(fd, ctx);
         } else {
-            LOGE(TAG, "Failed to read tap.[%s]", strerror(err));
+            LOGE("Failed to read tap.[{}]", strerror(err));
         }
     }
 
@@ -34,7 +34,7 @@ int SioIntf::tapPollRead(TapFd fd, UioCtx* ctx)
     UnivPollFd pfd = { fd, POLLIN, 0};
     int res = UnivPoll(&pfd, 1, IO_WAIT_TIME * 1000);
     if (res == -1) {
-        LOGE(TAG, "Failed to poll tap.[%s]", strerror(errno));
+        LOGE("Failed to poll tap.[{}]", strerror(errno));
     }
 
     return res;
@@ -45,7 +45,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
     int res = ::write(fd, ctx->buf->payload, ctx->dataLen);
     if (res == -1) {
         int err = errno;
-        LOGE(TAG, "Failed to write tap.[%s]", strerror(err));
+        LOGE("Failed to write tap.[{}]", strerror(err));
     }
 
     return res;
@@ -75,7 +75,7 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
         if (err == EAGAIN || err == EWOULDBLOCK) {
             udpPollRecv(fd, ctx);
         } else {
-            LOGE(TAG, "Failed to recv udp.[%s]", strerror(err));
+            LOGE("Failed to recv udp.[{}]", strerror(err));
         }
     }
 
@@ -87,7 +87,7 @@ int SioIntf::udpPollRecv(SockFd fd, UioCtx* ctx)
     UnivPollFd pfd = { fd, POLLIN, 0};
     int res = UnivPoll(&pfd, 1, IO_WAIT_TIME * 1000);
     if (res == -1) {
-        LOGE(TAG, "Failed to poll udp.[%s]", strerror(errno));
+        LOGE("Failed to poll udp.[{}]", strerror(errno));
     }
 
     return res;
@@ -113,7 +113,7 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
                        sizeof(ctx->buf->addr));
     if (res == -1) {
         int err = errno;
-        LOGE(TAG, "Failed to sendto udp.[%s]", strerror(err));
+        LOGE("Failed to sendto udp.[{}]", strerror(err));
     }
 
     return res;
@@ -139,7 +139,7 @@ int AioIntf::initAioIntf()
     params.flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
     res = io_uring_queue_init_params(IOURING_SIZE, ring_, &params);
     if (res < 0) {
-        LOGF(TAG, "Failed to init queue params.[%s]", strerror(-res));
+        LOGF("Failed to init queue params.[{}]", strerror(-res));
         g_cfgData.running() = false;
         return -1;
     }
@@ -150,11 +150,11 @@ int AioIntf::initAioIntf()
                                MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
                                -1, 0);
     if (dataBufs_ == MAP_FAILED) {
-        LOGD(TAG, "Cant allocate [%u] hugepage memory.", totalDatBufSize);
+        LOGD("Cant allocate [{}] hugepage memory.", totalDatBufSize);
         posix_memalign((void **)&dataBufs_, 4096, totalDatBufSize);
         if (!dataBufs_) {
             g_cfgData.running() = false;
-            LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
+            LOGF("Cant allocate [{}] memory.", totalDatBufSize);
             return -1;
         }
     }
@@ -179,7 +179,7 @@ int AioIntf::initAioIntf()
     res = io_uring_register_buffers(ring_, iovs, DATA_BUF_NUM);
     if (res < 0) {
         g_cfgData.running() = false;
-        LOGF(TAG, "Failed to register buffers.[%s]", strerror(-res));
+        LOGF("Failed to register buffers.[{}]", strerror(-res));
         return -1;
     }
 
@@ -187,7 +187,7 @@ int AioIntf::initAioIntf()
     posix_memalign((void**)(&bufRing_), 4096, bufRingSize);
     if (!bufRing_) {
         g_cfgData.running() = false;
-        LOGF(TAG, "Failed to allocate [%u] memory for io_uring_buf_ring.", bufRingSize);
+        LOGF("Failed to allocate [{}] memory for io_uring_buf_ring.", bufRingSize);
         return -1;
     }
 
@@ -197,7 +197,7 @@ int AioIntf::initAioIntf()
     bufReg.bgid = 0;
     res = io_uring_register_buf_ring(ring_, &bufReg, 0);
     if (res < 0) {
-        LOGF(TAG, "Failed to register buf ring.[%s]", strerror(-res));
+        LOGF("Failed to register buf ring.[{}]", strerror(-res));
         g_cfgData.running() = false;
         return -1;
     }
@@ -211,7 +211,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
     if (!ctx) {
         ctx = acquireIoCtx();
         if (!ctx) {
-            LOGW(TAG, "Failed to acquire aio ctx for reqTapRead.");
+            LOGW("Failed to acquire aio ctx for reqTapRead.");
             return -1;
         }
     }
@@ -259,7 +259,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     if (!ctx) {
         ctx = acquireIoCtx();
         if (!ctx) {
-            LOGW(TAG, "Failed to acquire aio ctx for reqUdpRecv.");
+            LOGW("Failed to acquire aio ctx for reqUdpRecv.");
             return -1;
         }
     }
@@ -270,7 +270,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
         io_uring_buf_ring_add(bufRing_, ctx->buf, DATA_BUF_SIZE,
                               ctx->bufId, bufRingMask_, advanceCnt_++);
         if (advanceCnt_ >= MAX_RECV_REQ / 2) {
-            LOGT(TAG, "buf ring advance [%u].", advanceCnt_);
+            LOGT("buf ring advance [{}].", advanceCnt_);
             io_uring_buf_ring_advance(bufRing_, advanceCnt_);
             advanceCnt_ = 0;
         }
@@ -354,7 +354,7 @@ void AioIntf::aioWrk()
     while (g_cfgData.running()) {
         int res = io_uring_wait_cqe_timeout(ring_, &cqe, &timeout);
         if (res < 0 && res != -ETIME) {
-            LOGF(TAG, "Failed to wait cqe.[%s]", strerror(-res));
+            LOGF("Failed to wait cqe.[{}]", strerror(-res));
             break;
         }
 
@@ -375,7 +375,7 @@ void AioIntf::aioWrk()
                 }
 
                 if (!(cqe->flags & IORING_CQE_F_MORE)) {
-                    LOGE(TAG, "UDP recvmsg multishot stop.[%d]", strerror(-cqe->res));
+                    LOGE("UDP recvmsg multishot stop.[{}]", strerror(-cqe->res));
                     reqUdpRecvMultishot(udpFd_);
                 }
                 break;
@@ -413,5 +413,5 @@ void AioIntf::aioWrk()
         io_uring_submit(ring_);
     }
 
-    LOGI(TAG, "aioWrk has exited.");
+    LOGI("aioWrk has exited.");
 }

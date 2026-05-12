@@ -30,12 +30,12 @@ AeadSession::AeadSession(const Mac& mac, const Nonce& nonce)
         std::time_t now = std::time(nullptr);
         sendNonce_.macEUI[3] = now & 0xff;
     }
-    LOGD(TAG, "new session: send[%X] recv[%X].", sendNonce_.sessionId, recvNonce_.sessionId);
+    LOGD("new session: send[{:X}] recv[{:X}].", sendNonce_.sessionId, recvNonce_.sessionId);
 }
 
 AeadSession::~AeadSession()
 {
-    LOGD(TAG, "del session: send[%X] recv[%X].", sendNonce_.sessionId, recvNonce_.sessionId);
+    LOGD("del session: send[{:X}] recv[{:X}].", sendNonce_.sessionId, recvNonce_.sessionId);
 }
 
 bool AeadSession::initAeadSession()
@@ -45,17 +45,17 @@ bool AeadSession::initAeadSession()
     }
 
     if (sodium_init() < 0) {
-        LOGE(TAG, "Failed to init sodium.");
+        LOGE("Failed to init sodium.");
         return false;
     }
 
     // if (crypto_aead_aes256gcm_is_available() == 0) {
-    //     LOGE(TAG, "Hardware does not support AES-GCM!");
+    //     LOGE("Hardware does not support AES-GCM!");
     //     return false;
     // }
 
     const std::string& passwd = g_cfgData.passwd();
-    LOGD(TAG, "passwd: %s", passwd.c_str());
+    LOGD("passwd: {}", passwd);
     crypto_hash_sha256(key_, (const unsigned char*)passwd.c_str(), passwd.length());
 
     s_initialized_ = true;
@@ -81,13 +81,13 @@ bool AeadSession::checkReplay(uint64_t seq)
 
     uint64_t delta = recvMaxSeen_ - seq;
     if (delta >= 64) {
-        LOGW(TAG, "[%X]Seq of recv packet out of range.", recvNonce_.sessionId);
+        LOGW("[{:X}]Seq of recv packet out of range.", recvNonce_.sessionId);
         return false;
     }
 
     uint64_t seqBit = 1ULL << delta;
     if (recvBitmap_ & seqBit) {
-        LOGW(TAG, "[%X]Replay package detected.", recvNonce_.sessionId);
+        LOGW("[{:X}]Replay package detected.", recvNonce_.sessionId);
         return false;
     }
 

@@ -1,6 +1,7 @@
 #pragma     once
 #include    <cstdint>
 #include    <string>
+#include    <format>
 #include    <LogMgr.hpp>
 
 #ifdef      _WIN32
@@ -126,12 +127,59 @@ constexpr int IO_WAIT_TIME = 3;
 
 static void delayExit(int code, int64_t delaySeconds = 0)
 {
-    g_logMgr.terminate();
-
     if (delaySeconds > 0) {
-        std::cout << "Program will completely exit after "<< delaySeconds <<" seconds." << std::endl;
+        LOGR("Program will completely exit after {} seconds.\n", delaySeconds);
         std::this_thread::sleep_for(std::chrono::seconds(delaySeconds));
     }
 
+    g_logMgr.terminate();
     exit(code);
 }
+
+template <>
+struct std::formatter<in6_addr> {
+    constexpr auto parse(std::format_parse_context& ctx) {
+        return ctx.begin();
+    }
+
+    auto format(const in6_addr& addr, std::format_context& ctx) const {
+        char buf[INET6_ADDRSTRLEN];
+        if (inet_ntop(AF_INET6, &addr, buf, sizeof(buf)) == nullptr) {
+            return std::format_to(ctx.out(), "Invalid_IPv6");
+        }
+
+        return std::format_to(ctx.out(), "{}", (const char*)buf);
+    }
+};
+
+template <>
+struct std::formatter<in_addr> {
+    constexpr auto parse(std::format_parse_context& ctx) {
+        return ctx.begin();
+    }
+
+    auto format(const in_addr& addr, std::format_context& ctx) const {
+        char buf[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &addr, buf, sizeof(buf)) == nullptr) {
+            return std::format_to(ctx.out(), "Invalid_IPv4");
+        }
+
+        return std::format_to(ctx.out(), "{}", (const char*)buf);
+    }
+};
+
+template<>
+struct std::formatter<Mac> {
+    constexpr auto parse(std::format_parse_context& ctx) {
+        return ctx.begin();
+    }
+
+    auto format(const Mac& mac, std::format_context& ctx) const {
+        return std::format_to(
+            ctx.out(),
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            mac.addr[0], mac.addr[1], mac.addr[2],
+            mac.addr[3], mac.addr[4], mac.addr[5]
+        );
+    }
+};

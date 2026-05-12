@@ -1,21 +1,20 @@
 #pragma     once
 #include    <cstdio>
-#include    <cstdarg>
 #include    <cstring>
-#include    <iostream>
 #include    <fstream>
 #include    <thread>
 #include    <atomic>
 #include    <semaphore>
 #include    <pthread.h>
+#include    <format>
 
-#define     LOGR(fmt, ...)              g_logMgr.logOutput(LogLevel::raw, "", fmt, ##__VA_ARGS__)
-#define     LOGF(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::fatal, TAG, fmt, ##__VA_ARGS__)
-#define     LOGE(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::error, TAG, fmt, ##__VA_ARGS__)
-#define     LOGW(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::warn, TAG, fmt, ##__VA_ARGS__)
-#define     LOGI(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::info, TAG, fmt, ##__VA_ARGS__)
-#define     LOGD(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::debug, TAG, fmt, ##__VA_ARGS__)
-#define     LOGT(TAG, fmt, ...)         g_logMgr.logOutput(LogLevel::trace, TAG, fmt, ##__VA_ARGS__)
+#define     LOGR(fmt, ...)         g_logMgr.logToRing(LogLevel::raw, "", fmt __VA_OPT__(,) __VA_ARGS__)
+#define     LOGF(fmt, ...)         g_logMgr.logToRing(LogLevel::fatal, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
+#define     LOGE(fmt, ...)         g_logMgr.logToRing(LogLevel::error, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
+#define     LOGW(fmt, ...)         g_logMgr.logToRing(LogLevel::warn, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
+#define     LOGI(fmt, ...)         g_logMgr.logToRing(LogLevel::info, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
+#define     LOGD(fmt, ...)         g_logMgr.logToRing(LogLevel::debug, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
+#define     LOGT(fmt, ...)         g_logMgr.logToRing(LogLevel::trace, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
 
 enum class LogLevel: char {
     raw = -1,
@@ -35,6 +34,10 @@ public:
     void setLogLevel(LogLevel level) { logLevel_ = level; };
     bool isRunning() { return running_; };
     void logOutput(LogLevel level, const char* tag, const char* format, ...);
+    template<typename... Args>
+    void logToRing(LogLevel level, const char* tag, std::string_view fmt, Args&&... args) {
+        doLogToRing(level, tag, fmt, std::make_format_args(args...));
+    }
     static LogMgr& instance() {
         static LogMgr ins;
         return ins;
@@ -76,6 +79,7 @@ private:
     LogMgr();
     ~LogMgr();
     int initLogMgr();
+    void doLogToRing(LogLevel level, const char* tag, std::string_view fmt, std::format_args args);
     void clearLog();
     void logWrk();
 };

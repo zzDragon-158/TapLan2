@@ -32,7 +32,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 
     err = GetLastError();
     if (err != ERROR_IO_PENDING) {
-        LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
+        LOGE("Failed to read tap.[{}]", getErrMsg(err).c_str());
         return -1;
     }
 
@@ -40,16 +40,16 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
     if (res != WAIT_OBJECT_0) {
         switch (res) {
         case WAIT_TIMEOUT:
-            LOGE(TAG, "read tap timeout.");
+            LOGE("read tap timeout.");
             break;
 
         case WAIT_FAILED:
             err = GetLastError();
-            LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err));
+            LOGE("Failed to read tap.[{}]", getErrMsg(err));
             break;
 
         default:
-            LOGE(TAG, "Unknown error[%u].", res);
+            LOGE("Unknown error[{}].", res);
             break;
         }
         return -1;
@@ -58,7 +58,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
     if (!GetOverlappedResult(fd, &ctx->ol, &ctx->dataLen, FALSE)) {
         err = GetLastError();
         if (err != ERROR_OPERATION_ABORTED) {
-            LOGE(TAG, "Failed to get read result.[%s]", getErrMsg(err).c_str());
+            LOGE("Failed to get read result.[{}]", getErrMsg(err).c_str());
         }
         return -1;
     }
@@ -78,7 +78,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
     err = GetLastError();
     if (err != ERROR_IO_PENDING) {
-        LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
+        LOGE("Failed to write tap.[{}]", getErrMsg(err).c_str());
         return -1;
     }
 
@@ -86,16 +86,16 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
     if (res != WAIT_OBJECT_0) {
         switch (res) {
         case WAIT_TIMEOUT:
-            LOGE(TAG, "Write tap timeout.");
+            LOGE("Write tap timeout.");
             break;
 
         case WAIT_FAILED:
             err = GetLastError();
-            LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err));
+            LOGE("Failed to write tap.[{}]", getErrMsg(err));
             break;
 
         default:
-            LOGE(TAG, "Unknown error[%u].", res);
+            LOGE("Unknown error[{}].", res);
             break;
         }
         return -1;
@@ -103,7 +103,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
     if (!GetOverlappedResult(fd, &ctx->ol, &writeBytes, FALSE)) {
         err = GetLastError();
-        LOGE(TAG, "Failed to get write result.[%s]", getErrMsg(err).c_str());
+        LOGE("Failed to get write result.[{}]", getErrMsg(err).c_str());
         return -1;
     }
 
@@ -135,7 +135,7 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
     if (res == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSAEINTR) {
-            LOGE(TAG, "Failed to recvfrom udp.[%s]", getErrMsg(err).c_str());
+            LOGE("Failed to recvfrom udp.[{}]", getErrMsg(err).c_str());
         }
         return -1;
     }
@@ -169,7 +169,7 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
 
     if (res == SOCKET_ERROR) {
         err = WSAGetLastError();
-        LOGE(TAG, "Failed to sendto udp.[%s]", getErrMsg(err).c_str());
+        LOGE("Failed to sendto udp.[{}]", getErrMsg(err).c_str());
         return -1;
     }
 
@@ -194,7 +194,7 @@ int AioIntf::initAioIntf()
     dataBufs_ = (uint8_t*)_aligned_malloc(totalDatBufSize, 64);
     if (dataBufs_ == nullptr) {
         g_cfgData.running() = false;
-        LOGF(TAG, "Cant allocate [%u] memory.", totalDatBufSize);
+        LOGF("Cant allocate [{}] memory.", totalDatBufSize);
         return -1;
     }
 
@@ -215,13 +215,13 @@ int AioIntf::initAioIntf()
     if (hIOCP_ == nullptr) {
         g_cfgData.running() = false;
         errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to create IOCP.[%s]", errMsg.c_str());
+        LOGF("Failed to create IOCP.[{}]", errMsg.c_str());
         return -1;
     }
 
     if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
         errMsg = getErrMsg(GetLastError());
-        LOGF(TAG, "Failed to bind tap to IOCP.[%s]", errMsg.c_str());
+        LOGF("Failed to bind tap to IOCP.[{}]", errMsg.c_str());
         g_cfgData.running() = false;
         return -1;
     }
@@ -236,7 +236,7 @@ int AioIntf::initAioIntf()
             SockFd udpFd = udpSockPtr->getFd();
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
                 errMsg = getErrMsg(GetLastError());
-                LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
+                LOGF("Failed to bind udp to IOCP.[{}]", errMsg.c_str());
                 g_cfgData.running() = false;
                 return -1;
             }
@@ -244,7 +244,7 @@ int AioIntf::initAioIntf()
     } else {
         if (!CreateIoCompletionPort((HANDLE)udpFd_, hIOCP_, (ULONG_PTR)this, 0)) {
             errMsg = getErrMsg(GetLastError());
-            LOGF(TAG, "Failed to bind udp to IOCP.[%s]", errMsg.c_str());
+            LOGF("Failed to bind udp to IOCP.[{}]", errMsg.c_str());
             g_cfgData.running() = false;
             return -1;
         }
@@ -259,7 +259,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
     if (!ctx) {
         ctx = acquireIoCtx();
         if (!ctx) {
-            LOGW(TAG, "Failed to acquire aio ctx for reqTapRead.");
+            LOGW("Failed to acquire aio ctx for reqTapRead.");
             return -1;
         }
     }
@@ -272,7 +272,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            LOGE(TAG, "Failed to read tap.[%s]", getErrMsg(err).c_str());
+            LOGE("Failed to read tap.[{}]", getErrMsg(err).c_str());
             releaseIoCtx(ctx);
             return -1;
         }
@@ -301,7 +301,7 @@ int AioIntf::reqTapWrite(TapFd fd, UioCtx* ctx)
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            LOGE(TAG, "Failed to write tap.[%s]", getErrMsg(err).c_str());
+            LOGE("Failed to write tap.[{}]", getErrMsg(err).c_str());
             releaseIoCtx(ctx);
             return -1;
         }
@@ -315,7 +315,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     if (!ctx) {
         ctx = acquireIoCtx();
         if (!ctx) {
-            LOGW(TAG, "Failed to acquire aio ctx for reqUdpRecv.");
+            LOGW("Failed to acquire aio ctx for reqUdpRecv.");
             return -1;
         }
     }
@@ -347,7 +347,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     if (res == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            LOGE(TAG, "Failed to recv udp.[%s]", getErrMsg(err).c_str());
+            LOGE("Failed to recv udp.[{}]", getErrMsg(err).c_str());
             releaseIoCtx(ctx);
             return -1;
         }
@@ -394,7 +394,7 @@ int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
     if (res == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            LOGE(TAG, "Failed to send udp.[%s]", getErrMsg(err).c_str());
+            LOGE("Failed to send udp.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
             return -1;
         }
@@ -441,7 +441,7 @@ void AioIntf::aioWrk()
                 break;
 
             errMsg = getErrMsg(err);
-            LOGE(TAG, "Failed to GQCS.[%s]", errMsg.c_str());
+            LOGE("Failed to GQCS.[{}]", errMsg);
             ctx->dataLen = -err;
         }
 
@@ -467,5 +467,5 @@ void AioIntf::aioWrk()
         }
     }
 
-    LOGI(TAG, "aioWrk has exited.");
+    LOGI("aioWrk has exited.");
 }

@@ -23,7 +23,7 @@ void SioIntf::udpWrk()
         tapLanPtr_->handleUdpData(ctx);
     }
 
-    LOGI(TAG, "udpWrk has exited.");
+    LOGI("udpWrk has exited.");
 }
 
 void SioIntf::tapWrk()
@@ -40,7 +40,7 @@ void SioIntf::tapWrk()
         tapLanPtr_->handleTapData(ctx);
     }
 
-    LOGI(TAG, "tapWrk has exited.");
+    LOGI("tapWrk has exited.");
 }
 
 AioIntf::AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
@@ -87,7 +87,7 @@ int AioIntf::handleTapRead(UioCtx* ctx)
 {
     if (ctx->dataLen <= 0) {
         if (ctx->dataLen != -EAGAIN && ctx->dataLen != -EWOULDBLOCK) {
-            LOGE(TAG, "Failed to read tap.[%s]", strerror(-ctx->dataLen));
+            LOGE("Failed to read tap.[{}]", strerror(-ctx->dataLen));
         }
     } else {
         tapLanPtr_->handleTapData(ctx);
@@ -100,7 +100,7 @@ int AioIntf::handleTapRead(UioCtx* ctx)
 int AioIntf::handleTapWrite(UioCtx* ctx)
 {
     if (ctx->dataLen <= 0) {
-        LOGE(TAG, "Failed to write tap.[%s]", strerror(-ctx->dataLen));
+        LOGE("Failed to write tap.[{}]", strerror(-ctx->dataLen));
     }
 
     releaseIoCtx(ctx);
@@ -110,7 +110,7 @@ int AioIntf::handleTapWrite(UioCtx* ctx)
 int AioIntf::handleUdpRecv(UioCtx* ctx)
 {
     if (ctx->dataLen < 0) {
-        LOGE(TAG, "Failed to recv udp.[%s]", strerror(-ctx->dataLen));
+        LOGE("Failed to recv udp.[{}]", strerror(-ctx->dataLen));
     } else {
         tapLanPtr_->handleUdpData(ctx);
     }
@@ -122,7 +122,7 @@ int AioIntf::handleUdpRecv(UioCtx* ctx)
 int AioIntf::handleUdpSend(UioCtx* ctx)
 {
     if (ctx->dataLen < 0) {
-        LOGE(TAG, "Failed to send udp.[%s]", strerror(-ctx->dataLen));
+        LOGE("Failed to send udp.[{}]", strerror(-ctx->dataLen));
     }
 
     releaseIoCtx(ctx);

@@ -7,7 +7,7 @@ bool BsdSock::initWsa()
     if (!s_isWsaInitialized_) {
         WSADATA wsaData;
         if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-            LOGE(TAG, "WSAStartup failed. %s", getSockErr().c_str());
+            LOGE("WSAStartup failed. {}", getSockErr());
             s_isWsaInitialized_ =  false;
         } else {
             s_isWsaInitialized_ = true;
@@ -37,14 +37,14 @@ bool TcpSock::open()
 
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
     if (!isFdValid()) {
-        LOGE(TAG, "Can not create tcp socket.[%s]", getSockErr().c_str());
+        LOGE("Can not create tcp socket.[{}]", getSockErr());
         return false;
     }
 
     /* listen to ipv4 and ipv6 */ {
         int off = 0;
         if (setsockopt(fd_, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off, sizeof(off))) {
-            LOGE(TAG, "TCP setsockopt(IPV6_V6ONLY) failed. %s", getSockErr().c_str());
+            LOGE("TCP setsockopt(IPV6_V6ONLY) failed. {}", getSockErr());
             return false;
         }
     }
@@ -53,7 +53,7 @@ bool TcpSock::open()
         int optval = 1;
         int optlevel = (SO_REUSEADDR);
         if (setsockopt(fd_, SOL_SOCKET, optlevel, (char*)&optval, sizeof(optval))) {
-            LOGE(TAG, "TCP setsockopt(SO_REUSEADDR) failed. %s", getSockErr().c_str());
+            LOGE("TCP setsockopt(SO_REUSEADDR) failed. {}", getSockErr());
             return false;
         }
     }
@@ -64,7 +64,7 @@ bool TcpSock::open()
         addr.sin6_addr = in6addr_any;
         addr.sin6_port = htons(bindPort_);
         if (bind(fd_, (sockaddr*)(&addr), sizeof(addr))) {
-            LOGE(TAG, "TCP can not bind to [::]:%u. %s", bindPort_, getSockErr().c_str());
+            LOGE("TCP can not bind to [::]:{}. {}", bindPort_, getSockErr());
             return false;
         }
     }
@@ -72,7 +72,7 @@ bool TcpSock::open()
     /* set timeout */ {
         DWORD timeout = IO_WAIT_TIME * 1000;
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lu ms. %s", timeout, getSockErr().c_str());
+            LOGW("UDP can not setsockopt(SO_RCVTIMEO) to {} ms. {}", timeout, getSockErr());
         }
     }
 
@@ -91,7 +91,7 @@ ssize_t TcpSock::send(const void* buf, size_t bufLen)
             0
         );
         if (res == SOCKET_ERROR) {
-            LOGE(TAG, "Failed to send.[%s]", getSockErr().c_str());
+            LOGE("Failed to send.[{}]", getSockErr());
             break;
         }
 
@@ -120,7 +120,7 @@ ssize_t TcpSock::recv(void* buf, size_t bufLen)
             return -2;
         }
 
-        LOGE(TAG, "Failed to recv.[%s]", getErrMsg(err).c_str());
+        LOGE("Failed to recv.[{}]", getErrMsg(err).c_str());
         break;
     }
 
@@ -134,14 +134,14 @@ bool UdpSock::open()
 
     fd_ = socket(AF_INET6, SOCK_DGRAM, 0);
     if (!isFdValid()) {
-        LOGE(TAG, "Can not create udp socket. %s", getSockErr().c_str());
+        LOGE("Can not create udp socket. {}", getSockErr());
         return false;
     }
 
     /* listen to ipv4 and ipv6 */ {
         int off = 0;
         if (setsockopt(fd_, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off, sizeof(off))) {
-            LOGE(TAG, "UDP setsockopt(IPV6_V6ONLY) failed. %s", getSockErr().c_str());
+            LOGE("UDP setsockopt(IPV6_V6ONLY) failed. {}", getSockErr());
             return false;
         }
     }
@@ -152,7 +152,7 @@ bool UdpSock::open()
         addr.sin6_addr = in6addr_any;
         addr.sin6_port = htons(bindPort_);
         if (bind(fd_, (sockaddr*)(&addr), sizeof(sockaddr_in6))) {
-            LOGE(TAG, "UDP can not bind to [::]:%u. %s", bindPort_, getSockErr().c_str());
+            LOGE("UDP can not bind to [::]:{}. {}", bindPort_, getSockErr());
             return false;
         }
     }
@@ -160,16 +160,16 @@ bool UdpSock::open()
     // /* set timeout */ {
     //     DWORD timeout = WAIT_IO_TIME * 1000;
     //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout))) {
-    //         LOGW(TAG, "UDP can not setsockopt(SO_RCVTIMEO) to %lu s. %s", timeout, getSockErr().c_str());
+    //         LOGW("UDP can not setsockopt(SO_RCVTIMEO) to %lu s. {}", timeout, getSockErr());
     //     }
     // }
 
     /* set udp buffer size */ {
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&UDP_BUF_SIZE, sizeof(UDP_BUF_SIZE))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_RCVBUF) to %d. %s", UDP_BUF_SIZE, getSockErr().c_str());
+            LOGW("UDP can not setsockopt(SO_RCVBUF) to {}. {}", UDP_BUF_SIZE, getSockErr());
         }
         if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&UDP_BUF_SIZE, sizeof(UDP_BUF_SIZE))) {
-            LOGW(TAG, "UDP can not setsockopt(SO_SNDBUF) to %d. %s", UDP_BUF_SIZE, getSockErr().c_str());
+            LOGW("UDP can not setsockopt(SO_SNDBUF) to {}. {}", UDP_BUF_SIZE, getSockErr());
         }
     }
 
@@ -177,7 +177,7 @@ bool UdpSock::open()
         BOOL bEnalbeConnRestError = FALSE;
         DWORD dwBytesReturned = 0;
         if (WSAIoctl(fd_, _WSAIOW(IOC_VENDOR, 12), &bEnalbeConnRestError, sizeof(bEnalbeConnRestError), nullptr, 0, &dwBytesReturned, nullptr, nullptr)) {
-            LOGE(TAG, "UDP WSAIoctl(_WSAIOW(IOC_VENDOR, 12)) failed. %s", getSockErr().c_str());
+            LOGE("UDP WSAIoctl(_WSAIOW(IOC_VENDOR, 12)) failed. {}", getSockErr());
             return false;
         }
     }
@@ -189,7 +189,7 @@ ssize_t UdpSock::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr,
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        LOGW(TAG, "UDP sendBytes[%ld] is less than expected[%ld]. %d", sendBytes, bufLen, getSockErr().c_str());
+        LOGW("UDP sendBytes[{}] is less than expected[{}]. {}", sendBytes, bufLen, getSockErr());
     }
 
     return sendBytes;
@@ -200,7 +200,7 @@ ssize_t UdpSock::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
         if (WSAGetLastError() != WSAETIMEDOUT) {
-            LOGE(TAG, "UDP receiving from UDP socket failed. %s", getSockErr().c_str());
+            LOGE("UDP receiving from UDP socket failed. {}", getSockErr());
         }
     }
 

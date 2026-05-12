@@ -1,4 +1,7 @@
 #include "LogMgr.hpp"
+#include <cstdarg>
+#include <iostream>
+#include <print>
 
 LogMgr::LogMgr()
 : logLevel_(LogLevel::info)
@@ -27,7 +30,7 @@ int LogMgr::initLogMgr()
     posix_memalign((void**)&logEntryRing_, 4096, LOG_ENTRY_RING_SIZE);
 #endif
     if (!logEntryRing_) {
-        printf("Cant allocate [%u] memory.", LOG_ENTRY_RING_SIZE);
+        std::println(stderr, "Cant allocate {}bytes memory.", LOG_ENTRY_RING_SIZE);
         return -1;
     }
 
@@ -81,7 +84,7 @@ void LogMgr::logOutput(LogLevel level, const char* tag, const char* format, ...)
                                                 ENTRY_WRITTING,
                                                 std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
-        std::cerr << "Log Ring Full." << std::endl;
+        std::println(stderr, "Log Ring Full.");
         running_ = false;
         return ;
     }
@@ -110,6 +113,48 @@ void LogMgr::logOutput(LogLevel level, const char* tag, const char* format, ...)
     logEntry.state.store(ENTRY_READY, std::memory_order_release);
 
     // wIdx_.notify_one();
+    if ((entryIdx & LOG_NOTIFY_THRESHOLD) == 0)
+        logSem_.release();
+}
+
+void LogMgr::doLogToRing(LogLevel level, const char* tag, std::string_view fmt, std::format_args args)
+{
+    if (!running_ || level > logLevel_)
+        return ;
+
+    size_t entryIdx = wIdx_.fetch_add(1, std::memory_order_relaxed);
+    LogEntry& logEntry = logEntryRing_[entryIdx & LOG_RING_MASK];
+
+    EntryState expectedState = ENTRY_EMPTY;
+    if (!logEntry.state.compare_exchange_strong(expectedState,
+                                                ENTRY_WRITTING,
+                                                std::memory_order_acquire,
+                                                std::memory_order_relaxed)) {
+        std::println(stderr, "Log Ring Full.");
+        running_ = false;
+        return ;
+    }
+
+    char* pos = logEntry.data;
+    if (level != LogLevel::raw) {
+        pos = std::format_to(
+            pos,
+            "{}\t{}\t",
+            tag,
+            logLevelStr[static_cast<size_t>(level)]
+        );
+    }
+    pos = std::vformat_to(
+        pos,
+        fmt,
+        args
+    );
+    if (level != LogLevel::raw) {
+        *pos++ = '\n';
+    }
+    *pos = '\0';
+    logEntry.state.store(ENTRY_READY, std::memory_order_release);
+
     if ((entryIdx & LOG_NOTIFY_THRESHOLD) == 0)
         logSem_.release();
 }

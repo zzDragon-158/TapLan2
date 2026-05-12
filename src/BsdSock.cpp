@@ -45,7 +45,7 @@ BsdSock::~BsdSock()
 bool BsdSock::open()
 {
     // TODO: maybe for open raw socket?
-    LOGT(TAG, "Why are we here?");
+    LOGE("Not support to open raw socket.");
 
     return true;
 }
@@ -97,8 +97,9 @@ TcpSock& TcpSock::operator=(TcpSock&& other) noexcept
 
 TcpSock::~TcpSock()
 {
-    if (remoteAddr_.sin6_port)
-        LOGI(TAG, "client[%s] closed the connection.", IPv6_NTOP(remoteAddr_.sin6_addr).c_str());
+    if (remoteAddr_.sin6_port) {
+        LOGI("client closed the connection.", remoteAddr_.sin6_addr);
+    }
 }
 
 bool TcpSock::connect()
@@ -108,7 +109,7 @@ bool TcpSock::connect()
         reinterpret_cast<const sockaddr *>(&remoteAddr_),
         sizeof(remoteAddr_)
     )) {
-        LOGE(TAG, "Failed to connect.[%s]", getSockErr().c_str());
+        LOGE("Failed to connect.[{}]", getSockErr());
         return false;
     }
     isPassive_ = false;
@@ -119,7 +120,7 @@ bool TcpSock::connect()
 bool TcpSock::listen(int backlog)
 {
     if (::listen(fd_, backlog)) {
-        LOGE(TAG, "Failed to listen.[%s]", getSockErr().c_str());
+        LOGE("Failed to listen.[{}]", getSockErr());
         return false;
     }
     isPassive_ = true;
