@@ -140,8 +140,8 @@ void LogMgr::doLogToRing(LogLevel level, const char* tag, std::string_view fmt, 
         pos = std::format_to(
             pos,
             "{}\t{}\t",
-            tag,
-            logLevelStr[static_cast<size_t>(level)]
+            logLevelStr[static_cast<size_t>(level)],
+            tag
         );
     }
     pos = std::vformat_to(
