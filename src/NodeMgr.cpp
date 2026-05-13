@@ -22,7 +22,7 @@ NodeMgr::NodeMgr()
     if (g_cfgData.runMode() == RunMode::server) {
         LOGI("We are running in server mode.");
         if (g_cfgData.running()) {
-            const Mac& mac = g_tapDev.getMacAddr();
+            const Mac& mac = g_tapDev.getMac();
             NodeInfoSPtr nodeInfo = assignIpHostNumForNode(g_cfgData.serverAddr(), mac);
             nodeInfo->status = NodeStatus::synced;
             g_tapDev.setIPv4Addr(nodeInfo->ipv4Addr, g_cfgData.netNumLen());
@@ -30,6 +30,7 @@ NodeMgr::NodeMgr()
         }
     } else {
         LOGI("We are running in client mode.");
+        aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMac());
     }
 }
 
@@ -92,6 +93,22 @@ NodeInfoSPtr NodeMgr::assignIpHostNumForNode(const sockaddr_in6& addr, const Mac
     return nodeInfo;
 }
 
+NodeSessSPtr NodeMgr::addEmptyNode(const Mac& mac)
+{
+    WLock wLock(rwMutex_);
+    auto [it, inserted] = macToNodeSess_.try_emplace(mac);
+    if (inserted) {
+        LOGD("add mac[{}].", mac);
+        NodeSessSPtr node = std::make_shared<NodeSession>();
+        node->nodeInfo = constructNodeInfo(g_cfgData.serverAddr(), mac, 0);
+        node->aeadSess = aeadSession_;
+
+        it->second = node;
+    }
+
+    return it->second;
+}
+
 NodeSessSPtr NodeMgr::addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMsgHdr)
 {
     const Mac& mac = syncMsgHdr.mac;
@@ -110,7 +127,7 @@ NodeSessSPtr NodeMgr::addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMs
 
     node = std::make_shared<NodeSession>();
     node->nodeInfo = nodeInfo;
-    node->aeadSess = std::make_shared<AeadSession>(g_tapDev.getMacAddr(), syncMsgHdr.nonce);
+    node->aeadSess = std::make_shared<AeadSession>(g_tapDev.getMac(), syncMsgHdr.nonce);
 
     WLock wLock(rwMutex_);
     macToNodeSess_.insert_or_assign(mac, node);
@@ -250,10 +267,10 @@ bool NodeMgr::connectToServer()
 
 bool NodeMgr::reqIPFromServer()
 {
-    aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMacAddr());
+    aeadSession_ = std::make_shared<AeadSession>(g_tapDev.getMac());
 
     SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
-    reqMsgHdr.mac = g_tapDev.getMacAddr();
+    reqMsgHdr.mac = g_tapDev.getMac();
     reqMsgHdr.op = OP::getIP;
     reqMsgHdr.nonce = aeadSession_->getSendNonce();
     reqMsgHdr.port = htons(g_cfgData.localPort());
@@ -286,7 +303,7 @@ bool NodeMgr::syncNodeFromServer()
 {
     if (nodeStatus_ != NodeStatus::synced) {
         SyncMsgHdr& reqMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
-        reqMsgHdr.mac = g_tapDev.getMacAddr();
+        reqMsgHdr.mac = g_tapDev.getMac();
         reqMsgHdr.op = OP::reqSync;
         reqMsgHdr.msgLen = sizeof(reqMsgHdr);
         sendMsg(*tcpSockSPtr_, sndBuf_, sizeof(reqMsgHdr));
@@ -457,7 +474,7 @@ bool NodeMgr::syncNodeToClients()
     size_t sendBytes = 0;
     SyncMsgHdr& syncMsgHdr = reinterpret_cast<SyncMsgHdr&>(*sndBuf_);
     sendBytes += sizeof(SyncMsgHdr);
-    syncMsgHdr.mac = g_tapDev.getMacAddr();
+    syncMsgHdr.mac = g_tapDev.getMac();
     syncMsgHdr.op = OP::modNode;
     // syncMsgHdr.key = ;
     SyncNodeMsg& syncMsg = reinterpret_cast<SyncNodeMsg&>(*(sndBuf_ + sendBytes));

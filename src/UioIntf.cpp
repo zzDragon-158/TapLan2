@@ -52,8 +52,10 @@ AioIntf::AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
 }
 
 UioCtx* AioIntf::acquireIoCtx() {
-    if (freeStack_.empty())
+    if (freeStack_.empty()) {
+        LOGW("No available io ctx.");
         return nullptr;
+    }
 
     UioCtx* ctx = freeStack_.top();
     freeStack_.pop();

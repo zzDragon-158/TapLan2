@@ -94,7 +94,7 @@ class NodeMgr {
 public:
     NodeMgr();
     ~NodeMgr();
-    NodeSessSPtr addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMsgHdr);
+    NodeSessSPtr addEmptyNode(const Mac& mac);
     NodeSessSPtr findNode(const Mac& mac);
     AeadSessSPtr getAeadSess() { return aeadSession_; };
     static void setSockaddr(sockaddr_in6& addr, NodeInfoSPtr n);
@@ -137,6 +137,7 @@ private:
     NodeInfoSPtr constructNodeInfo(const sockaddr_in6& addr, const Mac& mac, uint32_t hostNum);
     NodeInfoSPtr assignIpHostNumForNode(const sockaddr_in6& addr, const Mac& mac);
 
+    NodeSessSPtr addNode(const sockaddr_in6& addr, const SyncMsgHdr& syncMsgHdr);
     NodeSessSPtr addNode(const Mac& mac, const NodeInfo& node);
     NodeSessSPtr delNode(const Mac& mac);
     bool setNodeStatus(const Mac& mac, NodeStatus status);
