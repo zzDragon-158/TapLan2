@@ -1,6 +1,5 @@
 #pragma     once
 #include    <getopt.h>
-#include    <netinet/in.h>
 #include    "Common.hpp"
 #include    "CLI11.hpp"
 

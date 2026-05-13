@@ -1,6 +1,5 @@
 #include "Config.hpp"
 #include <string>
-#include <sys/socket.h>
 
 Config::Config()
 {

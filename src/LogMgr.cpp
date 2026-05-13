@@ -1,7 +1,8 @@
 #include "LogMgr.hpp"
 #include <cstdarg>
 #include <iostream>
-#include <print>
+// TODO: MinGw GCC not support
+//#include <print>
 
 LogMgr::LogMgr()
 : logLevel_(LogLevel::info)
@@ -30,7 +31,7 @@ int LogMgr::initLogMgr()
     posix_memalign((void**)&logEntryRing_, 4096, LOG_ENTRY_RING_SIZE);
 #endif
     if (!logEntryRing_) {
-        std::println(stderr, "Cant allocate {}bytes memory.", LOG_ENTRY_RING_SIZE);
+        //std::println(stderr, "Cant allocate {}bytes memory.", LOG_ENTRY_RING_SIZE);
         return -1;
     }
 
@@ -84,7 +85,7 @@ void LogMgr::logOutput(LogLevel level, const char* tag, const char* format, ...)
                                                 ENTRY_WRITTING,
                                                 std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
-        std::println(stderr, "Log Ring Full.");
+        //std::println(stderr, "Log Ring Full.");
         running_ = false;
         return ;
     }
@@ -130,7 +131,7 @@ void LogMgr::doLogToRing(LogLevel level, const char* tag, std::string_view fmt, 
                                                 ENTRY_WRITTING,
                                                 std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
-        std::println(stderr, "Log Ring Full.");
+        //std::println(stderr, "Log Ring Full.");
         running_ = false;
         return ;
     }

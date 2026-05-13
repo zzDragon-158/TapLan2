@@ -8,10 +8,10 @@
 #define     TAP_IOCTL_GET_MAC                       TAP_CONTROL_CODE(1, METHOD_BUFFERED)
 #define     TAP_IOCTL_SET_MEDIA_STATUS              TAP_CONTROL_CODE(6, METHOD_BUFFERED)
 
-constexpr LPCSTR ADAPTER_KEY = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-constexpr LPCSTR NETWORK_CONNECTIONS_KEY = "SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-constexpr LPCSTR TAP_INSTALL = ".\\tapinstall.exe";
-constexpr LPCSTR USERMODEDEVICEDIR = "\\\\.\\Global\\";
+constexpr LPCSTR ADAPTER_KEY = R"(SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318})";
+constexpr LPCSTR NETWORK_CONNECTIONS_KEY = R"(SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318})";
+constexpr LPCSTR TAP_INSTALL = R"(.\tapinstall.exe)";
+constexpr LPCSTR USERMODEDEVICEDIR = R"(\\.\Global\)";
 constexpr LPCSTR TAPSUFFIX = ".tap";
 
 TapDev::NetAdaptInfo::NetAdaptInfo() noexcept
@@ -126,7 +126,7 @@ bool TapDev::close()
 bool TapDev::setIPv4Addr(const in_addr& ipv4Addr, uint8_t netIdLen)
 {
     std::string cmd = std::format(
-        R("netsh interface ip set address "{}" static "{}/{}""),
+        R"(netsh interface ip set address "{}" static "{}/{}")",
         TAP_NAME,
         ipv4Addr,
         netIdLen
@@ -214,7 +214,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
 
     if (0 != strcmp(TAP_NAME, tapInfo_.name)) {
         std::string cmd = std::format(
-            R(netsh interface set interface name="{}" newname="{}"),
+            R"(netsh interface set interface name="{}" newname="{}")",
             tapInfo_.name,
             TAP_NAME
         );
@@ -313,7 +313,7 @@ bool TapDev::createNewTap()
     DWORD attributes = GetFileAttributesA(TAP_INSTALL);
     if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
         std::string cmd = std::format(
-            R("{} install OemVista.inf TAP0901"),
+            R"({} install OemVista.inf TAP0901)",
             TAP_INSTALL
         );
         if (system(cmd.c_str())) {
@@ -448,7 +448,7 @@ bool TapDev::createNewTap()
         }
 
         std::string cmd = std::format(
-            R("{} restart @{}"),
+            R"({} restart @{})",
             TAP_INSTALL,
             adapterInfo.devInstId
         );
