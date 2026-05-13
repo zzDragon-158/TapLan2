@@ -618,7 +618,7 @@ bool NodeMgr::handleSyncNodeMsg(uint8_t* respMsg)
     size_t expectedSize = numsOfNode * sizeof(NodeInfo);
     size_t actualSize = msgHdr.msgLen - sizeof(SyncMsgHdr) - sizeof(SyncNodeMsg);
     if (expectedSize != actualSize) {
-        LOGE("NodeSize is incorrect, e[%u]:a[%u].", expectedSize, actualSize);
+        LOGE("NodeSize is incorrect, e[{}]:a[{}].", expectedSize, actualSize);
         return false;
     }
 

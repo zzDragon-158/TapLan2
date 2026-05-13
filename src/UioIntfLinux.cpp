@@ -150,11 +150,11 @@ int AioIntf::initAioIntf()
                                MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
                                -1, 0);
     if (dataBufs_ == MAP_FAILED) {
-        LOGD("Cant allocate [{}] hugepage memory.", totalDatBufSize);
+        LOGD("Cant allocate [{}] bytes hugepage memory.", totalDatBufSize);
         posix_memalign((void **)&dataBufs_, 4096, totalDatBufSize);
         if (!dataBufs_) {
             g_cfgData.running() = false;
-            LOGF("Cant allocate [{}] memory.", totalDatBufSize);
+            LOGF("Cant allocate [{}] bytes memory.", totalDatBufSize);
             return -1;
         }
     }

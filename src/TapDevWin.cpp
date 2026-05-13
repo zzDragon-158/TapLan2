@@ -72,7 +72,7 @@ bool TapDev::open()
     fd_ = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
     if (!isFdValid()) {
         errMsg = getErrMsg(GetLastError());
-        LOGF("Failed to open TAP device.[{}]", errMsg.c_str());
+        LOGF("Failed to open TAP device.[{}]", errMsg);
         return false;
     }
 
@@ -88,7 +88,7 @@ bool TapDev::open()
     );
     if (!ok) {
         errMsg = getErrMsg(GetLastError());
-        LOGF("Failed to set status to up.[{}]", errMsg.c_str());
+        LOGF("Failed to set status to up.[{}]", errMsg);
         return false;
     }
 
@@ -106,7 +106,7 @@ bool TapDev::open()
     );
     if (!ok) {
         errMsg = getErrMsg(GetLastError());
-        LOGF("Failed to get MAC address.[{}]", errMsg.c_str());
+        LOGF("Failed to get MAC address.[{}]", errMsg);
         return false;
     }
 
@@ -132,8 +132,8 @@ bool TapDev::setIPv4Addr(const in_addr& ipv4Addr, uint8_t netIdLen)
         netIdLen
     );
 
-    if (system(cmd.str().c_str())) {
-        LOGE("Failed to exec [{}].", cmd.str().c_str());
+    if (system(cmd.c_str())) {
+        LOGE("Failed to exec [{}].", cmd);
         return false;
     }
     LOGI("{} IP address has been set to {}.", TAP_NAME, ipv4Addr);
@@ -157,7 +157,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGF("Failed to get DeviceInstanceID from {}.[{}]", adaptIdx, errMsg.c_str());
+        LOGF("Failed to get DeviceInstanceID from {}.[{}]", adaptIdx, errMsg);
         return false;
     }
     LOGT("DeviceInstanceID: [{}]", tapInfo_.devInstId);
@@ -173,7 +173,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGF("Failed to get NetCfgInstanceId from {}.[{}]", adaptIdx, errMsg.c_str());
+        LOGF("Failed to get NetCfgInstanceId from {}.[{}]", adaptIdx, errMsg);
         return false;
     }
     LOGT("NetCfgInstanceId: [{}]", tapInfo_.netCfgInstId);
@@ -191,7 +191,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGF("Failed to open {}.[{}]", connKeyPath.str().c_str(), errMsg);
+        LOGF("Failed to open {}.[{}]", connKeyPath.str(), errMsg);
         RegCloseKey(connKey);
         return false;
     }
@@ -208,7 +208,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     RegCloseKey(connKey);
     if (err) {
         errMsg = getErrMsg(err);
-        LOGE("Failed to get Name from {}.[{}]", connKeyPath.str().c_str(), errMsg.c_str());
+        LOGE("Failed to get Name from {}.[{}]", connKeyPath.str(), errMsg);
         return false;
     }
 
@@ -246,7 +246,7 @@ bool TapDev::findExistingTap()
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGE("Failed to open {}.[{}]", ADAPTER_KEY, errMsg.c_str());
+        LOGE("Failed to open {}.[{}]", ADAPTER_KEY, errMsg);
         return false;
     }
 
@@ -266,7 +266,7 @@ bool TapDev::findExistingTap()
         if (err != ERROR_SUCCESS) {
             if (err != ERROR_NO_MORE_ITEMS) {
                 errMsg = getErrMsg(err);
-                LOGT("Failed to enum {}.[{}]", NETWORK_CONNECTIONS_KEY, errMsg.c_str());
+                LOGT("Failed to enum {}.[{}]", NETWORK_CONNECTIONS_KEY, errMsg);
             }
             break;
         }
@@ -284,7 +284,7 @@ bool TapDev::findExistingTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT("Failed to get Owner from {}.[{}]", adaptIdx, errMsg.c_str());
+            LOGT("Failed to get Owner from {}.[{}]", adaptIdx, errMsg);
             continue;
         } else if (0 != strcmp(TAP_NAME, owner)) {
             continue;
@@ -321,7 +321,7 @@ bool TapDev::createNewTap()
             return ret;
         }
     } else {
-        LOGE("Please place [{}] in [{}].", TAP_INSTALL, getCurrentWorkDir().c_str());
+        LOGE("Please place [{}] in [{}].", TAP_INSTALL, getCurrentWorkDir());
         return ret;
     }
 
@@ -335,7 +335,7 @@ bool TapDev::createNewTap()
     );
     if (err != ERROR_SUCCESS) {
         errMsg = getErrMsg(err);
-        LOGE("Failed to open {}.[{}]", ADAPTER_KEY, errMsg.c_str());
+        LOGE("Failed to open {}.[{}]", ADAPTER_KEY, errMsg);
         return false;
     }
 
@@ -356,7 +356,7 @@ bool TapDev::createNewTap()
         if (err != ERROR_SUCCESS) {
             if (err != ERROR_NO_MORE_ITEMS) {
                 errMsg = getErrMsg(err);
-                LOGE("Failed to enum {}.[{}]", ADAPTER_KEY, errMsg.c_str());
+                LOGE("Failed to enum {}.[{}]", ADAPTER_KEY, errMsg);
             }
             break;
         }
@@ -374,7 +374,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT("Failed to get NetworkInterfaceInstallTimestamp from {}.[{}]", adaptIdx, errMsg.c_str());
+            LOGT("Failed to get NetworkInterfaceInstallTimestamp from {}.[{}]", adaptIdx, errMsg);
             continue;
         } else if (installTimestamp < startTimestamp) {
             continue;
@@ -393,7 +393,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGT("Failed to get ProviderName from {}.[{}]", adaptIdx, errMsg.c_str());
+            LOGT("Failed to get ProviderName from {}.[{}]", adaptIdx, errMsg);
             continue;
         } else if (strcmp("TAP-Windows Provider V9", (const char*)providerName) != 0) {
             continue;
@@ -416,7 +416,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE("Failed to set NetworkAddress to {}.[{}]", macSs.str().c_str(), errMsg.c_str());
+            LOGE("Failed to set NetworkAddress to {}.[{}]", macSs.str(), errMsg);
         }
 
         std::string mtu_size = std::to_string(1418);
@@ -430,7 +430,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE("Failed to set MTU to {}.[{}]", mtu_size.c_str(), errMsg.c_str());
+            LOGE("Failed to set MTU to {}.[{}]", mtu_size, errMsg);
         }
 
         std::string owner = TAP_NAME;
@@ -444,7 +444,7 @@ bool TapDev::createNewTap()
         );
         if (err != ERROR_SUCCESS) {
             errMsg = getErrMsg(err);
-            LOGE("Failed to set Owner to {}.[{}]", owner.c_str(), errMsg.c_str());
+            LOGE("Failed to set Owner to {}.[{}]", owner, errMsg);
         }
 
         std::string cmd = std::format(

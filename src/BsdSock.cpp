@@ -98,7 +98,7 @@ TcpSock& TcpSock::operator=(TcpSock&& other) noexcept
 TcpSock::~TcpSock()
 {
     if (remoteAddr_.sin6_port) {
-        LOGI("client closed the connection.", remoteAddr_.sin6_addr);
+        LOGI("client[{}] closed the connection.", remoteAddr_.sin6_addr);
     }
 }
 

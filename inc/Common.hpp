@@ -82,6 +82,8 @@ static std::string getIoErr()
 
 #endif
 
+constexpr int IO_WAIT_TIME = 3;
+
 struct Mac {
     uint8_t addr[6];
 
@@ -123,7 +125,50 @@ struct Mac {
     }
 };
 
-constexpr int IO_WAIT_TIME = 3;
+template<>
+struct std::formatter<Mac>: std::formatter<std::string_view> {
+    auto format(const Mac& mac, std::format_context& ctx) const {
+        char buf[32];
+
+        auto pos = std::format_to_n(
+            buf,
+            sizeof(buf),
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            mac.addr[0], mac.addr[1], mac.addr[2],
+            mac.addr[3], mac.addr[4], mac.addr[5]
+        );
+
+        return std::formatter<std::string_view>::format(std::string_view(buf, 17), ctx);
+    }
+};
+
+template <>
+struct std::formatter<in6_addr>: std::formatter<std::string_view> {
+    auto format(const in6_addr& addr, std::format_context& ctx) const {
+        char buf[INET6_ADDRSTRLEN];
+
+        const char* result = inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
+        if (result == nullptr) {
+            return std::formatter<std::string_view>::format("Invalid_IPv6", ctx);
+        }
+
+        return std::formatter<std::string_view>::format(std::string_view(buf), ctx);
+    }
+};
+
+template <>
+struct std::formatter<in_addr>: std::formatter<std::string_view> {
+    auto format(const in_addr& addr, std::format_context& ctx) const {
+        char buf[INET_ADDRSTRLEN];
+
+        const char* result = inet_ntop(AF_INET, &addr, buf, sizeof(buf));
+        if (result == nullptr) {
+            return std::formatter<std::string_view>::format("Invalid_IPv4", ctx);
+        }
+
+        return std::formatter<std::string_view>::format(std::string_view(buf), ctx);
+    }
+};
 
 static void delayExit(int code, int64_t delaySeconds = 0)
 {
@@ -135,51 +180,3 @@ static void delayExit(int code, int64_t delaySeconds = 0)
     g_logMgr.terminate();
     exit(code);
 }
-
-template <>
-struct std::formatter<in6_addr> {
-    constexpr auto parse(std::format_parse_context& ctx) {
-        return ctx.begin();
-    }
-
-    auto format(const in6_addr& addr, std::format_context& ctx) const {
-        char buf[INET6_ADDRSTRLEN];
-        if (inet_ntop(AF_INET6, &addr, buf, sizeof(buf)) == nullptr) {
-            return std::format_to(ctx.out(), "Invalid_IPv6");
-        }
-
-        return std::format_to(ctx.out(), "{}", (const char*)buf);
-    }
-};
-
-template <>
-struct std::formatter<in_addr> {
-    constexpr auto parse(std::format_parse_context& ctx) {
-        return ctx.begin();
-    }
-
-    auto format(const in_addr& addr, std::format_context& ctx) const {
-        char buf[INET_ADDRSTRLEN];
-        if (inet_ntop(AF_INET, &addr, buf, sizeof(buf)) == nullptr) {
-            return std::format_to(ctx.out(), "Invalid_IPv4");
-        }
-
-        return std::format_to(ctx.out(), "{}", (const char*)buf);
-    }
-};
-
-template<>
-struct std::formatter<Mac> {
-    constexpr auto parse(std::format_parse_context& ctx) {
-        return ctx.begin();
-    }
-
-    auto format(const Mac& mac, std::format_context& ctx) const {
-        return std::format_to(
-            ctx.out(),
-            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-            mac.addr[0], mac.addr[1], mac.addr[2],
-            mac.addr[3], mac.addr[4], mac.addr[5]
-        );
-    }
-};

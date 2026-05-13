@@ -112,7 +112,7 @@ bool TapDev::setIPv4Addr(const in_addr& ipv4Addr, uint8_t netIdLen)
 
     addr->sin_addr.s_addr = ipv4Addr.s_addr;
     if (ioctl(tapSock_, SIOCSIFADDR, &ifr_)) {
-        LOGE("Failed to set IPv4 address to {}.[{}]", inet_ntoa(ipv4Addr), strerror(errno));
+        LOGE("Failed to set IPv4 address to {}.[{}]", ipv4Addr, strerror(errno));
         return false;
     }
 

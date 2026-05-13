@@ -32,7 +32,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 
     err = GetLastError();
     if (err != ERROR_IO_PENDING) {
-        LOGE("Failed to read tap.[{}]", getErrMsg(err).c_str());
+        LOGE("Failed to read tap.[{}]", getErrMsg(err));
         return -1;
     }
 
@@ -78,7 +78,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
     err = GetLastError();
     if (err != ERROR_IO_PENDING) {
-        LOGE("Failed to write tap.[{}]", getErrMsg(err).c_str());
+        LOGE("Failed to write tap.[{}]", getErrMsg(err));
         return -1;
     }
 
@@ -103,7 +103,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
     if (!GetOverlappedResult(fd, &ctx->ol, &writeBytes, FALSE)) {
         err = GetLastError();
-        LOGE("Failed to get write result.[{}]", getErrMsg(err).c_str());
+        LOGE("Failed to get write result.[{}]", getErrMsg(err));
         return -1;
     }
 
@@ -135,7 +135,7 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
     if (res == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSAEINTR) {
-            LOGE("Failed to recvfrom udp.[{}]", getErrMsg(err).c_str());
+            LOGE("Failed to recvfrom udp.[{}]", getErrMsg(err));
         }
         return -1;
     }
@@ -169,7 +169,7 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
 
     if (res == SOCKET_ERROR) {
         err = WSAGetLastError();
-        LOGE("Failed to sendto udp.[{}]", getErrMsg(err).c_str());
+        LOGE("Failed to sendto udp.[{}]", getErrMsg(err));
         return -1;
     }
 
@@ -215,13 +215,13 @@ int AioIntf::initAioIntf()
     if (hIOCP_ == nullptr) {
         g_cfgData.running() = false;
         errMsg = getErrMsg(GetLastError());
-        LOGF("Failed to create IOCP.[{}]", errMsg.c_str());
+        LOGF("Failed to create IOCP.[{}]", errMsg);
         return -1;
     }
 
     if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
         errMsg = getErrMsg(GetLastError());
-        LOGF("Failed to bind tap to IOCP.[{}]", errMsg.c_str());
+        LOGF("Failed to bind tap to IOCP.[{}]", errMsg);
         g_cfgData.running() = false;
         return -1;
     }
@@ -236,7 +236,7 @@ int AioIntf::initAioIntf()
             SockFd udpFd = udpSockPtr->getFd();
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
                 errMsg = getErrMsg(GetLastError());
-                LOGF("Failed to bind udp to IOCP.[{}]", errMsg.c_str());
+                LOGF("Failed to bind udp to IOCP.[{}]", errMsg);
                 g_cfgData.running() = false;
                 return -1;
             }
@@ -244,7 +244,7 @@ int AioIntf::initAioIntf()
     } else {
         if (!CreateIoCompletionPort((HANDLE)udpFd_, hIOCP_, (ULONG_PTR)this, 0)) {
             errMsg = getErrMsg(GetLastError());
-            LOGF("Failed to bind udp to IOCP.[{}]", errMsg.c_str());
+            LOGF("Failed to bind udp to IOCP.[{}]", errMsg);
             g_cfgData.running() = false;
             return -1;
         }
@@ -272,7 +272,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            LOGE("Failed to read tap.[{}]", getErrMsg(err).c_str());
+            LOGE("Failed to read tap.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
             return -1;
         }
@@ -301,7 +301,7 @@ int AioIntf::reqTapWrite(TapFd fd, UioCtx* ctx)
     if (!ok) {
         DWORD err = GetLastError();
         if (err != ERROR_IO_PENDING) {
-            LOGE("Failed to write tap.[{}]", getErrMsg(err).c_str());
+            LOGE("Failed to write tap.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
             return -1;
         }
@@ -347,7 +347,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     if (res == SOCKET_ERROR) {
         DWORD err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            LOGE("Failed to recv udp.[{}]", getErrMsg(err).c_str());
+            LOGE("Failed to recv udp.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
             return -1;
         }
