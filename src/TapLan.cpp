@@ -9,6 +9,28 @@
 #include    "Config.hpp"
 #include    "UioIntf.hpp"
 
+std::string formatNum(uint64_t number)
+{
+    static const std::vector<std::string> units = {
+        "",
+        "M",
+        "T"
+    };
+    constexpr int threshold = 1 << 20;
+
+    if (number < threshold) {
+        return std::format("{}", number);
+    }
+
+    int unitIdx = 0;
+    while (number >= threshold && unitIdx < units.size() - 1) {
+        number >>= 20;
+        ++unitIdx;
+    }
+
+    return std::format("{}{}", number, units[unitIdx]);
+}
+
 TapLan::TapLan()
 {
     g_cfgData.running() = (initUdpSockPtrs() && g_tapDev.isFdValid());
@@ -104,9 +126,49 @@ void TapLan::showNodeStatus()
     });
 }
 
-#if 0
 void TapLan::showStats()
 {
+    static constexpr char fColName[] = "    {:<4}{:<12}{:<12}{:<12}{:<12}\n";
+    static constexpr char fColVal[] = "        {:<12}{:<12}{:<12}{:<12}\n";
+    static std::string rxColName = std::format(
+        fColName,
+        "RX:",
+        "bytes",
+        "packets",
+        "errors",
+        "dropped"
+    );
+    static std::string txColName = std::format(
+        fColName,
+        "TX:",
+        "bytes",
+        "packets",
+        "errors",
+        "dropped"
+    );
+
+    auto printStat = [](const Stats& s) {
+        LOGR(
+            fColVal,
+            formatNum(s.bytes),
+            s.packets,
+            s.errors,
+            s.dropped
+        );
+    };
+
+    LOGR("UDP:\n");
+    LOGR(rxColName);
+    printStat(udpRx_);
+    LOGR(txColName);
+    printStat(udpTx_);
+
+    LOGR("TAP:\n");
+    LOGR(rxColName);
+    printStat(tapRx_);
+    LOGR(txColName);
+    printStat(tapTx_);
+#if 0
     uint64_t totalSendBytes = 0, totalSendErrs = 0, totalRecvBytes = 0, totalRecvErrs = 0, totalDropped = 0;
     if (g_cfgData.swPortIntvl()) {
         LOGR("Each UDP:\n");
@@ -162,8 +224,8 @@ void TapLan::showStats()
     LOGR("╟── write errors:   {}\n", g_tapDev.getWriteErrs());
     LOGR("╟── read  bytes:    {}\n", g_tapDev.getReadBytes());
     LOGR("╙── read  errors:   {}\n", g_tapDev.getReadErrs());
-}
 #endif
+}
 
 bool TapLan::run()
 {
@@ -246,7 +308,9 @@ void TapLan::handleUdpData(UioCtx* ctx)
     }
 
     if (!needBroadcast) {
-        unicastData(ctx);
+        if (!unicastData(ctx)) {
+            ++tapRx_.dropped;
+        }
     } else {
         broadcastData(ctx);
     }
@@ -260,19 +324,21 @@ void TapLan::handleTapData(UioCtx* ctx)
     bool needBroadcast = eh.dst[0] & 0x01;
 
     if (!needBroadcast) {
-        unicastData(ctx);
+        if (!unicastData(ctx)) {
+            ++tapRx_.dropped;
+        }
     } else {
         broadcastData(ctx);
     }
 }
 
-void TapLan::unicastData(UioCtx* ctx)
+bool TapLan::unicastData(UioCtx* ctx)
 {
     EthHdr eh = reinterpret_cast<EthHdr&>(*ctx->buf->payload);
     Mac& dstMac = eh.dst;
     if (dstMac == g_tapDev.getMac()) {
-        uioIntfPtr_->reqTapWrite(g_tapDev.getFd(), ctx);
-        return ;
+        uioIntfPtr_->univTapWrite(g_tapDev.getFd(), ctx);
+        return true;
     }
 
     auto node = nodeMgrPtr_->findNode(dstMac);
@@ -282,11 +348,14 @@ void TapLan::unicastData(UioCtx* ctx)
 
         if (encryptData(ctx, node)) {
             SockFd udpSendFd = udpSendSockPtr_.load()->getFd();
-            uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
+            uioIntfPtr_->univUdpSend(udpSendFd, ctx);
+            return true;
         } else {
             LOGE("Failed to encrypt.");
         }
     }
+
+    return false;
 }
 
 void TapLan::broadcastData(UioCtx* ctx)
@@ -298,12 +367,12 @@ void TapLan::broadcastData(UioCtx* ctx)
 
     if (g_cfgData.runMode() == RunMode::client) {
         if (srcMac != g_tapDev.getMac()) {
-            uioIntfPtr_->reqTapWrite(g_tapDev.getFd(), ctx);
+            uioIntfPtr_->univTapWrite(g_tapDev.getFd(), ctx);
             return ;
         }
         if (encryptData(ctx, nullptr)) {
             ctx->buf->addr = g_cfgData.serverAddr();
-            uioIntfPtr_->reqUdpSend(udpSendFd, ctx);
+            uioIntfPtr_->univUdpSend(udpSendFd, ctx);
         }
 
         return ;
@@ -312,11 +381,11 @@ void TapLan::broadcastData(UioCtx* ctx)
     nodeMgrPtr_->forEach([&](uint64_t m, NodeSessSPtr n) {
         NodeInfoSPtr nodeInfo = n->nodeInfo;
         if (nodeInfo->status < NodeStatus::ipGot || nodeInfo->mac == srcMac) {
-            return;
+            return ;
         }
 
         if (nodeInfo->mac == g_tapDev.getMac() && srcMac != g_tapDev.getMac()) {
-            uioIntfPtr_->reqTapWrite(g_tapDev.getFd(), ctx);
+            uioIntfPtr_->univTapWrite(g_tapDev.getFd(), ctx);
             return ;
         }
 
@@ -333,7 +402,7 @@ void TapLan::broadcastData(UioCtx* ctx)
         NodeMgr::setSockaddr(sendAddr, nodeInfo);
 
         if (encryptData(sendCtx, n)) {
-            uioIntfPtr_->reqUdpSend(udpSendFd, sendCtx);
+            uioIntfPtr_->univUdpSend(udpSendFd, sendCtx);
         }
     });
 }

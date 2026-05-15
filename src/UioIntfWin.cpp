@@ -25,13 +25,17 @@ SioIntf::~SioIntf()
 int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 {
     DWORD err, res;
+    Stats& stats = tapLanPtr_->tapRx_;
 
     if (ReadFile(fd, ctx->buf->payload, PAYLOAD_SIZE, &ctx->dataLen, &ctx->ol)) {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
         return ctx->dataLen;
     }
 
     err = GetLastError();
     if (err != ERROR_IO_PENDING) {
+        stats.errors++;
         LOGE("Failed to read tap.[{}]", getErrMsg(err));
         return -1;
     }
@@ -52,6 +56,8 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
             LOGE("Unknown error[{}].", res);
             break;
         }
+
+        stats.errors++;
         return -1;
     }
 
@@ -60,9 +66,13 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
         if (err != ERROR_OPERATION_ABORTED) {
             LOGE("Failed to get read result.[{}]", getErrMsg(err).c_str());
         }
+
+        stats.errors++;
         return -1;
     }
 
+    stats.bytes += ctx->dataLen;
+    stats.packets++;
     return ctx->dataLen;
 }
 
@@ -71,13 +81,17 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
     DWORD err;
     DWORD writeBytes;
     DWORD res;
+    Stats& stats = tapLanPtr_->tapTx_;
 
     if (WriteFile(fd, ctx->buf->payload, ctx->dataLen, &writeBytes, &ctx->ol)) {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
         return writeBytes;
     }
 
     err = GetLastError();
     if (err != ERROR_IO_PENDING) {
+        stats.errors++;
         LOGE("Failed to write tap.[{}]", getErrMsg(err));
         return -1;
     }
@@ -98,20 +112,27 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
             LOGE("Unknown error[{}].", res);
             break;
         }
+
+        stats.errors++;
         return -1;
     }
 
     if (!GetOverlappedResult(fd, &ctx->ol, &writeBytes, FALSE)) {
+        stats.errors++;
         err = GetLastError();
         LOGE("Failed to get write result.[{}]", getErrMsg(err));
         return -1;
     }
 
+    stats.bytes += ctx->dataLen;
+    stats.packets++;
     return writeBytes;
 }
 
 int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->udpRx_;
+
     ctx->addrLen = sizeof(ctx->buf->addr);
     if (g_cfgData.enableSec()) {
         ctx->wsaBuf.len = PAYLOAD_SIZE + NONCE_SIZE;
@@ -137,9 +158,13 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
         if (err != WSAEINTR) {
             LOGE("Failed to recvfrom udp.[{}]", getErrMsg(err));
         }
+
+        stats.errors++;
         return -1;
     }
 
+    stats.bytes += ctx->dataLen;
+    stats.packets++;
     return ctx->dataLen;
 }
 
@@ -148,6 +173,7 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
     int res;
     DWORD err;
     DWORD sendBytes;
+    Stats& stats = tapLanPtr_->udpTx_;
 
     if (g_cfgData.enableSec()) {
         ctx->wsaBuf.len = ctx->dataLen + NONCE_SIZE;
@@ -170,9 +196,13 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
     if (res == SOCKET_ERROR) {
         err = WSAGetLastError();
         LOGE("Failed to sendto udp.[{}]", getErrMsg(err));
+
+        stats.errors++;
         return -1;
     }
 
+    stats.bytes += ctx->dataLen;
+    stats.packets++;
     return sendBytes;
 }
 

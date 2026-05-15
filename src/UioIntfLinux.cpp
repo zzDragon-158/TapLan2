@@ -16,14 +16,20 @@ SioIntf::~SioIntf()
 
 int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->tapRx_;
+
     ctx->dataLen = ::read(fd, ctx->buf->payload, PAYLOAD_SIZE);
     if (ctx->dataLen == -1) {
         int err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
             tapPollRead(fd, ctx);
         } else {
+            stats.errors++;
             LOGE("Failed to read tap.[{}]", strerror(err));
         }
+    } else {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
     }
 
     return ctx->dataLen;
@@ -42,10 +48,15 @@ int SioIntf::tapPollRead(TapFd fd, UioCtx* ctx)
 
 int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->tapTx_;
+
     int res = ::write(fd, ctx->buf->payload, ctx->dataLen);
     if (res == -1) {
         int err = errno;
         LOGE("Failed to write tap.[{}]", strerror(err));
+    } else {
+        stats.bytes += res;
+        stats.packets++;
     }
 
     return res;
@@ -63,6 +74,8 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
         bufLen = PAYLOAD_SIZE;
     }
 
+    Stats& stats = tapLanPtr_->udpRx_;
+
     ctx->addrLen = sizeof(ctx->buf->addr);
     ctx->dataLen = ::recvfrom(fd,
                               buf,
@@ -75,8 +88,12 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
         if (err == EAGAIN || err == EWOULDBLOCK) {
             udpPollRecv(fd, ctx);
         } else {
+            stats.errors++;
             LOGE("Failed to recv udp.[{}]", strerror(err));
         }
+    } else {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
     }
 
     return ctx->dataLen;
@@ -105,6 +122,8 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
         dataLen = ctx->dataLen;
     }
 
+    Stats& stats = tapLanPtr_->udpTx_;
+
     int res = ::sendto(fd,
                        buf,
                        dataLen,
@@ -114,6 +133,10 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
     if (res == -1) {
         int err = errno;
         LOGE("Failed to sendto udp.[{}]", strerror(err));
+        stats.errors++;
+    } else {
+        stats.bytes += res;
+        stats.packets++;
     }
 
     return res;

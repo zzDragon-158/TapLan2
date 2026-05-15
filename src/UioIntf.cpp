@@ -9,6 +9,41 @@ UioIntf::UioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
     ;
 }
 
+UioCtx* UioIntf::acquireIoCtx()
+{
+    LOGW("Not support to acquire ioctx.");
+
+    return nullptr;
+}
+
+int UioIntf::univUdpSend(SockFd fd, UioCtx* ctx)
+{
+    LOGW("Not support to send to udp.");
+
+    return -1;
+}
+
+int UioIntf::univTapWrite(TapFd fd, UioCtx* ctx)
+{
+    LOGW("Not support to write to tap.");
+
+    return -1;
+}
+
+int SioIntf::univUdpSend(SockFd fd, UioCtx* ctx)
+{
+    int res = udpSend(fd, ctx);
+
+    return res;
+}
+
+int SioIntf::univTapWrite(TapFd fd, UioCtx* ctx)
+{
+    int res = tapWrite(fd, ctx);
+
+    return res;
+}
+
 void SioIntf::udpWrk()
 {
     UioCtx* ctx = &udpIoCtx_;
@@ -87,11 +122,16 @@ void AioIntf::releaseIoCtx(UioCtx* ctx)
 
 int AioIntf::handleTapRead(UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->tapRx_;
+
     if (ctx->dataLen <= 0) {
         if (ctx->dataLen != -EAGAIN && ctx->dataLen != -EWOULDBLOCK) {
+            stats.errors++;
             LOGE("Failed to read tap.[{}]", strerror(-ctx->dataLen));
         }
     } else {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
         tapLanPtr_->handleTapData(ctx);
     }
 
@@ -101,8 +141,14 @@ int AioIntf::handleTapRead(UioCtx* ctx)
 
 int AioIntf::handleTapWrite(UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->tapTx_;
+
     if (ctx->dataLen <= 0) {
+        stats.errors++;
         LOGE("Failed to write tap.[{}]", strerror(-ctx->dataLen));
+    } else {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
     }
 
     releaseIoCtx(ctx);
@@ -111,9 +157,14 @@ int AioIntf::handleTapWrite(UioCtx* ctx)
 
 int AioIntf::handleUdpRecv(UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->udpRx_;
+
     if (ctx->dataLen < 0) {
+        stats.errors++;
         LOGE("Failed to recv udp.[{}]", strerror(-ctx->dataLen));
     } else {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
         tapLanPtr_->handleUdpData(ctx);
     }
 
@@ -123,8 +174,14 @@ int AioIntf::handleUdpRecv(UioCtx* ctx)
 
 int AioIntf::handleUdpSend(UioCtx* ctx)
 {
+    Stats& stats = tapLanPtr_->udpTx_;
+
     if (ctx->dataLen < 0) {
+        stats.errors++;
         LOGE("Failed to send udp.[{}]", strerror(-ctx->dataLen));
+    } else {
+        stats.bytes += ctx->dataLen;
+        stats.packets++;
     }
 
     releaseIoCtx(ctx);

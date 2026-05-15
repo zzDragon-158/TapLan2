@@ -35,8 +35,7 @@ int main(int argc, char* argv[])
         if (input == "/quit") {
             break;
         } else if (input == "/show stats") {
-            // TODO: flow stats
-            // TapLanPtr->showStats();
+            TapLanPtr->showStats();
         } else if (input == "/show fib") {
             TapLanPtr->showNodeStatus();
         }

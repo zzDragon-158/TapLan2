@@ -51,10 +51,10 @@ class UioIntf {
 public:
     UioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr);
 
-    virtual UioCtx* acquireIoCtx() { return nullptr; };
+    virtual UioCtx* acquireIoCtx();
 
-    virtual int reqUdpSend(SockFd fd, UioCtx* ctx) { return -1; };
-    virtual int reqTapWrite(TapFd fd, UioCtx* ctx) { return -1; };
+    virtual int univUdpSend(SockFd fd, UioCtx* ctx);
+    virtual int univTapWrite(TapFd fd, UioCtx* ctx);
 
 protected:
     static constexpr size_t DATA_BUF_SIZE = 2048;
@@ -72,6 +72,9 @@ protected:
     TapFd tapFd_;
     SockFd udpFd_;
     TapLan* tapLanPtr_;
+
+private:
+    static constexpr char TAG[] = "[UioIntf]";
 };
 
 class SioIntf: public UioIntf {
@@ -95,8 +98,8 @@ private:
     int udpPollRecv(SockFd fd, UioCtx* ctx);
     int udpSend(SockFd fd, UioCtx* ctx);
 
-    int reqUdpSend(SockFd fd, UioCtx* ctx) { return udpSend(fd, ctx); };
-    int reqTapWrite(TapFd fd, UioCtx* ctx) { return tapWrite(fd, ctx); };
+    int univUdpSend(SockFd fd, UioCtx* ctx);
+    int univTapWrite(TapFd fd, UioCtx* ctx);
 };
 
 class AioIntf: public UioIntf {
@@ -146,4 +149,7 @@ private:
     int handleTapWrite(UioCtx* ctx);
     int handleUdpRecv(UioCtx* ctx);
     int handleUdpSend(UioCtx* ctx);
+
+    int univUdpSend(SockFd fd, UioCtx* ctx) { return reqUdpSend(fd, ctx); };
+    int univTapWrite(TapFd fd, UioCtx* ctx) { return reqTapWrite(fd, ctx); };
 };

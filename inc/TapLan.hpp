@@ -2,13 +2,24 @@
 #include    <cstdint>
 #include    <atomic>
 #include    <pthread.h>
-#include "DataSec.hpp"
 #include    "NodeMgr.hpp"
 #include    "BsdSock.hpp"
 #include    "UioIntf.hpp"
 
+struct Stats {
+    uint64_t bytes = 0;
+    uint64_t packets = 0;
+    uint64_t errors = 0;
+    uint64_t dropped = 0;
+};
+
 class TapLan {
 public:
+    Stats udpTx_;
+    Stats udpRx_;
+    Stats tapTx_;
+    Stats tapRx_;
+
     TapLan();
     ~TapLan();
     bool run();
@@ -38,7 +49,7 @@ private:
     void syncWrk();
     void swPortWrk();
 
-    void unicastData(UioCtx* ctx);
+    bool unicastData(UioCtx* ctx);
     void broadcastData(UioCtx* ctx);
 
     bool encryptData(UioCtx* ctx, NodeSessSPtr node);
