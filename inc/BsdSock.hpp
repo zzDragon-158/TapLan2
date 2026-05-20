@@ -1,50 +1,7 @@
 #pragma     once
 #include    <cstdint>
-#include    <string>
 #include    <memory>
 #include    "Common.hpp"
-#include    "Config.hpp"
-#include    "LogMgr.hpp"
-
-#ifdef      _WIN32
-
-using PollFunc = int(*)(pollfd*, ULONG, INT);
-constexpr PollFunc UnivPoll = WSAPoll;
-
-#elif       __linux__
-#include    <poll.h>            // for poll
-#include    <unistd.h>          // for close
-#include    <cstring>           // for memset
-#include    <cerrno>            // for errno
-#include    <cstring>           // for strerror
-#include    <sys/socket.h>      // for socket
-#include    <arpa/inet.h>       // for in6addr_any
-#include    <liburing.h>        // for io_uring
-#include    <sys/mman.h>        // for mmap
-
-using PollFunc = int(*)(pollfd*, nfds_t, int);
-constexpr PollFunc UnivPoll = poll;
-
-#else
-#error      "unsupported platform!"
-
-#endif
-
-using UnivPollFd = pollfd;
-class TcpSock;
-using TcpSockSPtr = std::shared_ptr<TcpSock>;
-
-inline std::string IPv4_NTOP(const in_addr& ipv4addr) {
-    char ipv4str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &ipv4addr, ipv4str, INET_ADDRSTRLEN);
-    return std::string(ipv4str);
-}
-
-inline std::string IPv6_NTOP(const in6_addr& ipv6addr) {
-    char ipv6str[INET6_ADDRSTRLEN];
-    inet_ntop(AF_INET6, &ipv6addr, ipv6str, INET6_ADDRSTRLEN);
-    return std::string(ipv6str);
-}
 
 class BsdSock {
 public:
@@ -88,7 +45,7 @@ public:
     void setMac(uint64_t macNum) { remoteMac_ = macNum; };
     bool connect();
     bool listen(int backlog);
-    TcpSockSPtr accept();
+    std::shared_ptr<TcpSock> accept();
     ssize_t send(const void* buf, size_t bufLen);
     ssize_t recv(void* buf, size_t bufLen);
 
@@ -99,6 +56,7 @@ private:
 
     bool open();
 };
+using TcpSockSPtr = std::shared_ptr<TcpSock>;
 
 class UdpSock: public BsdSock {
 public:

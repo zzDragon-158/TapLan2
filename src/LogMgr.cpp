@@ -5,10 +5,6 @@
 //#include <print>
 
 LogMgr::LogMgr()
-: logLevel_(LogLevel::info)
-, running_(false)
-, logEntryRing_(nullptr)
-, logSem_{0}
 {
     // logFile_.open("/tmp/TapLan.log", std::ios::out | std::ios::app);
 }

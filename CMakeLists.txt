@@ -113,9 +113,10 @@ endif()
 add_library(NodeMgr src/NodeMgr.cpp)
 add_library(LogMgr src/LogMgr.cpp)
 add_library(Config src/Config.cpp)
+add_library(Common src/Common.cpp)
 
 add_executable(TapLan src/main.cpp src/TapLan.cpp)
-target_link_libraries(TapLan NodeMgr TapDev BsdSock LogMgr UioIntf Config DataSec)
+target_link_libraries(TapLan NodeMgr TapDev BsdSock LogMgr UioIntf Config DataSec Common)
 
 find_package(Threads REQUIRED)
 target_link_libraries(TapLan Threads::Threads)

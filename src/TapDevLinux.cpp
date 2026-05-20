@@ -1,15 +1,13 @@
+#include    <unistd.h>          // for close
+#include    <fcntl.h>           // for open, O_RDWR
+#include    <cstring>           // for strncpy
+#include    <sys/ioctl.h>       // for ioctl, TUNSETIFF
+#include    <net/if_arp.h>      // for ARPHRD_ETHER
+#include    <linux/if_tun.h>    // for IFF_TAP, IFF_NO_PI;
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
 
 TapDev::TapDev()
-    : fd_(INVALID_TAPFD)
-    , mac_{}
-    , writeBytes_(0)
-    , writeErrs_(0)
-    , readBytes_(0)
-    , readErrs_(0)
-    , tapSock_(INVALID_SOCKFD)
-    , ifr_{}
 {
     if (!open()) {
         close();

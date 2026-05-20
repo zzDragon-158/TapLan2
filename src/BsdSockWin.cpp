@@ -1,4 +1,6 @@
-#include "BsdSock.hpp"
+#include    "BsdSock.hpp"
+#include    "LogMgr.hpp"
+#include    "Config.hpp"
 
 bool BsdSock::s_isWsaInitialized_ = false;
 

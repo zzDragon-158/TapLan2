@@ -1,12 +1,8 @@
 #pragma     once
-#include    <cstdio>
-#include    <cstring>
 #include    <fstream>
 #include    <thread>
 #include    <atomic>
 #include    <semaphore>
-#include    <pthread.h>
-#include    <format>
 
 #define     LOGR(fmt, ...)         g_logMgr.logToRing(LogLevel::raw, "", fmt __VA_OPT__(,) __VA_ARGS__)
 #define     LOGF(fmt, ...)         g_logMgr.logToRing(LogLevel::fatal, TAG, fmt __VA_OPT__(,) __VA_ARGS__)
@@ -67,11 +63,11 @@ private:
     };
 
     std::ofstream logFile_;
-    LogLevel logLevel_;
+    LogLevel logLevel_ = LogLevel::info;
     std::thread logThread_;
-    bool running_;
+    bool running_ = false;
 
-    LogEntry* logEntryRing_;
+    LogEntry* logEntryRing_ = nullptr;
     std::counting_semaphore<1> logSem_{0};
     std::atomic<size_t> rIdx_;
     std::atomic<size_t> wIdx_;

@@ -1,10 +1,11 @@
 #include    "UioIntf.hpp"
 #include    "TapLan.hpp"
+#include    "Config.hpp"
 
 UioIntf::UioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
-: tapFd_(tapFd)
-, udpFd_(udpFd)
-, tapLanPtr_(tapLanPtr)
+    : tapFd_(tapFd)
+    , udpFd_(udpFd)
+    , tapLanPtr_(tapLanPtr)
 {
     ;
 }
@@ -28,20 +29,6 @@ int UioIntf::univTapWrite(TapFd fd, UioCtx* ctx)
     LOGW("Not support to write to tap.");
 
     return -1;
-}
-
-int SioIntf::univUdpSend(SockFd fd, UioCtx* ctx)
-{
-    int res = udpSend(fd, ctx);
-
-    return res;
-}
-
-int SioIntf::univTapWrite(TapFd fd, UioCtx* ctx)
-{
-    int res = tapWrite(fd, ctx);
-
-    return res;
 }
 
 void SioIntf::udpWrk()
@@ -79,9 +66,7 @@ void SioIntf::tapWrk()
 }
 
 AioIntf::AioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
-: UioIntf(tapFd, udpFd, tapLanPtr)
-, isInitialized(false)
-, dataBufs_(nullptr)
+    : UioIntf(tapFd, udpFd, tapLanPtr)
 {
     ;
 }

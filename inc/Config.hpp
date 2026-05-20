@@ -1,7 +1,12 @@
 #pragma     once
-#include    <getopt.h>
-#include    "Common.hpp"
+#if         defined(_WIN32)
+#include    <ws2tcpip.h>        // for sockaddr_in6, inet_ntop, inet_pton
+#elif       defined(__linux__)
+#include    <netinet/in.h>      // for sockaddr_in6
+#include    <arpa/inet.h>       // for inet_ntop, inet_pton
+#endif
 #include    "CLI11.hpp"
+#include    "LogMgr.hpp"
 
 enum class RunMode: char {
     server = 0,

@@ -1,8 +1,10 @@
+#include    <sys/mman.h>        // for mmap
 #include    "UioIntf.hpp"
 #include    "TapLan.hpp"
+#include    "Config.hpp"
 
 SioIntf::SioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
-: UioIntf(tapFd, udpFd, tapLanPtr)
+    : UioIntf(tapFd, udpFd, tapLanPtr)
 {
     tapIoCtx_.buf = reinterpret_cast<UioCtx::Buf*>(new char [DATA_BUF_SIZE]);
     udpIoCtx_.buf = reinterpret_cast<UioCtx::Buf*>(new char [DATA_BUF_SIZE]);
@@ -240,7 +242,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
     }
 
     ++ctx->ref;
-    ctx->token = TOKEN_TAP_READ;
+    ctx->token = UioCtxToken::TapRead;
     ctx->iov.iov_base = &ctx->buf->payload;
     ctx->iov.iov_len = PAYLOAD_SIZE;
 
@@ -265,7 +267,7 @@ int AioIntf::reqTapReadMultishot(TapFd fd)
 int AioIntf::reqTapWrite(TapFd fd, UioCtx* ctx)
 {
     ++ctx->ref;
-    ctx->token = TOKEN_TAP_WRITE;
+    ctx->token = UioCtxToken::TapWrite;
     ctx->iov.iov_base = &ctx->buf->payload;
     ctx->iov.iov_len = ctx->dataLen;
 
@@ -289,7 +291,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
 
     ++ctx->ref;
     if (ctx->bufId < START_TAP_BUF_IDX) {
-        ctx->token = TOKEN_UDP_RECV_MULTISHOT;
+        ctx->token = UioCtxToken::UdpRecvMultishot;
         io_uring_buf_ring_add(bufRing_, ctx->buf, DATA_BUF_SIZE,
                               ctx->bufId, bufRingMask_, advanceCnt_++);
         if (advanceCnt_ >= MAX_RECV_REQ / 2) {
@@ -298,7 +300,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
             advanceCnt_ = 0;
         }
     } else {
-        ctx->token = TOKEN_UDP_RECV;
+        ctx->token = UioCtxToken::UdpRecv;
         ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
         if (g_cfgData.enableSec()) {
             ctx->iov.iov_base = &ctx->buf->nonce;
@@ -319,7 +321,6 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
 int AioIntf::reqUdpRecvMultishot(SockFd fd)
 {
     io_uring_buf_ring_init(bufRing_);
-    bufRingMask_ = io_uring_buf_ring_mask(MAX_RECV_REQ);
     for (size_t i = 0; i < MAX_RECV_REQ; ++i) {
         UioCtx* ctx = acquireIoCtx(i);
         reqUdpRecv(fd, ctx);
@@ -327,8 +328,8 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd)
 
     UioCtx* ctx = acquireIoCtx();
     ++ctx->ref;
-    ctx->token = TOKEN_UDP_RECV_MULTISHOT;
-    memset(&ctx->msgHdr, 0, sizeof(msghdr));
+    ctx->token = UioCtxToken::UdpRecvMultishot;
+    ctx->msgHdr = {};
     ctx->msgHdr.msg_namelen = sizeof(ctx->buf->addr);
     ctx->msgHdr.msg_controllen = (g_cfgData.enableSec())? 0: NONCE_SIZE;
 
@@ -344,7 +345,7 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd)
 int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
 {
     ++ctx->ref;
-    ctx->token = TOKEN_UDP_SEND;
+    ctx->token = UioCtxToken::UdpSend;
     ctx->msgHdr.msg_namelen = sizeof(sockaddr_in6);
     if (g_cfgData.enableSec()) {
         ctx->iov.iov_base = &ctx->buf->nonce;
@@ -390,7 +391,7 @@ void AioIntf::aioWrk()
             ctx->dataLen = cqe->res;
 
             switch (ctx->token) {
-            case TOKEN_UDP_RECV_MULTISHOT:
+            case UioCtxToken::UdpRecvMultishot:
                 if (cqe->res > 0) {
                     ctx = acquireIoCtx(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
                     ctx->dataLen = ctx->buf->ro.payloadlen;
@@ -403,21 +404,21 @@ void AioIntf::aioWrk()
                 }
                 break;
 
-            case TOKEN_UDP_RECV:
+            case UioCtxToken::UdpRecv:
                 handleUdpRecv(ctx);
                 break;
 
-            case TOKEN_UDP_SEND:
+            case UioCtxToken::UdpSend:
                 // if ((cqe->flags & IORING_CQE_F_NOTIF)
                 //     || !(cqe->flags & IORING_CQE_F_MORE))
                 handleUdpSend(ctx);
                 break;
 
-            case TOKEN_TAP_READ:
+            case UioCtxToken::TapRead:
                 handleTapRead(ctx);
                 break;
 
-            case TOKEN_TAP_WRITE:
+            case UioCtxToken::TapWrite:
                 handleTapWrite(ctx);
                 break;
 

@@ -1,4 +1,5 @@
 #include    "BsdSock.hpp"
+#include    "LogMgr.hpp"
 
 BsdSock::BsdSock() noexcept
 {

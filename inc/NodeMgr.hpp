@@ -1,8 +1,7 @@
 #pragma     once
 #include    <cstdint>
-#include    <cstring>
-#include    <ctime>
 #include    <memory>
+#include    <vector>
 #include    <map>
 #include    <unordered_map>
 #include    <bitset>
@@ -120,7 +119,7 @@ private:
     std::map<uint64_t, NodeSessSPtr> macToNodeSess_;
     std::unordered_map<uint64_t, NodeInfoSPtr> activeDeltaBuffer_;
     std::unordered_map<uint64_t, NodeInfoSPtr> processingBuffer_;
-    uint32_t verNum_;
+    uint32_t verNum_ = 0;
 
     AeadSessSPtr aeadSession_;  // for client
     NodeStatus nodeStatus_;
@@ -128,8 +127,8 @@ private:
     std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
 
-    uint8_t* sndBuf_;
-    uint8_t* rcvBuf_;
+    uint8_t* sndBuf_ = nullptr;
+    uint8_t* rcvBuf_ = nullptr;
 
     void reset();
 

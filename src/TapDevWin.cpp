@@ -1,6 +1,6 @@
+#include    <filesystem>
 #include    "TapDev.hpp"
 #include    "LogMgr.hpp"
-#include    "TapLan.hpp"
 
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles
@@ -14,19 +14,6 @@ constexpr LPCSTR TAP_INSTALL = R"(.\tapinstall.exe)";
 constexpr LPCSTR USERMODEDEVICEDIR = R"(\\.\Global\)";
 constexpr LPCSTR TAPSUFFIX = ".tap";
 
-TapDev::NetAdaptInfo::NetAdaptInfo() noexcept
-    : netCfgInstId{}
-    , netInstIdLen(REG_BUF_SIZE)
-    , devInstId{}
-    , devInstIdLen(REG_BUF_SIZE)
-    , name{}
-    , nameLen(REG_BUF_SIZE)
-    , mediaStatus(TRUE)
-    , mediaStatusLen(sizeof(mediaStatusLen))
-{
-    ;
-}
-
 static std::string getCurrentWorkDir()
 {
     namespace fs = std::filesystem;
@@ -38,13 +25,6 @@ static std::string getCurrentWorkDir()
 }
 
 TapDev::TapDev()
-    : fd_(INVALID_TAPFD)
-    , mac_{}
-    , writeBytes_(0)
-    , writeErrs_(0)
-    , readBytes_(0)
-    , readErrs_(0)
-    , tapInfo_()
 {
     if (!open()) {
         close();
@@ -76,6 +56,7 @@ bool TapDev::open()
         return false;
     }
 
+    tapInfo_.mediaStatusLen = sizeof(tapInfo_.mediaStatus);
     ok = DeviceIoControl(
         fd_,
         TAP_IOCTL_SET_MEDIA_STATUS,
@@ -146,6 +127,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     LONG err;
     std::string errMsg;
 
+    tapInfo_.devInstIdLen = sizeof(tapInfo_.devInstId);
     err = RegGetValueA(
         adaptKey,
         adaptIdx,
@@ -162,6 +144,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
     }
     LOGT("DeviceInstanceID: [{}]", tapInfo_.devInstId);
 
+    tapInfo_.netInstIdLen = sizeof(tapInfo_.netCfgInstId);
     err = RegGetValueA(
         adaptKey,
         adaptIdx,
@@ -196,6 +179,7 @@ bool TapDev::initTapInfo(HKEY adaptKey, LPCSTR adaptIdx)
         return false;
     }
 
+    tapInfo_.nameLen = sizeof(tapInfo_.name);
     err = RegGetValueA(
         connKey,
         nullptr,

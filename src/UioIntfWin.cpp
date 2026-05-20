@@ -1,8 +1,9 @@
 #include    "UioIntf.hpp"
 #include    "TapLan.hpp"
+#include    "Config.hpp"
 
 SioIntf::SioIntf(TapFd tapFd, SockFd udpFd, TapLan* tapLanPtr)
-: UioIntf(tapFd, udpFd, tapLanPtr)
+    : UioIntf(tapFd, udpFd, tapLanPtr)
 {
     tapIoCtx_.buf = reinterpret_cast<UioCtx::Buf*>(new char [DATA_BUF_SIZE]);
     tapIoCtx_.ol.hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
@@ -295,7 +296,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
     }
 
     ++ctx->ref;
-    ctx->token = TOKEN_TAP_READ;
+    ctx->token = UioCtxToken::TapRead;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
 
     BOOL ok = ReadFile(fd, ctx->buf->payload, PAYLOAD_SIZE, nullptr, &ctx->ol);
@@ -324,7 +325,7 @@ int AioIntf::reqTapReadMultishot(TapFd fd)
 int AioIntf::reqTapWrite(TapFd fd, UioCtx* ctx)
 {
     ++ctx->ref;
-    ctx->token = TOKEN_TAP_WRITE;
+    ctx->token = UioCtxToken::TapWrite;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
 
     BOOL ok = WriteFile(fd, ctx->buf->payload, ctx->dataLen, nullptr, &ctx->ol);
@@ -351,7 +352,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
     }
 
     ++ctx->ref;
-    ctx->token = TOKEN_UDP_RECV;
+    ctx->token = UioCtxToken::UdpRecv;
     ctx->addrLen = sizeof(ctx->buf->addr);
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
     if (g_cfgData.enableSec()) {
@@ -399,7 +400,7 @@ int AioIntf::reqUdpRecvMultishot(SockFd fd)
 int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
 {
     ++ctx->ref;
-    ctx->token = TOKEN_UDP_SEND;
+    ctx->token = UioCtxToken::UdpSend;
     ZeroMemory(&ctx->ol, sizeof(OVERLAPPED));
     if (g_cfgData.enableSec()) {
         ctx->wsaBuf.len = ctx->dataLen + NONCE_SIZE;
@@ -476,19 +477,19 @@ void AioIntf::aioWrk()
         }
 
         switch (ctx->token) {
-        case TOKEN_UDP_RECV:
+        case UioCtxToken::UdpRecv:
             handleUdpRecv(ctx);
             break;
 
-        case TOKEN_TAP_READ:
+        case UioCtxToken::TapRead:
             handleTapRead(ctx);
             break;
 
-        case TOKEN_TAP_WRITE:
+        case UioCtxToken::TapWrite:
             handleTapWrite(ctx);
             break;
 
-        case TOKEN_UDP_SEND:
+        case UioCtxToken::UdpSend:
             handleUdpSend(ctx);
             break;
         

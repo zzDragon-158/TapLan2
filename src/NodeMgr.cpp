@@ -1,21 +1,10 @@
 #include    "NodeMgr.hpp"
-#include "BsdSock.hpp"
-#include    "Common.hpp"
-#include    "Config.hpp"
-#include    "DataSec.hpp"
 #include    "TapDev.hpp"
-#include    "LogMgr.hpp"
-#include    <cstddef>
-#include    <cstdint>
-#include    <cstring>
-#include    <memory>
+#include    "Config.hpp"
 
 NodeMgr::NodeMgr()
     : netNum_(g_cfgData.netNum())
     , netNumLen_(g_cfgData.netNumLen())
-    , verNum_(0)
-    , nodeStatus_(NodeStatus::outOfSync)
-    , tcpSockSPtr_(nullptr)
 {
     sndBuf_ = new uint8_t[UINT16_MAX + 1];
     rcvBuf_ = new uint8_t[UINT16_MAX + 1];

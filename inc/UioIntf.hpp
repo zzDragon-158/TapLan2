@@ -1,29 +1,33 @@
 #pragma     once
 #include    <cstdint>
-#include    <cstring>
-#include    <cstdlib>
 #include    <vector>
 #include    <stack>
 #if defined(__linux__)
 #include    "liburing.h"
 #endif
 #include    "Common.hpp"
-#include    "LogMgr.hpp"
-#include    "BsdSock.hpp"
-#include    "TapDev.hpp"
 #include    "DataSec.hpp"
 
 class TapLan;
 
+enum class UioCtxToken: char {
+    Unused = 0,
+    UdpRecvMultishot,
+    UdpRecv,
+    UdpSend,
+    TapRead,
+    TapWrite,
+};
+
 struct UioCtx {
     char ref;
-    char token;
+    UioCtxToken token;
     unsigned short bufId;
 #ifdef      _WIN32
     struct Buf {
         sockaddr_in6 addr;
         Nonce nonce;
-        char payload[];
+        char payload[0];
     } *buf;
     DWORD dataLen;
     socklen_t addrLen;
@@ -34,17 +38,13 @@ struct UioCtx {
         io_uring_recvmsg_out ro;
         sockaddr_in6 addr;
         Nonce nonce;
-        char payload[];
+        char payload[0];
     } *buf;
     socklen_t addrLen;
     int dataLen;
     msghdr msgHdr;
     iovec iov;
 #endif
-
-    UioCtx() {
-        memset(this, 0, sizeof(UioCtx));
-    }
 };
 
 class UioIntf {
@@ -69,9 +69,9 @@ protected:
     static constexpr size_t START_TAP_BUF_IDX = MAX_RECV_REQ;
     static constexpr size_t START_FREE_BUF_IDX = MAX_READ_REQ + MAX_RECV_REQ;
 
-    TapFd tapFd_;
-    SockFd udpFd_;
-    TapLan* tapLanPtr_;
+    TapFd tapFd_ = INVALID_TAPFD;
+    SockFd udpFd_ = INVALID_SOCKFD;
+    TapLan* tapLanPtr_ = nullptr;
 
 private:
     static constexpr char TAG[] = "[UioIntf]";
@@ -88,8 +88,8 @@ public:
 
 private:
     static constexpr char TAG[] = "[SioIntf]";
-    UioCtx udpIoCtx_;
-    UioCtx tapIoCtx_;
+    UioCtx udpIoCtx_{};
+    UioCtx tapIoCtx_{};
 
     int tapRead(TapFd fd, UioCtx* ctx = nullptr);
     int tapPollRead(TapFd fd, UioCtx* ctx);
@@ -98,8 +98,8 @@ private:
     int udpPollRecv(SockFd fd, UioCtx* ctx);
     int udpSend(SockFd fd, UioCtx* ctx);
 
-    int univUdpSend(SockFd fd, UioCtx* ctx);
-    int univTapWrite(TapFd fd, UioCtx* ctx);
+    int univUdpSend(SockFd fd, UioCtx* ctx) { return udpSend(fd, ctx); };
+    int univTapWrite(TapFd fd, UioCtx* ctx) { return tapWrite(fd, ctx); };
 };
 
 class AioIntf: public UioIntf {
@@ -112,27 +112,19 @@ public:
     void aioWrk();
 
 private:
-    enum {
-        TOKEN_UDP_RECV_MULTISHOT = 0,
-        TOKEN_UDP_RECV,
-        TOKEN_UDP_SEND,
-        TOKEN_TAP_READ,
-        TOKEN_TAP_WRITE,
-    };
-
     static constexpr char TAG[] = "[AioIntf]";
-    bool isInitialized;
-    uint8_t* dataBufs_;
+    bool isInitialized = false;
+    uint8_t* dataBufs_ = nullptr;
     std::vector<UioCtx*> ioCtxs_;
     std::stack<UioCtx*> freeStack_;
 #ifdef      _WIN32
-    HANDLE hIOCP_;
+    HANDLE hIOCP_ = INVALID_HANDLE_VALUE;
 #elif       __linux__
     static constexpr size_t IOURING_SIZE = (MAX_READ_REQ + MAX_RECV_REQ);
-    io_uring* ring_;
-    io_uring_buf_ring* bufRing_;
-    int bufRingMask_;
-    uint16_t advanceCnt_;
+    io_uring* ring_ = nullptr;
+    io_uring_buf_ring* bufRing_ = nullptr;
+    static constexpr int bufRingMask_ = MAX_RECV_REQ - 1;
+    uint16_t advanceCnt_ = 0;
 #endif
     UioCtx* acquireIoCtx();
     UioCtx* acquireIoCtx(size_t idx);

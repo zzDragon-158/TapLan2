@@ -2,6 +2,7 @@
 #include    <memory>
 #include    "sodium.h"
 #include    "Common.hpp"
+#include    "LogMgr.hpp"
 
 struct Nonce{
     uint32_t counterLow;
@@ -58,10 +59,10 @@ private:
     static bool s_initialized_;
     static uint8_t key_[crypto_aead_chacha20poly1305_IETF_KEYBYTES];
 
-    Nonce sendNonce_;
-    Nonce recvNonce_;
-    uint64_t recvMaxSeen_;
-    uint64_t recvBitmap_;
+    Nonce sendNonce_{};
+    Nonce recvNonce_{};
+    uint64_t recvMaxSeen_ = 0;
+    uint64_t recvBitmap_ = 0;
 
     bool checkReplay(uint64_t seq);
 };

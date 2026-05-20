@@ -1,16 +1,11 @@
-#include    <ctime>
 #include    "DataSec.hpp"
-#include    "Common.hpp"
 #include    "Config.hpp"
 
 bool AeadSession::s_initialized_ = false;
 uint8_t AeadSession::key_[crypto_aead_chacha20poly1305_IETF_KEYBYTES] = {};
 
 AeadSession::AeadSession(const Mac& mac, const Nonce& nonce)
-    : sendNonce_{}
-    , recvNonce_(nonce)
-    , recvMaxSeen_(0)
-    , recvBitmap_(0)
+    : recvNonce_(nonce)
 {
     static_assert(NONCE_SIZE == crypto_aead_chacha20poly1305_IETF_NPUBBYTES);
     if (!s_initialized_) {

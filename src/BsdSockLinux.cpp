@@ -1,4 +1,6 @@
-#include "BsdSock.hpp"
+#include    <unistd.h>
+#include    "BsdSock.hpp"
+#include    "Config.hpp"
 
 bool BsdSock::close()
 {
