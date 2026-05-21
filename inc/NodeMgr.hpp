@@ -122,7 +122,7 @@ private:
     uint32_t verNum_ = 0;
 
     AeadSessSPtr aeadSession_;  // for client
-    NodeStatus nodeStatus_;
+    NodeStatus nodeStatus_ = NodeStatus::outOfSync;
     TcpSockSPtr tcpSockSPtr_;
     std::vector<UnivPollFd> pfds_;
     std::vector<TcpSockSPtr> clients_;
