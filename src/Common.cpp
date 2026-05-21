@@ -2,9 +2,9 @@
 #include    "LogMgr.hpp"
 
 #if         defined(__WIN32)
-std::string getErrMsg(DWORD errorCode)
+std::string getErrMsg(ErrorT err)
 {
-    if (errorCode == 0)
+    if (err == 0)
         return "Success";
 
     LPSTR msgBuf = nullptr;
@@ -13,7 +13,7 @@ std::string getErrMsg(DWORD errorCode)
         FORMAT_MESSAGE_FROM_SYSTEM |
         FORMAT_MESSAGE_IGNORE_INSERTS,
         NULL,
-        errorCode,
+        err,
         // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),   // system language
         MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),   // english
         (LPSTR)&msgBuf,
@@ -28,36 +28,16 @@ std::string getErrMsg(DWORD errorCode)
 
     return msg;
 }
-
-std::string getSockErr()
-{
-    return getErrMsg(WSAGetLastError());
-}
-
-std::string getIoErr()
-{
-    return getErrMsg(GetLastError());
-}
 #elif       defined(__linux__)
 #include    <cstring>           // for strerror
 #include    <unistd.h>          // for getpid
 
-std::string getErrMsg(int errCode)
+std::string getErrMsg(ErrorT err)
 {
-    if (errCode == 0)
+    if (err == 0)
         return "Success";
 
-    return strerror(errCode);
-}
-
-std::string getSockErr()
-{
-    return getErrMsg(errno);
-}
-
-std::string getIoErr()
-{
-    return getErrMsg(errno);
+    return strerror(err);
 }
 #endif
 

@@ -51,7 +51,7 @@ bool TapDev::open()
     tapName << USERMODEDEVICEDIR << tapInfo_.netCfgInstId << TAPSUFFIX;
     fd_ = CreateFileA(tapName.str().c_str(), GENERIC_WRITE | GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
     if (!isFdValid()) {
-        errMsg = getErrMsg(GetLastError());
+        errMsg = getTapErrMsg();
         LOGF("Failed to open TAP device.[{}]", errMsg);
         return false;
     }
@@ -68,7 +68,7 @@ bool TapDev::open()
         nullptr
     );
     if (!ok) {
-        errMsg = getErrMsg(GetLastError());
+        errMsg = getTapErrMsg();
         LOGF("Failed to set status to up.[{}]", errMsg);
         return false;
     }
@@ -86,7 +86,7 @@ bool TapDev::open()
         nullptr
     );
     if (!ok) {
-        errMsg = getErrMsg(GetLastError());
+        errMsg = getTapErrMsg();
         LOGF("Failed to get MAC address.[{}]", errMsg);
         return false;
     }

@@ -22,7 +22,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 
     ctx->dataLen = ::read(fd, ctx->buf->payload, PAYLOAD_SIZE);
     if (ctx->dataLen == -1) {
-        int err = errno;
+        ErrorT err = getTapErr();
         if (err == EAGAIN || err == EWOULDBLOCK) {
             tapPollRead(fd, ctx);
         } else {
@@ -42,7 +42,7 @@ int SioIntf::tapPollRead(TapFd fd, UioCtx* ctx)
     UnivPollFd pfd = { fd, POLLIN, 0};
     int res = UnivPoll(&pfd, 1, IO_WAIT_TIME * 1000);
     if (res == -1) {
-        LOGE("Failed to poll tap.[{}]", strerror(errno));
+        LOGE("Failed to poll tap.[{}]", getSockErrMsg());
     }
 
     return res;
@@ -54,7 +54,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
     int res = ::write(fd, ctx->buf->payload, ctx->dataLen);
     if (res == -1) {
-        int err = errno;
+        ErrorT err = getTapErr();
         LOGE("Failed to write tap.[{}]", strerror(err));
     } else {
         stats.bytes += res;
@@ -86,7 +86,7 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
                               reinterpret_cast<sockaddr*>(&ctx->buf->addr),
                               &ctx->addrLen);
     if (ctx->dataLen == -1) {
-        int err = errno;
+        ErrorT err = getTapErr();
         if (err == EAGAIN || err == EWOULDBLOCK) {
             udpPollRecv(fd, ctx);
         } else {
@@ -106,7 +106,7 @@ int SioIntf::udpPollRecv(SockFd fd, UioCtx* ctx)
     UnivPollFd pfd = { fd, POLLIN, 0};
     int res = UnivPoll(&pfd, 1, IO_WAIT_TIME * 1000);
     if (res == -1) {
-        LOGE("Failed to poll udp.[{}]", strerror(errno));
+        LOGE("Failed to poll udp.[{}]", getSockErrMsg());
     }
 
     return res;
@@ -133,7 +133,7 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
                        reinterpret_cast<sockaddr*>(&ctx->buf->addr),
                        sizeof(ctx->buf->addr));
     if (res == -1) {
-        int err = errno;
+        ErrorT err = getTapErr();
         LOGE("Failed to sendto udp.[{}]", strerror(err));
         stats.errors++;
     } else {

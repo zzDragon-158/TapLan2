@@ -1,3 +1,4 @@
+#include "Common.hpp"
 #include    "UioIntf.hpp"
 #include    "TapLan.hpp"
 #include    "Config.hpp"
@@ -25,7 +26,8 @@ SioIntf::~SioIntf()
 
 int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
 {
-    DWORD err, res;
+    ErrorT err;
+    DWORD res;
     Stats& stats = tapLanPtr_->tapRx_;
 
     if (ReadFile(fd, ctx->buf->payload, PAYLOAD_SIZE, &ctx->dataLen, &ctx->ol)) {
@@ -34,7 +36,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
         return ctx->dataLen;
     }
 
-    err = GetLastError();
+    err = getTapErr();
     if (err != ERROR_IO_PENDING) {
         stats.errors++;
         LOGE("Failed to read tap.[{}]", getErrMsg(err));
@@ -49,7 +51,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
             break;
 
         case WAIT_FAILED:
-            err = GetLastError();
+            err = getTapErr();
             LOGE("Failed to read tap.[{}]", getErrMsg(err));
             break;
 
@@ -63,7 +65,7 @@ int SioIntf::tapRead(TapFd fd, UioCtx* ctx)
     }
 
     if (!GetOverlappedResult(fd, &ctx->ol, &ctx->dataLen, FALSE)) {
-        err = GetLastError();
+        err = getTapErr();
         if (err != ERROR_OPERATION_ABORTED) {
             LOGE("Failed to get read result.[{}]", getErrMsg(err).c_str());
         }
@@ -90,7 +92,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
         return writeBytes;
     }
 
-    err = GetLastError();
+    err = getTapErr();
     if (err != ERROR_IO_PENDING) {
         stats.errors++;
         LOGE("Failed to write tap.[{}]", getErrMsg(err));
@@ -105,7 +107,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
             break;
 
         case WAIT_FAILED:
-            err = GetLastError();
+            err = getTapErr();
             LOGE("Failed to write tap.[{}]", getErrMsg(err));
             break;
 
@@ -120,7 +122,7 @@ int SioIntf::tapWrite(TapFd fd, UioCtx* ctx)
 
     if (!GetOverlappedResult(fd, &ctx->ol, &writeBytes, FALSE)) {
         stats.errors++;
-        err = GetLastError();
+        err = getTapErr();
         LOGE("Failed to get write result.[{}]", getErrMsg(err));
         return -1;
     }
@@ -155,7 +157,7 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
                       nullptr);
 
     if (res == SOCKET_ERROR) {
-        DWORD err = WSAGetLastError();
+        ErrorT err = getSockErr();
         if (err != WSAEINTR) {
             LOGE("Failed to recvfrom udp.[{}]", getErrMsg(err));
         }
@@ -172,7 +174,7 @@ int SioIntf::udpRecv(SockFd fd, UioCtx* ctx)
 int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
 {
     int res;
-    DWORD err;
+    ErrorT err;
     DWORD sendBytes;
     Stats& stats = tapLanPtr_->udpTx_;
 
@@ -195,7 +197,7 @@ int SioIntf::udpSend(SockFd fd, UioCtx* ctx)
                     nullptr);
 
     if (res == SOCKET_ERROR) {
-        err = WSAGetLastError();
+        err = getSockErr();
         LOGE("Failed to sendto udp.[{}]", getErrMsg(err));
 
         stats.errors++;
@@ -245,13 +247,13 @@ int AioIntf::initAioIntf()
     hIOCP_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
     if (hIOCP_ == nullptr) {
         g_cfgData.running() = false;
-        errMsg = getErrMsg(GetLastError());
+        errMsg = getErrMsg(getTapErr());
         LOGF("Failed to create IOCP.[{}]", errMsg);
         return -1;
     }
 
     if (!CreateIoCompletionPort(tapFd_, hIOCP_, (ULONG_PTR)this, 0)) {
-        errMsg = getErrMsg(GetLastError());
+        errMsg = getErrMsg(getTapErr());
         LOGF("Failed to bind tap to IOCP.[{}]", errMsg);
         g_cfgData.running() = false;
         return -1;
@@ -266,7 +268,7 @@ int AioIntf::initAioIntf()
 
             SockFd udpFd = udpSockPtr->getFd();
             if (!CreateIoCompletionPort((HANDLE)udpFd, hIOCP_, (ULONG_PTR)this, 0)) {
-                errMsg = getErrMsg(GetLastError());
+                errMsg = getErrMsg(getTapErr());
                 LOGF("Failed to bind udp to IOCP.[{}]", errMsg);
                 g_cfgData.running() = false;
                 return -1;
@@ -274,7 +276,7 @@ int AioIntf::initAioIntf()
         }
     } else {
         if (!CreateIoCompletionPort((HANDLE)udpFd_, hIOCP_, (ULONG_PTR)this, 0)) {
-            errMsg = getErrMsg(GetLastError());
+            errMsg = getErrMsg(getTapErr());
             LOGF("Failed to bind udp to IOCP.[{}]", errMsg);
             g_cfgData.running() = false;
             return -1;
@@ -301,7 +303,7 @@ int AioIntf::reqTapRead(TapFd fd, UioCtx* ctx)
 
     BOOL ok = ReadFile(fd, ctx->buf->payload, PAYLOAD_SIZE, nullptr, &ctx->ol);
     if (!ok) {
-        DWORD err = GetLastError();
+        ErrorT err = getTapErr();
         if (err != ERROR_IO_PENDING) {
             LOGE("Failed to read tap.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
@@ -330,7 +332,7 @@ int AioIntf::reqTapWrite(TapFd fd, UioCtx* ctx)
 
     BOOL ok = WriteFile(fd, ctx->buf->payload, ctx->dataLen, nullptr, &ctx->ol);
     if (!ok) {
-        DWORD err = GetLastError();
+        ErrorT err = getTapErr();
         if (err != ERROR_IO_PENDING) {
             LOGE("Failed to write tap.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
@@ -376,7 +378,7 @@ int AioIntf::reqUdpRecv(SockFd fd, UioCtx* ctx)
         nullptr
     );
     if (res == SOCKET_ERROR) {
-        DWORD err = WSAGetLastError();
+        ErrorT err = getSockErr();
         if (err != WSA_IO_PENDING) {
             LOGE("Failed to recv udp.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
@@ -423,7 +425,7 @@ int AioIntf::reqUdpSend(SockFd fd, UioCtx* ctx)
     );
 
     if (res == SOCKET_ERROR) {
-        DWORD err = WSAGetLastError();
+        ErrorT err = getSockErr();
         if (err != WSA_IO_PENDING) {
             LOGE("Failed to send udp.[{}]", getErrMsg(err));
             releaseIoCtx(ctx);
@@ -448,7 +450,7 @@ void AioIntf::aioWrk()
     DWORD bytes;
     ULONG_PTR key;
     LPOVERLAPPED lpOverlapped;
-    DWORD err;
+    ErrorT err;
     while (g_cfgData.running()) {
         BOOL ok = GetQueuedCompletionStatus(
             hIOCP_,
@@ -465,7 +467,7 @@ void AioIntf::aioWrk()
         if (ok) {
             ctx->dataLen = bytes;
         } else {
-            err = GetLastError();
+            err = getTapErr();
             if (err == WAIT_TIMEOUT)
                 continue;
             else if (err == ERROR_OPERATION_ABORTED)

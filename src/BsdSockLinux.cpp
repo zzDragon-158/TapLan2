@@ -17,14 +17,14 @@ bool TcpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_STREAM, 0);
     if (!isFdValid()) {
-        LOGE("Failed to create tcp socket.[{}]", getSockErr());
+        LOGE("Failed to create tcp socket.[{}]", getSockErrMsg());
         return false;
     }
 
     /* listen to ipv4 and ipv6 */ {
         int off = 0;
         if (setsockopt(fd_, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off, sizeof(off))) {
-            LOGE("Failed to set tcp socket option(IPV6_V6ONLY).[{}]", getSockErr());
+            LOGE("Failed to set tcp socket option(IPV6_V6ONLY).[{}]", getSockErrMsg());
             return false;
         }
     }
@@ -33,7 +33,7 @@ bool TcpSock::open()
         int optval = 1;
         int optlevel = (SO_REUSEADDR | SO_REUSEPORT);
         if (setsockopt(fd_, SOL_SOCKET, optlevel, (char*)&optval, sizeof(optval))) {
-            LOGE("Failed to set tcp socket option(SO_REUSEADDR).[{}]", getSockErr());
+            LOGE("Failed to set tcp socket option(SO_REUSEADDR).[{}]", getSockErrMsg());
             return false;
         }
     }
@@ -44,7 +44,7 @@ bool TcpSock::open()
         addr.sin6_addr = in6addr_any;
         addr.sin6_port = htons(bindPort_);
         if (bind(fd_, (sockaddr*)(&addr), sizeof(addr))) {
-            LOGE("Failed to bind tcp socket to [::]:{}.[{}]", bindPort_, getSockErr());
+            LOGE("Failed to bind tcp socket to [::]:{}.[{}]", bindPort_, getSockErrMsg());
             return false;
         }
     }
@@ -52,7 +52,7 @@ bool TcpSock::open()
     /* set timeout */ {
         timeval timeout = { IO_WAIT_TIME, 0 };
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-            LOGW("Failed to set tcp socket option(SO_RCVTIMEO) to {} s.[{}]", timeout.tv_sec, getSockErr());
+            LOGW("Failed to set tcp socket option(SO_RCVTIMEO) to {} s.[{}]", timeout.tv_sec, getSockErrMsg());
         }
     }
 
@@ -71,7 +71,7 @@ ssize_t TcpSock::send(const void* buf, size_t bufLen)
             0
         );
         if (res == -1) {
-            LOGE("Failed to send.[{}]", getSockErr());
+            LOGE("Failed to send.[{}]", getSockErrMsg());
             break;
         }
 
@@ -95,7 +95,7 @@ ssize_t TcpSock::recv(void* buf, size_t bufLen)
             return res;
         }
 
-        int err = errno;
+        ErrorT err = getSockErr();
         if (err == EAGAIN || err == EWOULDBLOCK) {
             return -2;
         }
@@ -111,14 +111,14 @@ bool UdpSock::open()
 {
     fd_ = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (!isFdValid()) {
-        LOGE("Failed to create udp socket.[{}]", getSockErr());
+        LOGE("Failed to create udp socket.[{}]", getSockErrMsg());
         return false;
     }
 
     /* listen to ipv4 and ipv6 */ {
         int off = 0;
         if (setsockopt(fd_, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off, sizeof(off))) {
-            LOGE("Failed to set udp socket option(IPV6_V6ONLY).[{}]", getSockErr());
+            LOGE("Failed to set udp socket option(IPV6_V6ONLY).[{}]", getSockErrMsg());
             return false;
         }
     }
@@ -129,7 +129,7 @@ bool UdpSock::open()
         addr.sin6_addr = in6addr_any;
         addr.sin6_port = htons(bindPort_);
         if (bind(fd_, (sockaddr*)(&addr), sizeof(sockaddr_in6))) {
-            LOGE("Failed to bind udp socket to [::]:{}.[{}]", bindPort_, getSockErr());
+            LOGE("Failed to bind udp socket to [::]:{}.[{}]", bindPort_, getSockErrMsg());
             return false;
         }
     }
@@ -137,16 +137,16 @@ bool UdpSock::open()
     // /* set timeout */ {
     //     timeval timeout = { WAIT_IO_TIME, 0 };
     //     if (setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-    //         LOGW("UDP can not setsockopt(SO_RCVTIMEO) to %ld s. {}", timeout.tv_sec, getSockErr());
+    //         LOGW("UDP can not setsockopt(SO_RCVTIMEO) to %ld s. {}", timeout.tv_sec, getSockErrMsg());
     //     }
     // }
 
     /* set udp buffer size */ {
         if (setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, (char*)&UDP_BUF_SIZE, sizeof(UDP_BUF_SIZE))) {
-            LOGW("Failed to set udp socket option(SO_RCVBUF) to {}.[{}]", UDP_BUF_SIZE, getSockErr());
+            LOGW("Failed to set udp socket option(SO_RCVBUF) to {}.[{}]", UDP_BUF_SIZE, getSockErrMsg());
         }
         if (setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, (char*)&UDP_BUF_SIZE, sizeof(UDP_BUF_SIZE))) {
-            LOGW("Failed to set udp socket option(SO_SNDBUF) to {}.[{}]", UDP_BUF_SIZE, getSockErr());
+            LOGW("Failed to set udp socket option(SO_SNDBUF) to {}.[{}]", UDP_BUF_SIZE, getSockErrMsg());
         }
     }
 
@@ -157,7 +157,7 @@ ssize_t UdpSock::sendTo(const void* buf, size_t bufLen, const sockaddr* dstAddr,
 {
     ssize_t sendBytes = sendto(fd_, (const char*)buf, bufLen, 0, dstAddr, addrLen);
     if (sendBytes < bufLen) {
-        LOGW("send bytes[{}] to udp socket is less than expected[{}].[{}]", sendBytes, bufLen, getSockErr());
+        LOGW("send bytes[{}] to udp socket is less than expected[{}].[{}]", sendBytes, bufLen, getSockErrMsg());
     }
 
     return sendBytes;
@@ -167,8 +167,9 @@ ssize_t UdpSock::recvFrom(void* buf, size_t bufLen, sockaddr* srcAddr, socklen_t
 {
     ssize_t recvBytes = recvfrom(fd_, (char*)buf, bufLen, 0, srcAddr, addrLen);
     if (recvBytes == -1) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGE("Failed to recv from udp socket.[{}]", getSockErr());
+        ErrorT err = getSockErr();
+        if (getSockErr() != EAGAIN && getSockErr() != EWOULDBLOCK) {
+            LOGE("Failed to recv from udp socket.[{}]", getSockErrMsg());
         }
     }
 

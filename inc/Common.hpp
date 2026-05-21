@@ -10,14 +10,16 @@
 using PollFunc = int(*)(pollfd*, ULONG, INT);
 constexpr PollFunc UnivPoll = WSAPoll;
 using UnivPollFd = pollfd;
+
 using SockFd = SOCKET;
 constexpr SockFd INVALID_SOCKFD = INVALID_SOCKET;
+
 using TapFd = HANDLE;
 inline const TapFd INVALID_TAPFD = INVALID_HANDLE_VALUE;
 
-std::string getErrMsg(DWORD errorCode);
-std::string getSockErr();
-std::string getIoErr();
+using ErrorT = DWORD;
+inline ErrorT getSockErr() { return WSAGetLastError(); };
+inline ErrorT getTapErr() { return GetLastError(); };
 #elif       __linux__
 #include    <netinet/in.h>      // for in_addr, in6_addr
 #include    <arpa/inet.h>       // for inet_ntop, inet_pton
@@ -26,18 +28,23 @@ std::string getIoErr();
 using PollFunc = int(*)(pollfd*, nfds_t, int);
 constexpr PollFunc UnivPoll = poll;
 using UnivPollFd = pollfd;
+
 using SockFd = int;
 constexpr SockFd INVALID_SOCKFD = -1;
+
 using TapFd = int;
 constexpr TapFd INVALID_TAPFD = -1;
 
-std::string getErrMsg(int errCode);
-std::string getSockErr();
-std::string getIoErr();
+using ErrorT = int;
+inline ErrorT getSockErr() { return errno; };
+inline ErrorT getTapErr() { return errno; };
 #endif
 
 constexpr int IO_WAIT_TIME = 3;
 
+std::string getErrMsg(ErrorT err);
+inline std::string getSockErrMsg() { return getErrMsg(getSockErr()); };
+inline std::string getTapErrMsg() { return getErrMsg(getTapErr()); };
 void delayExit(int code, int64_t delaySeconds = 0);
 
 struct Mac {

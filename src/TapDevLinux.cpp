@@ -25,32 +25,32 @@ bool TapDev::open()
 
     fd_ = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
     if (!isFdValid()) {
-        LOGF("Failed to open [/dev/net/tun].[{}]", strerror(errno));
+        LOGF("Failed to open [/dev/net/tun].[{}]", getTapErrMsg());
         return false;
     }
 
     tapSock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (tapSock_ == INVALID_SOCKFD) {
-        LOGF("Failed to create socket.[{}]", strerror(errno));
+        LOGF("Failed to create socket.[{}]", getTapErrMsg());
         return false;
     }
 
     ifr_.ifr_flags = IFF_TAP | IFF_NO_PI;
     std::strncpy(ifr_.ifr_name, TAP_NAME, IFNAMSIZ);
     if (ioctl(fd_, TUNSETIFF, &ifr_)) {
-        LOGF("Failed to create TAP.[{}]", strerror(errno));
+        LOGF("Failed to create TAP.[{}]", getTapErrMsg());
         return false;
     }
 
     if (isExisting) {
         if (ioctl(tapSock_, SIOCGIFHWADDR, &ifr_)) {
-            LOGF("Failed to get MAC address.[{}]", strerror(errno));
+            LOGF("Failed to get MAC address.[{}]", getTapErrMsg());
             return false;
         }
         std::memcpy(mac_.addr, ifr_.ifr_hwaddr.sa_data, 6);
     } else {
         if (ioctl(fd_, TUNSETPERSIST, 1)) {
-            LOGF("Failed to set persistent mode.[{}]", strerror(errno));
+            LOGF("Failed to set persistent mode.[{}]", getTapErrMsg());
             return false;
         }
 
@@ -58,30 +58,30 @@ bool TapDev::open()
         ifr_.ifr_hwaddr.sa_family = ARPHRD_ETHER;
         std::memcpy(ifr_.ifr_hwaddr.sa_data, mac_.addr, 6);
         if (ioctl(tapSock_, SIOCSIFHWADDR, &ifr_)) {
-            LOGF("Failed to set MAC address.[{}]", strerror(errno));
+            LOGF("Failed to set MAC address.[{}]", getTapErrMsg());
             return false;
         }
     }
 
     ifr_.ifr_mtu = TAP_MTU_SIZE;
     if (ioctl(tapSock_, SIOCSIFMTU, &ifr_)) {
-        LOGF("Failed to set MTU to [{}].[{}]", TAP_MTU_SIZE, strerror(errno));
+        LOGF("Failed to set MTU to [{}].[{}]", TAP_MTU_SIZE, getTapErrMsg());
         return false;
     }
 
     ifr_.ifr_qlen = TAP_QLEN;
     if (ioctl(tapSock_, SIOCSIFTXQLEN, &ifr_)) {
-        LOGF("Failed to set qlen to [{}].[{}]", TAP_QLEN, strerror(errno));
+        LOGF("Failed to set qlen to [{}].[{}]", TAP_QLEN, getTapErrMsg());
         return false;
     }
 
     if (ioctl(tapSock_, SIOCGIFFLAGS, &ifr_)) {
-        LOGF("Failed to get flags.[{}]", strerror(errno));
+        LOGF("Failed to get flags.[{}]", getTapErrMsg());
         return false;
     }
     ifr_.ifr_flags |= (IFF_UP | IFF_RUNNING);
     if (ioctl(tapSock_, SIOCSIFFLAGS, &ifr_)) {
-        LOGF("Failed to set status to up.[{}]", strerror(errno));
+        LOGF("Failed to set status to up.[{}]", getTapErrMsg());
         return false;
     }
 
@@ -110,13 +110,13 @@ bool TapDev::setIPv4Addr(const in_addr& ipv4Addr, uint8_t netIdLen)
 
     addr->sin_addr.s_addr = ipv4Addr.s_addr;
     if (ioctl(tapSock_, SIOCSIFADDR, &ifr_)) {
-        LOGE("Failed to set IPv4 address to {}.[{}]", ipv4Addr, strerror(errno));
+        LOGE("Failed to set IPv4 address to {}.[{}]", ipv4Addr, getTapErrMsg());
         return false;
     }
 
     addr->sin_addr.s_addr = (netIdLen == 0) ? 0 : htonl(0xFFFFFFFFU << (32 - netIdLen));
     if (ioctl(tapSock_, SIOCSIFNETMASK, &ifr_)) {
-        LOGE("Failed to set netmask to {}.[{}]", netIdLen, strerror(errno));
+        LOGE("Failed to set netmask to {}.[{}]", netIdLen, getTapErrMsg());
         return false;
     }
 

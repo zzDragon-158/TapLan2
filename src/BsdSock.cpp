@@ -110,7 +110,7 @@ bool TcpSock::connect()
         reinterpret_cast<const sockaddr *>(&remoteAddr_),
         sizeof(remoteAddr_)
     )) {
-        LOGE("Failed to connect.[{}]", getSockErr());
+        LOGE("Failed to connect.[{}]", getSockErrMsg());
         return false;
     }
     isPassive_ = false;
@@ -121,7 +121,7 @@ bool TcpSock::connect()
 bool TcpSock::listen(int backlog)
 {
     if (::listen(fd_, backlog)) {
-        LOGE("Failed to listen.[{}]", getSockErr());
+        LOGE("Failed to listen.[{}]", getSockErrMsg());
         return false;
     }
     isPassive_ = true;
