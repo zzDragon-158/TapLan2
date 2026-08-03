@@ -27,8 +27,8 @@ class LogMgr {
 public:
     bool run();
     bool terminate();
-    void setLogLevel(LogLevel level) { logLevel_ = level; };
-    bool isRunning() { return running_; };
+    void setLogLevel(LogLevel level) { logLevel_.store(level, std::memory_order_relaxed); };
+    bool isRunning() { return running_.load(std::memory_order_acquire); };
     void logOutput(LogLevel level, const char* tag, const char* format, ...);
     template<typename... Args>
     void logToRing(LogLevel level, const char* tag, std::string_view fmt, Args&&... args) {
@@ -50,31 +50,34 @@ private:
     static constexpr size_t LOG_RING_SIZE = 8192;
     static constexpr size_t LOG_DATA_SIZE = LOG_ENTRY_SIZE - sizeof(EntryState);
     static constexpr size_t LOG_RING_MASK = LOG_RING_SIZE - 1;
-    static constexpr size_t LOG_NOTIFY_THRESHOLD = LOG_RING_SIZE / 4 - 1;
-    static constexpr size_t LOG_ENTRY_RING_SIZE = LOG_ENTRY_SIZE * LOG_RING_SIZE;
     static constexpr const char* logLevelStr[static_cast<size_t>(LogLevel::numsOfLogLevel)]  = {
         "[FATAL]", "[ERROR]", "[WARN]", "[INFO]", "[DEBUG]", "[TRACE]"
     };
     static constexpr char logThreadName_[] = "logWrk";
 
-    struct LogEntry {
+    struct alignas(LOG_ENTRY_SIZE) LogEntry {
         std::atomic<EntryState> state;
         char data[LOG_DATA_SIZE];
     };
+    static_assert(sizeof(LogEntry) == LOG_ENTRY_SIZE);
 
     std::ofstream logFile_;
-    LogLevel logLevel_ = LogLevel::info;
+    std::atomic<LogLevel> logLevel_{LogLevel::info};
     std::thread logThread_;
-    bool running_ = false;
+    std::atomic<bool> running_{false};
 
     LogEntry* logEntryRing_ = nullptr;
     std::counting_semaphore<1> logSem_{0};
+    std::atomic<bool> notificationPending_{false};
     std::atomic<size_t> rIdx_;
     std::atomic<size_t> wIdx_;
+    std::atomic<uint64_t> droppedLogs_{0};
 
     LogMgr();
     ~LogMgr();
     int initLogMgr();
+    LogEntry* acquireLogEntry(size_t& entryIdx);
+    void publishLogEntry(LogEntry& entry);
     void doLogToRing(LogLevel level, const char* tag, std::string_view fmt, std::format_args args);
     void clearLog();
     void logWrk();
